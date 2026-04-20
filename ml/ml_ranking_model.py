@@ -362,6 +362,10 @@ class Trainer:
         # training call so the model does not forget earlier decompositions.
         self.replay_buffer: List[Tuple[List[int], List[int]]] = []
 
+        # Cached class-weight tensor for imbalanced cross-entropy. Invalidated
+        # when the replay buffer changes (see _add_to_replay).
+        self._class_weight_cache: Optional[torch.Tensor] = None
+
         try:
             self.load_checkpoint(self.path)
             print(f"Loaded model from {self.path}")
@@ -480,6 +484,44 @@ class Trainer:
             # Evict a random entry from the first half to keep a mix of old and recent.
             evict_idx = random.randrange(len(self.replay_buffer) // 2)
             self.replay_buffer.pop(evict_idx)
+        # Class-frequency stats are now stale.
+        self._class_weight_cache = None
+
+    def _compute_class_weights(self) -> Optional[torch.Tensor]:
+        """Inverse-sqrt-frequency class weights computed from the replay buffer.
+
+        Weights for classes that appear are rescaled so their mean is 1.0, which
+        keeps the effective learning rate on non-rare classes roughly unchanged.
+        Classes that never appear (including PAD) get weight 1.0; cross_entropy's
+        ignore_index still filters PAD out of the loss entirely.
+        Cached on the trainer; invalidated whenever the replay buffer changes.
+        """
+        if not config.use_class_weights:
+            return None
+        if self._class_weight_cache is not None:
+            return self._class_weight_cache
+        if not self.replay_buffer:
+            return None
+
+        V = self.model.vocab_size
+        counts = torch.zeros(V, dtype=torch.float, device=self.device)
+        for sids, _ in self.replay_buffer:
+            if not sids:
+                continue
+            ids = torch.as_tensor(sids, dtype=torch.long, device=self.device)
+            counts.scatter_add_(0, ids, torch.ones_like(ids, dtype=torch.float))
+
+        weights = torch.ones(V, dtype=torch.float, device=self.device)
+        present = counts > 0
+        if present.any():
+            inv_sqrt = 1.0 / torch.sqrt(counts[present])
+            # Normalize mean -> 1.0 across present classes.
+            inv_sqrt = inv_sqrt * (inv_sqrt.numel() / inv_sqrt.sum())
+            weights[present] = inv_sqrt
+
+        weights[SPECIAL_PAD] = 1.0  # ignore_index skips PAD anyway; keep sane.
+        self._class_weight_cache = weights
+        return weights
 
     def _build_padded_batch(
         self, seqs: List[Tuple[List[int], List[int]]]
@@ -529,6 +571,7 @@ class Trainer:
         self.model.train()
         final_loss = 0.0
         use_amp = self.device == 'cuda'
+        class_weights = self._compute_class_weights()
 
         for _ in range(n_steps):
             self.optimizer.zero_grad()
@@ -537,6 +580,7 @@ class Trainer:
                 loss   = F.cross_entropy(
                     logits.reshape(-1, logits.size(-1)),
                     target.reshape(-1),
+                    weight=class_weights,
                     ignore_index=SPECIAL_PAD,
                 )
             final_loss = loss.item()
@@ -626,6 +670,8 @@ class Trainer:
         final_loss = 0.0
         data = list(all_seqs)
 
+        class_weights = self._compute_class_weights()
+
         for epoch in range(epochs):
             random.shuffle(data)
             epoch_loss = 0.0
@@ -650,6 +696,7 @@ class Trainer:
                     loss = F.cross_entropy(
                         logits.reshape(-1, logits.size(-1)),
                         target.reshape(-1),
+                        weight=class_weights,
                         ignore_index=SPECIAL_PAD,
                     )
                 

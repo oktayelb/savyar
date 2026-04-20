@@ -15,14 +15,20 @@ class MLConfig:
     
     # --- Model Architecture ---
     # Vocab size is dynamic (passed at runtime), others are static
-    embed_dim: int = 128        # Kept at 128; optimal for a 300 vocab size.
+    embed_dim: int = 256        # Doubled from 128 to give minority-class suffixes more room to separate.
     num_layers: int = 3         # Reduced to 3 to prevent memorizing the 7,000 sequences.
-    num_heads: int = 8         
-    dropout: float = 0.2        # Increased to combat overfitting on the small sequence count.
+    num_heads: int = 8          # 256 / 8 = 32; divides cleanly.
+    dropout: float = 0.25       # Bumped alongside embed_dim to counter the extra capacity.
 
     # --- Training Hyperparameters ---
     learning_rate: float = 3e-4
-    weight_decay: float = 0.05  # Increased for stronger regularization.
+    weight_decay: float = 0.08  # Bumped alongside embed_dim to counter the extra capacity.
+
+    # --- Loss weighting ---
+    # When True, _gradient_steps / train_bulk pass inverse-sqrt-frequency
+    # class weights into cross_entropy so minority suffix classes aren't
+    # drowned out by PAD/WORD_SEP/common-case tokens.
+    use_class_weights: bool = True
 
     # --- Experience Replay ---
     # Sized to hold the entire dataset of 7,000 sentences in memory.

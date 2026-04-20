@@ -80,6 +80,7 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     ## şelale akışına istisna olarak  yapım eklerinden sonra fiil ekleri gelebilir 
     if last_g == SuffixGroup.N2N_DERIVATIONAL and next_g <= SuffixGroup.N2N_DERIVATIONAL:
         return True   
+    
     ## ebilmekten gibi eklerden sonra  fiil ekleri gelebilir.  gidebilmeyen gitmeyebilmek
     if last_g == SuffixGroup.VERB_COMPOUND and next_g <= SuffixGroup.VERB_COMPOUND:
         return True
@@ -92,12 +93,14 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
             return True
         return False
     
+    # zarf fiilden sonra bir şey gelmez. erekten örneği gözardı ediliyor.
+    if last_g is SuffixGroup.DERIVATIONAL_LOCKING_VERB:
+        return False
     ## şelale hallediyor diye silindi
     # isim tamlamasından sonra yalnızca ki gelebilir
     # if last_g == SuffixGroup.CASE and not next_g >= SuffixGroup.MARKING_KI:
     #    return False
     
-    #eşitlik konsa mı? recursive ykardaki kuralda 
     if next_g < last_g:
         return False
 

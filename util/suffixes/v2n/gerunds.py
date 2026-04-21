@@ -43,11 +43,11 @@ adverbial_ip      = Gerund("adverbial_ip", "ip")
 adverbial_e       = Gerund("adverbial_e", "e")
 adverbial_dikçe   = Gerund("adverbial_dikçe", "dikçe")
 since_eli         = Gerund("since_eli", "eli", has_minor_harmony=False)
-nondoing_meden = Suffix("adverbial_meden", "meden", Type.VERB, Type.NOUN, has_major_harmony=True, has_minor_harmony=False, group=SuffixGroup.DERIVATIONAL_LOCKING)
+nondoing_meden = Suffix("adverbial_meden", "meden", Type.VERB, Type.NOUN, has_major_harmony=True, has_minor_harmony=False, group=SuffixGroup.DERIVATIONAL_LOCKING_VERB)
 
 ##esiye eklenmeli mi?
 GERUNDS = [
     value for name, value in globals().items() 
     if isinstance(value, Suffix) and name != "Suffix"
-]
+]   
 

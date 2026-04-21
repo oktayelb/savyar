@@ -314,7 +314,7 @@ class WorkflowEngine:
 
         if all_seqs:
             print(f"   Bulk training on {len(all_seqs)} sequences ({total_words} words)...")
-            self.trainer.train_bulk(all_seqs, batch_size=128, epochs=200)
+            self.trainer.train_bulk(all_seqs)
 
         self.training_count += total_words
         self.save()

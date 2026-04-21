@@ -1,4 +1,4 @@
-from typing import List, Tuple, Set
+from typing import List, Tuple, Set, Optional
 import functools
 
 # ============================================================================
@@ -342,7 +342,7 @@ def append_analysis(word, pos, root, analyses_list, shared_cache: dict = None):
 
 
 @functools.lru_cache(maxsize=100000)
-def decompose(word: str) -> List[Tuple]:
+def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
     """
     Finds all possible root-suffix decompositions for a word.\n
     Uses a shared cache across all root iterations to avoid recomputing
@@ -363,13 +363,13 @@ def decompose(word: str) -> List[Tuple]:
         if i < len(word) and wrd.is_derived_word(root):
             continue
 
-        if wrd.can_be_noun(root):
+        if force or wrd.can_be_noun(root):
             append_analysis(word, "noun", root, analyses, shared_cache)
 
-        if wrd.can_be_verb(root):
+        if force or wrd.can_be_verb(root):
             append_analysis(word, "verb", root, analyses, shared_cache)
 
-        if not wrd.exists(root):
+        if (not force ) and (not wrd.exists(root)):
             root_pairs = wrd.get_root_candidates(word[:i])
             for lemma_root in root_pairs:
 

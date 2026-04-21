@@ -1382,7 +1382,7 @@ anjiyo
 anjiyografi
 anjiyoloji
 anka
-ankara
+Ankara
 ankastre
 anket
 anketör
@@ -2704,7 +2704,6 @@ baklavacı
 baklavalı
 baklavalık
 bakliyat
-bakma
 bakmak
 bakraç
 bakteri
@@ -3509,20 +3508,13 @@ belik
 belirgi
 belirgin
 belirginlik
-belirlenim
+belirlemek
 belirlenimci
 belirli
-belirme
 belirmek
 belirsiz
 belirteç
-belirten
 belirti
-belirtik
-belirtilen
-belirtili
-belirtilme
-belirtilmek
 belirtisiz
 belirtke
 belirtken
@@ -4813,7 +4805,6 @@ bunaltı
 bunaltıcı
 bunaltma
 bunaltmak
-bunama
 bunamak
 bunayış
 bunca
@@ -15045,7 +15036,6 @@ infiratçı
 infisah
 informatik
 İngiliz
-İngilizce
 İngiltere
 ingin
 inginlik
@@ -29491,8 +29481,7 @@ sorgun
 Sorgun
 sorgusuz
 sorit
-sorma
-sormaca
+sormak
 sormuk
 sorti
 soru
@@ -32531,6 +32520,7 @@ tırınk
 tırıs
 tırıvırı
 tırkaz
+tırmanmak
 tırmık
 tırnak
 tırpan
@@ -34754,6 +34744,7 @@ yangılı
 yangın
 yangıncı
 yangısız
+yanıbaş
 yanık
 yanıkara
 yanıklık
@@ -34835,7 +34826,6 @@ yapışıklık
 yapışkanlık
 yapıştırıcı
 yapıt
-yapma
 yapmak
 yapracık
 yaprak

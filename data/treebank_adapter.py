@@ -20,10 +20,10 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from util.decomposer import decompose, decompose_with_cc, ALL_SUFFIXES, enable_index
+from util.decomposer import decompose, ALL_SUFFIXES, enable_index
 
 enable_index()
-from util.suffix import Suffix, Type
+from util.suffix import  Type
 from util.words.closed_class import CLOSED_CLASS_LOOKUP
 from util.word_methods import tr_lower
 
@@ -184,9 +184,28 @@ ACQUIRE_SUFFIXES = ["aplicative_le", "reflexive_in"]
 # demokratikleş = demokratik + le(aplicative_le) + ş(reflexive_is)
 BECOME_SUFFIXES = ["aplicative_le", "reflexive_is"]
 
-# ── As: -dıkça = adverbial_dikçe ──
-# sevdikçe = sev + dıkça, yaşlandıkça = yaşlan + dıkça
-AS_SUFFIX = "adverbial_dikçe"
+# ── As: -ce = relative_ce (equative/as-if) ──
+# güzelce = güzel + ce
+AS_SUFFIX = "relative_ce"
+
+# ── AsIf: -cesine = adverbial_cesine ──
+# delicesine = deli + cesine
+ASIF_SUFFIX = "adverbial_cesine"
+
+# ── JustLike: -ce = relative_ce ──
+# çocukça = çocuk + ca
+JUSTLIKE_SUFFIX = "relative_ce"
+
+# ── Ord: -inci = ordinal_inci ──
+# birinci = bir + inci, ikinci = iki + nci
+ORD_SUFFIX = "ordinal_inci"
+
+# ── Since: -eli = since_eli (gerund) + nounaorist_dir (copula) ──
+# geleli = gel + eli; geleli(dir) = gel + eli + dir
+SINCE_SUFFIXES = ["since_eli", "nounaorist_dir"]
+
+# ── NotState: değil = negative_me + factative_ir + suitative_lik ──
+NOTSTATE_SUFFIXES = ["negative_me", "factative_ir", "suitative_lik"]
 
 # ── Prog2: -mekte = infinitive_mek + locative_de ──
 # etmektedir = et + mek(infinitive_mek) + te(locative_de) + dir(nounaorist_dir)
@@ -200,27 +219,12 @@ EQUIVALENT_SEQUENCES = [
     (["aplicative_le", "factative_ir"], ["plural_ler"]),
 ]
 
-# ── JustLike: -ımsı/-imsi = approximative_si ──
-# konyakımsı = konyak + ımsı(approximative_si)
-JUSTLIKE_SUFFIX = "approximative_si"
-
 # ── Features we cannot map yet (not implemented in Savyar) ──
 UNMAPPABLE_FEATURES = {
     "Opt",      # -e/-a (optative mood)
-    "Desr",     # -se/-sa (desiderative — close to wish_suffix but context differs)
-    "Prog2",    # -mekte (progressive 2)
     "Dist",     # distributive
-    "Acquire",  # -len
-    "Become",   # -leş (approximate: reflexive_is + aplicative_le)
-    "Since",    # -dir (duration)
-    "since",    # (lowercase variant)
-    "NotState", # değil
-    "AsIf",     # -cesine
-    "JustLike", # -ce
-    "As",       # -ce
     "Time",     # zaman (temporal)
     "Demons",   # demonstrative base
-    "ord",      # ordinal
 }
 
 # ── Treebank UPOS/XPOS → Savyar closed-class category ──
@@ -570,9 +574,14 @@ def features_to_suffix_names(token):
                 suffix_names.extend(BECOME_SUFFIXES)
                 continue
 
-            # ── As: -dıkça = adverbial_dikçe ──
+            # ── As: -ce = relative_ce ──
             if feat == "As":
                 suffix_names.append(AS_SUFFIX)
+                continue
+
+            # ── AsIf: -cesine = adverbial_cesine ──
+            if feat == "AsIf":
+                suffix_names.append(ASIF_SUFFIX)
                 continue
 
             # ── Prog2: -mekte = infinitive_mek + locative_de ──
@@ -581,9 +590,24 @@ def features_to_suffix_names(token):
                 suffix_names.extend(PROG2_SUFFIXES)
                 continue
 
-            # ── JustLike: -ımsı/-imsi = approximative_si ──
+            # ── JustLike: -ce = relative_ce ──
             if feat == "JustLike":
                 suffix_names.append(JUSTLIKE_SUFFIX)
+                continue
+
+            # ── Ord: -inci = ordinal_inci ──
+            if feat in ("Ord", "ord"):
+                suffix_names.append(ORD_SUFFIX)
+                continue
+
+            # ── Since: -eli = since_eli + nounaorist_dir ──
+            if feat in ("Since", "since"):
+                suffix_names.extend(SINCE_SUFFIXES)
+                continue
+
+            # ── NotState: değil = negative_me + factative_ir + suitative_lik ──
+            if feat == "NotState":
+                suffix_names.extend(NOTSTATE_SUFFIXES)
                 continue
 
             # ── Unmappable ──
@@ -744,7 +768,7 @@ def _try_add_verb_lemma_to_dict(lemma: str) -> bool:
     return False
 
 
-def match_against_decomposer(surface, lemma, expected_suffixes):
+def match_against_decomposer(surface, lemma, expected_suffixes, force=False):
     """Run decomposer on surface form and find a candidate whose suffix chain
     CONTAINS the treebank's expected suffixes.
 
@@ -758,7 +782,7 @@ def match_against_decomposer(surface, lemma, expected_suffixes):
     Returns the matched decomposition tuple or None.
     """
     try:
-        candidates = decompose(tr_lower(surface))
+        candidates = decompose(tr_lower(surface), force=force)
     except Exception:
         return None
 
@@ -768,7 +792,7 @@ def match_against_decomposer(surface, lemma, expected_suffixes):
     if not candidates:
         if _try_add_verb_lemma_to_dict(lemma):
             try:
-                candidates = decompose(tr_lower(surface))
+                candidates = decompose(tr_lower(surface), force=force)
             except Exception:
                 return None
 
@@ -1236,8 +1260,14 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
                 })
                 continue
 
+            # Proper nouns aren't in words.txt — force the decomposer to treat
+            # every prefix as a valid root so suffix matching can still pin
+            # down the right decomposition.
+            is_proper = bool(lemma) and lemma[0].isupper()
+
             # Try to match against decomposer
-            match = match_against_decomposer(surface_lower, lemma, expected_suffixes)
+            match = match_against_decomposer(
+                surface_lower, lemma, expected_suffixes, force=is_proper)
 
             if match:
                 entry = build_word_entry(surface_lower, match)

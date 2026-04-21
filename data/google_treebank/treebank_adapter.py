@@ -116,6 +116,23 @@ DERIVATION_MAP = {
     "Sim":       "approximative_si",     # -si
     "Aff":       "philicative_cil",      # -cil/-cül
     "Doct":      "ideologicative_izm",   # -izm
+    # ── User-directed routings (semantic differences intentionally ignored) ──
+    # Inh (-ıcı habitual doer) → if_se per directive.
+    "Inh":       "if_se",
+    # From (-li from-origin) → composessive_li (shares surface -li/-lı).
+    "From":      "composessive_li",
+    # Everything else previously unmapped routes to suitative_lik (-lık):
+    # For (-lık for), Foll (-ist), By (-ce by-means), Of (-lerce/-larca),
+    # Snd (sound-related), Coll (-ce collective), Inter (inter/between),
+    # ProNom (-esiye rare nominalization).
+    "For":       "suitative_lik",
+    "Foll":      "suitative_lik",
+    "By":        "suitative_lik",
+    "Of":        "suitative_lik",
+    "Snd":       "suitative_lik",
+    "Coll":      "suitative_lik",
+    "Inter":     "suitative_lik",
+    "ProNom":    "suitative_lik",
     # `Derivation=True` is a treebank tagging artifact — it appears on
     # apostrophe-separated proper-noun case suffix rows like Afyon'da,
     # Sistem'i, etc. There's no derivation there, just a case marker on a
@@ -135,16 +152,9 @@ DERIVATION_MULTI = {
 # user can promote them into DERIVATION_MAP over time. Each note captures our
 # current hypothesis so you don't have to rediscover it.
 UNMAPPED_DERIVATIONS = {
-    "Inh":    "-ıcı/-ici habitual doer (close to actor_ci, but semantically different; possibly factative_ir+actor_ci)",
-    "Foll":   "-ist follower (borrowing suffix; no direct Savyar equivalent)",
-    "Of":     "-lerce/-larca (adverbial of plural — composite of plural_ler + relative_ce?)",
-    "Coll":   "-ce collective (same surface as relative_ce but semantically distinct)",
-    "By":     "-ce by-means (ambiguous with relative_ce)",
-    "Snd":    "sound-related derivation (rare; unclear)",
-    "Inter":  "inter / between (ambiguous; depends on base)",
-    "ProNom": "-esiye? rare / specialised nominalisation",
-    "From":   "-li from-origin (same surface as With=composessive_li, semantic differs)",
-    "For":    "-lık for (same surface as Ness=suitative_lik, semantic differs)",
+    # (No currently-unmapped derivations — all have been routed into
+    # DERIVATION_MAP per user directive. Future novel values discovered
+    # during parsing will still land here via the catch-all path.)
 }
 
 # ── TenseAspectMood ──
@@ -1127,7 +1137,10 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
                 })
                 continue
 
-            is_proper = bool(lemma) and lemma[0:1].isupper()
+            is_proper = any(
+                layer["features"].get("Proper") == "True"
+                for layer in word["feature_layers"]
+            )
             tb_verb = any(
                 (layer["upos"] == "VERB" and layer["xpos"] != "NOMP")
                 for layer in word["feature_layers"]

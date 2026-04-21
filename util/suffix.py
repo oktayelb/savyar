@@ -20,7 +20,9 @@ class SuffixGroup(IntEnum):
     N2N_DERIVATIONAL = 50   
 
     # Fiilden isim yapan ekler; -iş -me -ma -ış...
-    V2N_DERIVATIONAL = 50      
+    V2N_DERIVATIONAL = 50
+
+    V2N_DERIVATIONAL_NOUNIFIER = 51 # bu değer mantıklı mı?      
     
     # Zarf fiiller
     DERIVATIONAL_LOCKING_VERB = 55 

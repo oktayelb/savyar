@@ -219,9 +219,10 @@ EQUIVALENT_SEQUENCES = [
     (["aplicative_le", "factative_ir"], ["plural_ler"]),
 ]
 
+OPTATIVE_SUFFIXES = ["adverbial_e"]
+
 # ── Features we cannot map yet (not implemented in Savyar) ──
 UNMAPPABLE_FEATURES = {
-    "Opt",      # -e/-a (optative mood)
     "Dist",     # distributive
     "Time",     # zaman (temporal)
     "Demons",   # demonstrative base
@@ -568,6 +569,10 @@ def features_to_suffix_names(token):
                 suffix_names.extend(ACQUIRE_SUFFIXES)
                 continue
 
+            if feat == "Opt":
+                suffix_names.extend(OPTATIVE_SUFFIXES)
+                continue
+
             # ── Become: -leş = aplicative_le + reflexive_is ──
             # demokratikleş = demokratik + le + ş
             if feat == "Become":
@@ -627,7 +632,7 @@ def features_to_suffix_names(token):
 # MISMATCH DIAGNOSTICS
 # =============================================================================
 
-def diagnose_mismatch(surface, lemma, expected_suffixes):
+def diagnose_mismatch(surface, lemma, expected_suffixes, force=False):
     """Classify exactly why the decomposer failed to match.
 
     Returns a dict with:
@@ -636,9 +641,12 @@ def diagnose_mismatch(surface, lemma, expected_suffixes):
         expected     — the suffix sequence we wanted
         closest      — best candidate the decomposer found (root + suffixes)
         diff         — how the closest candidate differs from expected
+
+    `force` must mirror what match_against_decomposer used so the diagnosis
+    reflects the matcher's actual view (not a stale unforced re-run).
     """
     try:
-        candidates = decompose(tr_lower(surface))
+        candidates = decompose(tr_lower(surface), force=force)
     except Exception as e:
         return {
             "reason": "decompose_error",
@@ -652,9 +660,30 @@ def diagnose_mismatch(surface, lemma, expected_suffixes):
 
     # ── Case 1: no decompositions at all ──
     if not candidates:
+        # Don't lie about the cause. Actually check whether the lemma is
+        # in the dictionary before blaming dictionary coverage.
+        import util.word_methods as wrd
+        lemma_known = (
+            wrd.can_be_noun(lemma_lower) or wrd.can_be_verb(lemma_lower)
+        )
+        if lemma_known:
+            reason = "chain_build_failed"
+            detail = (
+                f"lemma '{lemma_lower}' IS in dictionary, but decompose() "
+                f"could not build any suffix chain for '{surface}'. "
+                f"Expected: {expected_suffixes}. "
+                f"Likely cause: a suffix form or hierarchy rule rejects this chain."
+            )
+        else:
+            reason = "root_not_in_dict"
+            detail = (
+                f"lemma '{lemma_lower}' not in words.txt (and infinitive "
+                f"{lemma_lower}mek/{lemma_lower}mak also absent). "
+                f"decompose() returned zero candidates for '{surface}'."
+            )
         return {
-            "reason": "no_decomposition",
-            "detail": f"'{surface}' produced zero decompositions — root not in dictionary",
+            "reason": reason,
+            "detail": detail,
             "expected": expected_suffixes,
             "closest": None,
             "diff": None,
@@ -751,24 +780,46 @@ def diagnose_mismatch(surface, lemma, expected_suffixes):
 # DECOMPOSER MATCHING
 # =============================================================================
 
-def _try_add_verb_lemma_to_dict(lemma: str) -> bool:
-    """If lemma+mek or lemma+mak is already in words.txt, add the bare lemma
-    to the in-memory word sets so the decomposer can find it as a verb root.
-    Returns True if the lemma was added."""
+def _try_add_verb_lemma_to_dict(lemma: str, treebank_says_verb: bool = False) -> bool:
+    """Make the decomposer able to find `lemma` as a verb root.
+
+    Two paths:
+      (1) lemma+mek/mak is already in the dictionary → the bare lemma is a
+          legitimate verb root that was simply absent as a standalone entry.
+      (2) treebank_says_verb=True: the treebank asserts this is a verb, but
+          neither the lemma nor its infinitive is in words.txt. We trust
+          the treebank and inject the right infinitive so can_be_verb works.
+
+    Returns True if anything was added.
+    """
     import util.word_methods as wrd
     lemma_lower = tr_lower(lemma)
-    if lemma_lower in wrd.WORDS_SET:
-        return False  # already present
-    for infinitive in (lemma_lower + "mek", lemma_lower + "mak"):
-        if infinitive in wrd.WORDS_SET:
+    if wrd.can_be_verb(lemma_lower):
+        return False  # decomposer can already find it
+
+    # Path (1): infinitive already known, bare lemma just missing
+    for inf in (lemma_lower + "mek", lemma_lower + "mak"):
+        if inf in wrd.WORDS_SET:
             wrd.WORDS_SET.add(lemma_lower)
             wrd.WORDS_LIST.append(lemma_lower)
-            decompose.cache_clear()  # invalidate lru_cache so the new root is found
+            decompose.cache_clear()
             return True
+
+    # Path (2): treebank ground truth — inject the matching infinitive
+    if treebank_says_verb and lemma_lower:
+        from util.word_methods import MajorHarmony, major_harmony
+        harmony = major_harmony(lemma_lower)
+        inf = lemma_lower + ("mak" if harmony == MajorHarmony.BACK else "mek")
+        wrd.WORDS_SET.add(inf)
+        wrd.WORDS_LIST.append(inf)
+        decompose.cache_clear()
+        return True
+
     return False
 
 
-def match_against_decomposer(surface, lemma, expected_suffixes, force=False):
+def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
+                              treebank_says_verb=False):
     """Run decomposer on surface form and find a candidate whose suffix chain
     CONTAINS the treebank's expected suffixes.
 
@@ -790,7 +841,7 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False):
     # dictionary — if so, the bare lemma is a valid verb root that was simply
     # absent as a standalone entry.  Add it and retry once.
     if not candidates:
-        if _try_add_verb_lemma_to_dict(lemma):
+        if _try_add_verb_lemma_to_dict(lemma, treebank_says_verb=treebank_says_verb):
             try:
                 candidates = decompose(tr_lower(surface), force=force)
             except Exception:
@@ -1264,10 +1315,15 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
             # every prefix as a valid root so suffix matching can still pin
             # down the right decomposition.
             is_proper = bool(lemma) and lemma[0].isupper()
+            # Treebank asserts this is a verb if any step in the chain is Verb.
+            tb_verb = any(
+                step["upos"] == "Verb" for step in tok["feature_chain"]
+            )
 
             # Try to match against decomposer
             match = match_against_decomposer(
-                surface_lower, lemma, expected_suffixes, force=is_proper)
+                surface_lower, lemma, expected_suffixes,
+                force=is_proper, treebank_says_verb=tb_verb)
 
             if match:
                 entry = build_word_entry(surface_lower, match)
@@ -1282,8 +1338,11 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
                 word_entries.append(forced_entry)
                 forced_words += 1
                 sentence_has_any = True
-                # Still log for diagnostics
-                diag = diagnose_mismatch(surface_lower, lemma, expected_suffixes)
+                # Still log for diagnostics — use the same force flag the
+                # matcher used, and let diagnose see any verb lemma we just
+                # injected on the matcher's second attempt.
+                diag = diagnose_mismatch(
+                    surface_lower, lemma, expected_suffixes, force=is_proper)
                 unmatched_log.append({
                     "surface": surface_lower,
                     "lemma": lemma,
@@ -1368,17 +1427,34 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
         for reason, count in reason_counts.most_common():
             print(f"  {count:4d}x  {reason}")
 
-        # ── no_decomposition: word not in dictionary ──
-        no_decomp = [e for e in decomp_mismatches if e["reason"] == "no_decomposition"]
-        if no_decomp:
-            print(f"\n  NO_DECOMPOSITION — root not in dictionary ({len(no_decomp)} words):")
+        # ── chain_build_failed: lemma IS in dict, decomposer still got 0 ──
+        chain_failed = [e for e in decomp_mismatches if e["reason"] == "chain_build_failed"]
+        if chain_failed:
+            print(f"\n  CHAIN_BUILD_FAILED — lemma IS in dictionary, decompose() returned 0 "
+                  f"({len(chain_failed)} words): suffix-form or hierarchy issue")
             seen = set()
-            for e in no_decomp:
+            for e in chain_failed:
                 key = (e["surface"], tuple(e["expected"]))
                 if key in seen: continue
                 seen.add(key)
                 try:
-                    print(f"    {e['surface']:22s} expected: {e['expected']}")
+                    print(f"    {e['surface']:22s} lemma={e['lemma']:12s} expected: {e['expected']}")
+                except UnicodeEncodeError:
+                    pass
+                if len(seen) >= 12: break
+
+        # ── root_not_in_dict: lemma genuinely absent from words.txt ──
+        root_missing = [e for e in decomp_mismatches if e["reason"] == "root_not_in_dict"]
+        if root_missing:
+            print(f"\n  ROOT_NOT_IN_DICT — lemma genuinely missing from words.txt "
+                  f"({len(root_missing)} words):")
+            seen = set()
+            for e in root_missing:
+                key = (e["surface"], tuple(e["expected"]))
+                if key in seen: continue
+                seen.add(key)
+                try:
+                    print(f"    {e['surface']:22s} lemma={e['lemma']:12s} expected: {e['expected']}")
                 except UnicodeEncodeError:
                     pass
                 if len(seen) >= 12: break

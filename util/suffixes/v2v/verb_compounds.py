@@ -46,7 +46,7 @@ class CompoundVerb(Suffix):
 # ============================================================================
 
 ### Buna napacaz...
-continuous_iyor       = CompoundVerb("continuous_iyor" , "iyor",group=SuffixGroup.PREDICATIVE)
+continuous_iyor       = CompoundVerb("continuous_iyor" , "iyor", has_minor_harmony=True, group=SuffixGroup.PREDICATIVE)
 
 possibiliative_ebil   = CompoundVerb("possibilitative_ebil", "ebil")
 almostative_eyazmak   = CompoundVerb("almostative_eyazmak", "eyaz")

@@ -85,7 +85,8 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     if last_g == SuffixGroup.VERB_COMPOUND and next_g <= SuffixGroup.VERB_COMPOUND:
         return True
 
-        
+    if last_g == SuffixGroup.VERB_NEGATING and next_g == SuffixGroup.V2N_DERIVATIONAL_NOUNIFIER:
+        return False   
 
     # --- RULE 4: Self-Looping Constraints ---
     if next_g == last_g:
@@ -94,7 +95,8 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
         return False
     
     # zarf fiilden sonra bir şey gelmez. erekten örneği gözardı ediliyor.
-    if last_g is SuffixGroup.DERIVATIONAL_LOCKING_VERB:
+    # Sadece  ol-a -lım  ol-a-yım ol-a-sın örnekleri için conjugation alabilir kabul edilecek
+    if last_g is SuffixGroup.DERIVATIONAL_LOCKING_VERB and next_g < SuffixGroup.CONJUGATION:
         return False
     ## şelale hallediyor diye silindi
     # isim tamlamasından sonra yalnızca ki gelebilir
@@ -358,12 +360,13 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
     for i in range(1, len(word) + 1):
         root = word[:i]
 
-        # Skip roots that are themselves derived forms (e.g. "alışmak" when "al" exists).
-        # The deeper decomposition (shorter root + more suffixes) will still be found.
-        if i < len(word) and wrd.is_derived_word(root):
-            continue
+        # is_derived_word is a noun-side check: it flags dictionary nouns that
+        # look like verb+derivation (e.g. "alıcı" = al+ıcı, "konuş" = kon+uş).
+        # It must NOT block the verb interpretation — "konuş" is also a valid
+        # verb root because "konuşmak" is in the dictionary independently.
+        root_is_derived = i < len(word) and wrd.is_derived_word(root)
 
-        if force or wrd.can_be_noun(root):
+        if force or (wrd.can_be_noun(root) and not root_is_derived):
             append_analysis(word, "noun", root, analyses, shared_cache)
 
         if force or wrd.can_be_verb(root):
@@ -372,13 +375,10 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
         if (not force ) and (not wrd.exists(root)):
             root_pairs = wrd.get_root_candidates(word[:i])
             for lemma_root in root_pairs:
-
-                if i < len(word) and wrd.is_derived_word(lemma_root):
-                    continue
-                
+                lemma_is_derived = i < len(word) and wrd.is_derived_word(lemma_root)
                 virtual_word = lemma_root + word[i:]
 
-                if wrd.can_be_noun(lemma_root):
+                if wrd.can_be_noun(lemma_root) and not lemma_is_derived:
                     append_analysis(virtual_word, "noun", lemma_root, analyses, shared_cache)
 
                 if wrd.can_be_verb(lemma_root):

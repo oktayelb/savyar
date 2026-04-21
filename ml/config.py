@@ -15,24 +15,21 @@ class MLConfig:
     
     # --- Model Architecture ---
     # Vocab size is dynamic (passed at runtime), others are static
-    embed_dim: int = 256        # Doubled from 128 to give minority-class suffixes more room to separate.
-    num_layers: int = 3         # Reduced to 3 to prevent memorizing the 7,000 sequences.
-    num_heads: int = 8          # 256 / 8 = 32; divides cleanly.
-    dropout: float = 0.25       # Bumped alongside embed_dim to counter the extra capacity.
+    embed_dim: int = 384        # Doubled from 128 to give minority-class suffixes more room to separate.
+    num_layers: int = 4         # Reduced to 3 to prevent memorizing the 12,000 sequences.
+    num_heads: int = 12          # 384 / 12 = 32; divides cleanly.
+    dropout: float = 0.1       # Bumped alongside embed_dim to counter the extra capacity.
 
     # --- Training Hyperparameters ---
     learning_rate: float = 3e-4
-    weight_decay: float = 0.08  # Bumped alongside embed_dim to counter the extra capacity.
+    weight_decay: float = 0.01  # Bumped alongside embed_dim to counter the extra capacity.
 
-    # --- Loss weighting ---
-    # When True, _gradient_steps / train_bulk pass inverse-sqrt-frequency
-    # class weights into cross_entropy so minority suffix classes aren't
-    # drowned out by PAD/WORD_SEP/common-case tokens.
-    use_class_weights: bool = True
+
+    use_class_weights: bool = False
 
     # --- Experience Replay ---
-    # Sized to hold the entire dataset of 7,000 sentences in memory.
-    replay_buffer_size: int = 7000   
+    # Sized to hold the entire dataset of 12,000 sentences in memory.
+    replay_buffer_size: int = 12000   
     replay_k: int = 64
     steps_per_update: int = 4       
 

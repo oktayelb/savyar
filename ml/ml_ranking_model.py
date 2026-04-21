@@ -649,7 +649,7 @@ class Trainer:
         self,
         all_seqs: List[Tuple[List[int], List[int]]],
         batch_size: int = 64,
-        epochs: int = 630,
+        epochs: int = 310,
     ) -> float:
         """Train on a large pre-collected dataset in proper epoch-based batches.
 

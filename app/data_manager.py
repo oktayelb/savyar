@@ -58,6 +58,7 @@ class DataManager:
         paths_to_load = [
             self.paths.valid_decompositions_path,
             self.paths.treebank_adapted_path,
+            self.paths.google_treebank_adapted_path,
         ]
         for path in paths_to_load:
             try:

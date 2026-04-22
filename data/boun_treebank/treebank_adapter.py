@@ -50,8 +50,20 @@ enable_index()
 from util.suffix import Type
 from util.words.closed_class import CLOSED_CLASS_LOOKUP
 from util.word_methods import tr_lower
+import util.word_methods as wrd
 
 SUFFIX_BY_NAME = {s.name: s for s in ALL_SUFFIXES}
+
+# Quote-like characters to strip from surface/lemma. BOUN leaks leading `"`
+# into surface forms for quoted-dialog tokens (e.g. `"Müjdeler`).
+_QUOTE_CHARS = "\"'`‘’“”„«»‹›"
+
+def _strip_quotes(s):
+    if not s:
+        return s
+    for q in _QUOTE_CHARS:
+        s = s.replace(q, "")
+    return s
 
 
 # =============================================================================
@@ -806,60 +818,76 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
             return False
         return cn[-k:] == en
 
-    best = None
-    best_score = (False, False, float("-inf"))
+    # ── Tier-based matching ──
+    # Treebanks are ground truth: if their suffix chain "somehow exists"
+    # within a decomposer candidate, accept that candidate and write the
+    # decomposition using Savyar's suffix nomenclature.
+    # Tiers (higher wins):
+    #   5 exact/normalized-exact  4 tail either direction
+    #   3 contains contiguous     2 ordered subsequence  1 multiset equal
+    def _ends_with(a, b):
+        # Reject empty-vs-nonempty: an empty chain never "ends with" a
+        # non-empty expected and vice versa. Both-empty is handled by the
+        # tier-5 equality check above, so we need not allow it here.
+        if not a or not b:
+            return False
+        return len(b) <= len(a) and a[-len(b):] == b
 
+    def _contains_contig(a, b):
+        if not a or not b:
+            return False
+        if len(b) > len(a):
+            return False
+        for i in range(len(a) - len(b) + 1):
+            if a[i:i+len(b)] == b:
+                return True
+        return False
+
+    def _is_subseq(a, b):
+        if not a or not b:
+            return False
+        j = 0
+        for x in a:
+            if j < len(b) and x == b[j]:
+                j += 1
+        return j == len(b)
+
+    def _match_tier(cn, en):
+        cn_n, en_n = normalize_full(cn), normalize_full(en)
+        if cn == en or cn_n == en_n:
+            return 5
+        if _ends_with(cn, en) or _ends_with(cn_n, en_n):
+            return 4
+        if _ends_with(en, cn) or _ends_with(en_n, cn_n):
+            return 4
+        if _contains_contig(cn, en) or _contains_contig(cn_n, en_n):
+            return 3
+        if _contains_contig(en, cn) or _contains_contig(en_n, cn_n):
+            return 3
+        if _is_subseq(cn, en) or _is_subseq(cn_n, en_n):
+            return 2
+        if _is_subseq(en, cn) or _is_subseq(en_n, cn_n):
+            return 2
+        if sorted(cn) == sorted(en) or sorted(cn_n) == sorted(en_n):
+            return 1
+        return -1
+
+    best = None
+    best_score = (False, -1, float("-inf"), float("-inf"))
     for root, start_pos, chain, final_pos in candidates:
         chain_names = get_chain_names(chain)
         is_lemma = (root == lemma_lower)
         for exp_variant in all_expected_variants:
-            matched = False
-            is_exact = False
-            if chain_names == exp_variant:
-                matched = True
-                is_exact = True
-            elif normalize_full(chain_names) == normalize_full(exp_variant):
-                matched = True
-                is_exact = True
-            elif tail_matches(chain_names, exp_variant):
-                matched = True
-            elif tail_matches_normalized(chain_names, exp_variant):
-                matched = True
-            if matched:
-                score = (is_lemma, is_exact, -len(chain_names))
-                if (score[0] > best_score[0]
-                        or (score[0] == best_score[0] and score[1] > best_score[1])
-                        or (score[0] == best_score[0] and score[1] == best_score[1] and score[2] > best_score[2])):
-                    best = (root, start_pos, chain, final_pos)
-                    best_score = score
-
-    if best:
-        return best
-
-    for root, start_pos, chain, final_pos in candidates:
-        if root == lemma_lower:
-            continue
-        chain_names = get_chain_names(chain)
-        for exp_variant in all_expected_variants:
-            for skip in range(1, min(len(exp_variant), 4)):
-                trimmed = exp_variant[skip:]
-                if chain_names == trimmed:
-                    return (root, start_pos, chain, final_pos)
-                if normalize_full(chain_names) == normalize_full(trimmed):
-                    return (root, start_pos, chain, final_pos)
-                if tail_matches(chain_names, trimmed):
-                    return (root, start_pos, chain, final_pos)
-
-    if expected_filtered and expected_filtered[0] in POSS_MAP.values():
-        reduced = expected_filtered[1:]
-        for root, start_pos, chain, final_pos in candidates:
-            if root != lemma_lower:
+            tier = _match_tier(chain_names, exp_variant)
+            if tier < 0:
                 continue
-            chain_names = get_chain_names(chain)
-            if chain_names == reduced:
-                return (root, start_pos, chain, final_pos)
+            length_penalty = -abs(len(chain_names) - len(exp_variant))
+            score = (is_lemma, tier, length_penalty, -len(chain_names))
+            if score > best_score:
+                best = (root, start_pos, chain, final_pos)
+                best_score = score
 
-    return None
+    return best
 
 
 def diagnose_mismatch(surface, lemma, expected_suffixes, force=False):
@@ -1108,9 +1136,9 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
         for word in words:
             total_words += 1
 
-            surface = word["surface"].replace("'", "").replace("’", "")
+            surface = _strip_quotes(word["surface"])
             surface_lower = tr_lower(surface)
-            lemma = word["lemma"]
+            lemma = _strip_quotes(word["lemma"])
 
             head_upos = word["head_upos"]
 
@@ -1200,6 +1228,14 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
                 surface_lower, lemma, expected_suffixes,
                 force=is_proper, treebank_says_verb=tb_verb,
             )
+
+            # Fallback: retry with force=True. Needed when the lemma isn't in
+            # words.txt or when the regular decompose path can't reach a match.
+            if match is None and not is_proper:
+                match = match_against_decomposer(
+                    surface_lower, lemma, expected_suffixes,
+                    force=True, treebank_says_verb=tb_verb,
+                )
 
             if match:
                 entry = build_word_entry(surface_lower, match)

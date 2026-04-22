@@ -26,9 +26,21 @@ enable_index()
 from util.suffix import  Type
 from util.words.closed_class import CLOSED_CLASS_LOOKUP
 from util.word_methods import tr_lower
+import util.word_methods as wrd
 
 # Name → suffix object lookup for building treebank-forced entries
 SUFFIX_BY_NAME = {s.name: s for s in ALL_SUFFIXES}
+
+# Quote-like characters to strip from surface/lemma before processing.
+# Some treebanks leak these into tokens (e.g. BOUN prefixes `"Müjdeler`).
+_QUOTE_CHARS = "\"'`‘’“”„«»‹›"
+
+def _strip_quotes(s):
+    if not s:
+        return s
+    for q in _QUOTE_CHARS:
+        s = s.replace(q, "")
+    return s
 
 # =============================================================================
 # TREEBANK FEATURE → SAVYAR SUFFIX NAME MAPPING
@@ -901,16 +913,22 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
 
     # Known suffix ambiguities: treebank may say X, decomposer may produce Y
     SUFFIX_ALTERNATIVES = {
-        "active_dir":       ["active_it", "active_ir", "active_er"],
-        "infinitive_me":    ["infinitive_mek", "nounifier_iş"],
-        "passive_il":       ["reflexive_in"],
-        "reflexive_in":     ["passive_il"],
-        "adverbial_erek":   ["adverbial_ip"],
-        "adverbial_ip":     ["adverbial_erek"],
-        "copula_mis":       ["pastfactative_miş"],
+        "active_dir":        ["active_it", "active_ir", "active_er"],
+        "infinitive_me":     ["infinitive_mek", "nounifier_iş"],
+        "infinitive_mek":    ["infinitive_me", "nounifier_iş"],
+        "passive_il":        ["reflexive_in"],
+        "reflexive_in":      ["passive_il"],
+        "adverbial_erek":    ["adverbial_ip"],
+        "adverbial_ip":      ["adverbial_erek"],
+        "copula_mis":        ["pastfactative_miş"],
         "pastfactative_miş": ["copula_mis"],
-        "composessive_li":  ["relative_sel"],
-        "relative_sel":     ["composessive_li"],
+        "composessive_li":   ["relative_sel"],
+        "relative_sel":      ["composessive_li"],
+        "actor_ci":          ["factative_ir"],
+        # -ti after -miş is surface-identical to pasttense_noundi (Savyar's
+        # nominal past-tense variant). The treebank labels both as Past.
+        "pasttense_di":      ["pasttense_noundi"],
+        "pasttense_noundi":  ["pasttense_di"],
     }
 
     def expand_alternatives(expected):
@@ -968,78 +986,82 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
             return False
         return cn[-n:] == en
 
-    # Score candidates: prefer (1) lemma match, (2) exact match, (3) shorter chain
-    best = None
-    best_score = (False, False, float("-inf"))  # (lemma_match, exact_not_tail, -chain_len)
+    # ── Tier-based matching ──
+    # Treebanks are ground truth: if their suffix chain "somehow exists"
+    # within a decomposer candidate, we accept that candidate and write the
+    # decomposition using Savyar's suffix nomenclature.
+    # Tiers (higher wins):
+    #   5 = exact / normalized-exact
+    #   4 = tail match either direction (chain ends with expected, OR
+    #       expected ends with chain — covers deeper-root case where the
+    #       decomposer baked initial expected suffixes into its root)
+    #   3 = contains contiguous (either direction)
+    #   2 = ordered subsequence (either direction)
+    #   1 = multiset equal (same bag of suffixes, any order)
+    # Score tuple: (is_lemma, tier, -abs(len_chain - len_expected), -len_chain).
+    def _ends_with(a, b):
+        # Reject empty-vs-nonempty: an empty chain never "ends with" a
+        # non-empty expected and vice versa. Both-empty is handled by the
+        # tier-5 equality check above, so we need not allow it here.
+        if not a or not b:
+            return False
+        return len(b) <= len(a) and a[-len(b):] == b
 
+    def _contains_contig(a, b):
+        if not a or not b:
+            return False
+        if len(b) > len(a):
+            return False
+        for i in range(len(a) - len(b) + 1):
+            if a[i:i+len(b)] == b:
+                return True
+        return False
+
+    def _is_subseq(a, b):
+        if not a or not b:
+            return False
+        j = 0
+        for x in a:
+            if j < len(b) and x == b[j]:
+                j += 1
+        return j == len(b)
+
+    def _match_tier(cn, en):
+        cn_n, en_n = normalize_full(cn), normalize_full(en)
+        if cn == en or cn_n == en_n:
+            return 5
+        if _ends_with(cn, en) or _ends_with(cn_n, en_n):
+            return 4
+        if _ends_with(en, cn) or _ends_with(en_n, cn_n):
+            return 4
+        if _contains_contig(cn, en) or _contains_contig(cn_n, en_n):
+            return 3
+        if _contains_contig(en, cn) or _contains_contig(en_n, cn_n):
+            return 3
+        if _is_subseq(cn, en) or _is_subseq(cn_n, en_n):
+            return 2
+        if _is_subseq(en, cn) or _is_subseq(en_n, cn_n):
+            return 2
+        if sorted(cn) == sorted(en) or sorted(cn_n) == sorted(en_n):
+            return 1
+        return -1
+
+    best = None
+    best_score = (False, -1, float("-inf"), float("-inf"))
     for root, start_pos, chain, final_pos in candidates:
         chain_names = get_chain_names(chain)
         is_lemma = (root == lemma_lower)
-
         for exp_variant in all_expected_variants:
-            matched = False
-            is_exact = False
-
-            # Exact match (chain == expected)
-            if chain_names == exp_variant:
-                matched = True
-                is_exact = True
-            # Normalized exact match
-            elif normalize_full(chain_names) == normalize_full(exp_variant):
-                matched = True
-                is_exact = True
-            # Tail match (chain ends with expected, chain is longer)
-            elif tail_matches(chain_names, exp_variant):
-                matched = True
-            # Normalized tail match
-            elif tail_matches_normalized(chain_names, exp_variant):
-                matched = True
-
-            if matched:
-                score = (is_lemma, is_exact, -len(chain_names))
-                # Higher is better: lemma_match > exact > shorter chain
-                if (score[0] > best_score[0] or
-                    (score[0] == best_score[0] and score[1] > best_score[1]) or
-                    (score[0] == best_score[0] and score[1] == best_score[1] and score[2] > best_score[2])):
-                    best = (root, start_pos, chain, final_pos)
-                    best_score = score
-
-    if best:
-        return best
-
-    # ── Handle decomposer root = derived form of treebank lemma ──
-    # e.g. treebank: lemma=belir, expected=[active_dir, continuous_iyor, conjugation_3pl]
-    #      decomposer: root=belirt (=belir+t), chain=[continuous_iyor, conjugation_3pl]
-    # The derivational prefix suffix(es) are baked into the decomposer's root.
-    # Strip leading expected suffixes until chain matches the remainder.
-    for root, start_pos, chain, final_pos in candidates:
-        if root == lemma_lower:
-            continue  # Already tried exact lemma above
-        chain_names = get_chain_names(chain)
-        for exp_variant in all_expected_variants:
-            # Try stripping 1, 2, ... leading suffixes from expected
-            for skip in range(1, min(len(exp_variant), 4)):
-                trimmed = exp_variant[skip:]
-                if chain_names == trimmed:
-                    return (root, start_pos, chain, final_pos)
-                if normalize_full(chain_names) == normalize_full(trimmed):
-                    return (root, start_pos, chain, final_pos)
-                if tail_matches(chain_names, trimmed):
-                    return (root, start_pos, chain, final_pos)
-
-    # ── Handle treebank lemmas with possessive baked in ──
-    # e.g. lemma="hiçbiri" already has P3sg → try without first possessive
-    if (expected_filtered
-            and expected_filtered[0] in N2N_POSSESSIVE_FEATURES.values()):
-        reduced = expected_filtered[1:]
-        for root, start_pos, chain, final_pos in candidates:
-            if root != lemma_lower:
+            tier = _match_tier(chain_names, exp_variant)
+            if tier < 0:
                 continue
-            chain_names = get_chain_names(chain)
-            if chain_names == reduced:
-                return (root, start_pos, chain, final_pos)
+            length_penalty = -abs(len(chain_names) - len(exp_variant))
+            score = (is_lemma, tier, length_penalty, -len(chain_names))
+            if score > best_score:
+                best = (root, start_pos, chain, final_pos)
+                best_score = score
 
-    return None
+    return best
 
 
 def build_word_entry(surface, decomposition):
@@ -1230,10 +1252,11 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
             lemma = tok["lemma"]
             total_words += 1
 
-            # Strip apostrophes — Turkish orthography separates proper noun
-            # roots from suffixes with ' but it's not part of the morphology.
-            # İstanbul'a → İstanbula, Erdoğan'ın → Erdoğanın
-            surface = surface.replace("'", "").replace("\u2019", "")
+            # Strip apostrophes and other quote-like chars (e.g. leading "
+            # from quoted-dialog tokens). Turkish orthography separates
+            # proper-noun roots with ' but it is not part of the morphology.
+            surface = _strip_quotes(surface)
+            lemma = _strip_quotes(lemma)
 
             # Lowercase surface for decomposer compatibility
             surface_lower = tr_lower(surface)
@@ -1324,6 +1347,15 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
             match = match_against_decomposer(
                 surface_lower, lemma, expected_suffixes,
                 force=is_proper, treebank_says_verb=tb_verb)
+
+            # Fallback: retry with force=True so every prefix can be a root.
+            # Needed when the lemma isn't in words.txt (e.g. proper-noun-like
+            # tokens, numeric-date surfaces) or when the decomposer's regular
+            # path couldn't reach a matching chain.
+            if match is None and not is_proper:
+                match = match_against_decomposer(
+                    surface_lower, lemma, expected_suffixes,
+                    force=True, treebank_says_verb=tb_verb)
 
             if match:
                 entry = build_word_entry(surface_lower, match)

@@ -553,6 +553,32 @@ class Trainer:
             p_mask.to(self.device, non_blocking=non_blocking),
         )
 
+    def _compute_focal_loss(self, logits: torch.Tensor, targets: torch.Tensor, gamma: float = 2.0) -> torch.Tensor:
+        """
+        Computes Focal Loss. 
+        Lowers the weight of easy, highly-confident predictions and forces 
+        the network to focus on hard, misclassified examples.
+        """
+        # Calculate raw cross entropy loss without reduction so we get a loss per token
+        ce_loss = F.cross_entropy(
+            logits.reshape(-1, logits.size(-1)),
+            targets.reshape(-1),
+            reduction='none',
+            ignore_index=SPECIAL_PAD
+        )
+        
+        # Calculate pt (probability of the correct class)
+        pt = torch.exp(-ce_loss)
+        
+        # Apply focal weighting factor: (1 - pt)^gamma
+        focal_loss = ((1 - pt) ** gamma) * ce_loss
+        
+        # Filter out padding tokens and return the mean over valid tokens
+        valid_mask = targets.reshape(-1) != SPECIAL_PAD
+        if valid_mask.any():
+            return focal_loss[valid_mask].mean()
+        return focal_loss.sum() # Fallback if sequence is entirely padding
+
     def _gradient_steps(
         self, seqs: List[Tuple[List[int], List[int]]], n_steps: int
     ) -> float:
@@ -571,18 +597,13 @@ class Trainer:
         self.model.train()
         final_loss = 0.0
         use_amp = self.device == 'cuda'
-        class_weights = self._compute_class_weights()
 
         for _ in range(n_steps):
             self.optimizer.zero_grad()
             with torch.amp.autocast('cuda', enabled=use_amp):
                 logits = self.model(input_s, input_c, pad_mask=in_mask)   # (B, L-1, V)
-                loss   = F.cross_entropy(
-                    logits.reshape(-1, logits.size(-1)),
-                    target.reshape(-1),
-                    weight=class_weights,
-                    ignore_index=SPECIAL_PAD,
-                )
+                loss = self._compute_focal_loss(logits, target)
+                
             final_loss = loss.item()
 
             self.scaler.scale(loss).backward()
@@ -649,7 +670,7 @@ class Trainer:
         self,
         all_seqs: List[Tuple[List[int], List[int]]],
         batch_size: int = 64,
-        epochs: int = 310,
+        epochs: int = 150,
         validation_seqs: Optional[List[Tuple[List[int], List[int]]]] = None,
     ) -> float:
         """Train on a large pre-collected dataset in proper epoch-based batches.
@@ -674,8 +695,6 @@ class Trainer:
         final_loss = 0.0
         data = list(all_seqs)
 
-        class_weights = self._compute_class_weights()
-
         for epoch in range(epochs):
             random.shuffle(data)
             epoch_loss = 0.0
@@ -697,12 +716,7 @@ class Trainer:
                 self.optimizer.zero_grad()
                 with torch.amp.autocast('cuda', enabled=use_amp):
                     logits = self.model(input_s, input_c, pad_mask=in_mask)
-                    loss = F.cross_entropy(
-                        logits.reshape(-1, logits.size(-1)),
-                        target.reshape(-1),
-                        weight=class_weights,
-                        ignore_index=SPECIAL_PAD,
-                    )
+                    loss = self._compute_focal_loss(logits, target)
                 
                 # Extract predictions for metrics without affecting computation graph.
                 # Keep WORD_SEP and BOS in the tensors here; _compute_metrics splits
@@ -818,11 +832,7 @@ class Trainer:
 
                 with torch.amp.autocast('cuda', enabled=use_amp):
                     logits = self.model(input_s, input_c, pad_mask=in_mask)
-                    loss = F.cross_entropy(
-                        logits.reshape(-1, logits.size(-1)),
-                        target.reshape(-1),
-                        ignore_index=SPECIAL_PAD,
-                    )
+                    loss = self._compute_focal_loss(logits, target)
 
                 preds = logits.argmax(dim=-1).reshape(-1)
                 targs = target.reshape(-1)

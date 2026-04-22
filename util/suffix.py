@@ -4,20 +4,53 @@ import util.word_methods as wrd
 # Eklerin hiyerarşisi.
 # Kural: Bir ek, kendinden daha BÜYÜK numaralı bir gruptan sonra GELEMEZ.
 class SuffixGroup(IntEnum):                                                                                         
-    V2V_DERIVATIONAL = 25      # fiilden fiil yapan ekler; -iş -il -in -tir...
-    VERB_NEGATING = 35         # fiili olumsuz yapan ekler; -me -eme
-    VERB_COMPOUND = 40         # birleşik fiil ekleri, -ebil -eyaz -edur...
-    N2V_DERIVATIONAL = 50      # İsimden Fiile yapım ekleri; -le  -e -se...
-    N2N_DERIVATIONAL = 50      # İsimden isim yapım ekleri -lık -lı -cı...
-    V2N_DERIVATIONAL = 50      # Fiilden isim yapan ekler; -iş -me -ma -ış...
-    PLURAL = 60                # Çoğul eki  -ler
-    POSSESSIVE = 150           # İyelik Ekleri; -im -in -imiz
-    CASE = 200                 # Hal Ekleri -e -de -i -den -nin
-    MARKING_KI = 225           # İşaret eki -ki
-    WITH_LE = 230              # Birliktelik eki -le
-    DERIVATIONAL_LOCKING = 240 # Zarf yapan ekler; -ip -erek -e -dikçe... (-erekten kabul etmez)
-    PREDICATIVE = 250          # Ek-fiil -dir -idi -imiş -ise
-    CONJUGATION = 300          # Fiil şahıs çekimleri -im -sin -ler
+     # fiilden fiil yapan ekler; -iş -il -in -tir...
+    V2V_DERIVATIONAL = 25
+
+    # fiili olumsuz yapan ekler; -me -eme
+    VERB_NEGATING = 35
+    
+    # birleşik fiil ekleri, -ebil -eyaz -edur...
+    VERB_COMPOUND = 40         
+    
+    # İsimden Fiile yapım ekleri; -le  -e -se...
+    N2V_DERIVATIONAL = 50      
+    
+    # İsimden isim yapım ekleri -lık -lı -cı...
+    N2N_DERIVATIONAL = 50   
+
+    # Fiilden isim yapan ekler; -iş -me -ma -ış...
+    V2N_DERIVATIONAL = 50
+
+    # BU ayrışım fiilden sonra  gerund merun falan bişi içindi.
+    V2N_DERIVATIONAL_NOUNIFIER = 50      # bu değer mantıklı mı?      
+    
+    # Zarf fiiller
+    DERIVATIONAL_LOCKING_VERB = 55 
+    
+    # Çoğul eki  -ler
+    PLURAL = 60                
+    
+    # İyelik Ekleri; -im -in -imiz
+    POSSESSIVE = 150           
+    
+    # Hal Ekleri -e -de -i -den -nin
+    CASE = 200                       
+    
+    # İşaret eki -ki
+    MARKING_KI = 225                 
+    
+    # Birliktelik eki -le
+    WITH_LE = 230                    
+    
+    # isimden Zarf yapan ekler; leyin, (in), cesine, ken
+    DERIVATIONAL_LOCKING_NOUN = 240  
+    
+    # Ek-fiil -dir -idi -imiş -ise
+    PREDICATIVE = 250                
+    
+    # Fiil şahıs çekimleri -im -sin -ler
+    CONJUGATION = 300                
 
 class Type(Enum):
     NOUN = "noun"

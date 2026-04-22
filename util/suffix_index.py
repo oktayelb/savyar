@@ -62,6 +62,32 @@ class SuffixIndex:
         'a': 'ba',  'ı': 'sı',  'o': 'ko',  'u': 'su',
         'e': 'be',  'i': 'bi',  'ö': 'kö',  'ü': 'sü',
     }
+    # Morpheme-tail reps: stems ending in -ma / -me built on a real verb root.
+    # Needed to expose context-dependent forms (e.g. factative_ir emits the
+    # -z negative-aorist form only when the preceding morpheme is ma/me and
+    # stripping it leaves a valid verb root). Without these, the index never
+    # learns about such forms and the decomposer silently misses chains.
+    # Use synthetic rep_keys ("ma_tail", "me_tail") so these don't collide
+    # with the regular (last_vowel, hard_end, vowel_end) keys in _form_cache.
+    # Each tail triggers context-dependent forms inside suffix.form functions
+    # (e.g. conjugation_2sg emits 'n' only after -di/-dı/.../-se/-sa;
+    # factative_ir emits 'z' only after -ma/-me with a valid verb before).
+    # We cover all tails that any form_function in util/suffixes/**/*.py
+    # peeks at via word[-2:] checks.
+    _MORPH_TAIL_REPS = {
+        'ma_tail': 'bakma',
+        'me_tail': 'gelme',
+        'di_tail': 'geldi',
+        'dı_tail': 'bildı',   # synthetic: tail carrier only
+        'du_tail': 'oldu',
+        'dü_tail': 'gördü',
+        'ti_tail': 'gitti',
+        'tı_tail': 'baktı',
+        'tu_tail': 'tuttu',
+        'tü_tail': 'öptü',
+        'se_tail': 'gelse',
+        'sa_tail': 'baksa',
+    }
 
     def __init__(self, suffix_transitions: dict = None):
         """
@@ -115,6 +141,8 @@ class SuffixIndex:
             reps.append(((v, True, False), stem))
         for v, stem in self._VOWEL_END_REPS.items():
             reps.append(((v, False, True), stem))
+        for key, stem in self._MORPH_TAIL_REPS.items():
+            reps.append(((key, False, stem.endswith(('a','e','ı','i','o','ö','u','ü'))), stem))
         return reps
 
     def _cached_form(self, suffix_obj: Suffix, stem: str, rep_key: Tuple) -> List[str]:

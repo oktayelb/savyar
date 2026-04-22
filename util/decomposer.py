@@ -1,4 +1,4 @@
-from typing import List, Tuple, Set
+from typing import List, Tuple, Set, Optional
 import functools
 
 # ============================================================================
@@ -66,6 +66,9 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     last_g = last_suffix.group
     next_g = next_suffix.group
 
+    #for trying
+    # return True;
+
     ## main waterfall rule.
    
 
@@ -77,11 +80,13 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     ## şelale akışına istisna olarak  yapım eklerinden sonra fiil ekleri gelebilir 
     if last_g == SuffixGroup.N2N_DERIVATIONAL and next_g <= SuffixGroup.N2N_DERIVATIONAL:
         return True   
+    
     ## ebilmekten gibi eklerden sonra  fiil ekleri gelebilir.  gidebilmeyen gitmeyebilmek
     if last_g == SuffixGroup.VERB_COMPOUND and next_g <= SuffixGroup.VERB_COMPOUND:
         return True
 
-        
+    if last_g == SuffixGroup.VERB_NEGATING and next_g == SuffixGroup.V2N_DERIVATIONAL_NOUNIFIER:
+        return False   
 
     # --- RULE 4: Self-Looping Constraints ---
     if next_g == last_g:
@@ -89,12 +94,15 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
             return True
         return False
     
+    # zarf fiilden sonra bir şey gelmez. erekten örneği gözardı ediliyor.
+    # Sadece  ol-a -lım  ol-a-yım ol-a-sın örnekleri için conjugation alabilir kabul edilecek
+    if last_g is SuffixGroup.DERIVATIONAL_LOCKING_VERB and next_g != SuffixGroup.CONJUGATION:
+        return False
     ## şelale hallediyor diye silindi
     # isim tamlamasından sonra yalnızca ki gelebilir
     # if last_g == SuffixGroup.CASE and not next_g >= SuffixGroup.MARKING_KI:
     #    return False
     
-    #eşitlik konsa mı? recursive ykardaki kuralda 
     if next_g < last_g:
         return False
 
@@ -336,7 +344,7 @@ def append_analysis(word, pos, root, analyses_list, shared_cache: dict = None):
 
 
 @functools.lru_cache(maxsize=100000)
-def decompose(word: str) -> List[Tuple]:
+def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
     """
     Finds all possible root-suffix decompositions for a word.\n
     Uses a shared cache across all root iterations to avoid recomputing
@@ -352,27 +360,25 @@ def decompose(word: str) -> List[Tuple]:
     for i in range(1, len(word) + 1):
         root = word[:i]
 
-        # Skip roots that are themselves derived forms (e.g. "alışmak" when "al" exists).
-        # The deeper decomposition (shorter root + more suffixes) will still be found.
-        if i < len(word) and wrd.is_derived_word(root):
-            continue
+        # is_derived_word is a noun-side check: it flags dictionary nouns that
+        # look like verb+derivation (e.g. "alıcı" = al+ıcı, "konuş" = kon+uş).
+        # It must NOT block the verb interpretation — "konuş" is also a valid
+        # verb root because "konuşmak" is in the dictionary independently.
+        root_is_derived = i < len(word) and wrd.is_derived_word(root)
 
-        if wrd.can_be_noun(root):
+        if force or (wrd.can_be_noun(root) and not root_is_derived):
             append_analysis(word, "noun", root, analyses, shared_cache)
 
-        if wrd.can_be_verb(root):
+        if force or wrd.can_be_verb(root):
             append_analysis(word, "verb", root, analyses, shared_cache)
 
-        if not wrd.exists(root):
+        if (not force ) and (not wrd.exists(root)):
             root_pairs = wrd.get_root_candidates(word[:i])
             for lemma_root in root_pairs:
-
-                if i < len(word) and wrd.is_derived_word(lemma_root):
-                    continue
-                
+                lemma_is_derived = i < len(word) and wrd.is_derived_word(lemma_root)
                 virtual_word = lemma_root + word[i:]
 
-                if wrd.can_be_noun(lemma_root):
+                if wrd.can_be_noun(lemma_root) and not lemma_is_derived:
                     append_analysis(virtual_word, "noun", lemma_root, analyses, shared_cache)
 
                 if wrd.can_be_verb(lemma_root):

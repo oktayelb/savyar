@@ -1,5 +1,4 @@
 from util.suffix import Suffix, Type,  SuffixGroup
-import util.word_methods as wrd
 
 class CompoundVerb(Suffix):
     def __init__(self, name, suffix, 
@@ -17,7 +16,7 @@ class CompoundVerb(Suffix):
             suffix=suffix,
             comes_to=comes_to,
             makes=makes,
-            form_function=form_function, # Force the use of the overridden _default_form
+            form_function=form_function, 
             has_major_harmony=has_major_harmony,
             has_minor_harmony=has_minor_harmony,
             needs_y_buffer=needs_y_buffer,
@@ -36,7 +35,7 @@ class CompoundVerb(Suffix):
         ebase = Suffix._apply_minor_harmony(word, ebase, suffix_obj.has_minor_harmony)
         
         
-        if  word[-1] in ["a","e","ı","i","o","ö","u","ü"]:  # If the last character is a vowel, we need to consider buffer consonants
+        if  (suffix_obj.suffix != "iyor") and  word[-1] in ["a","e","ı","i","o","ö","u","ü"]:  
             ebase = "y" + ebase  # Default buffer consonant is 'y'
 
         
@@ -46,7 +45,9 @@ class CompoundVerb(Suffix):
 # VERB TO VERB SUFFIXES (v2v) - Hepsi VERB_DERIVATIONAL (Grup 10)
 # ============================================================================
 
-### Buranın ayrılması laaızm daha temiz bir mimari... ebilmek evermek eyazmak şeylerini halletmeli.
+### Buna napacaz...
+continuous_iyor       = CompoundVerb("continuous_iyor" , "iyor", has_minor_harmony=True, group=SuffixGroup.PREDICATIVE)
+
 possibiliative_ebil   = CompoundVerb("possibilitative_ebil", "ebil")
 almostative_eyazmak   = CompoundVerb("almostative_eyazmak", "eyaz")
 continuative_edurmak  = CompoundVerb("continuative_edurmak", "edur")

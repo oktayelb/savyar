@@ -10,7 +10,7 @@ class Nounifier(Suffix):
                 has_major_harmony=True, 
                 has_minor_harmony=None,  # Set to None to detect if the user passed a value
                 needs_y_buffer=None, 
-                group=SuffixGroup.V2N_DERIVATIONAL, 
+                group=SuffixGroup.V2N_DERIVATIONAL_NOUNIFIER, 
                 is_unique=False,
                 form_function=None):
         

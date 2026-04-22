@@ -35,6 +35,72 @@ CATEGORY_CLOSED_CLASS = 3          # category ID for closed-class word tokens
 
 
 # ============================================================================
+# PER-CATEGORY ACCURACY BUCKETS
+# ============================================================================
+# Human-meaningful suffix categories for the relearn diagnostic breakdown.
+# Any suffix not explicitly listed falls into "other".
+SUFFIX_CATEGORIES: List[str] = [
+    "plural", "poss", "case", "conj", "copula",
+    "gerund", "infin", "deriv", "other",
+]
+_CAT_NAME_TO_IDX = {c: i for i, c in enumerate(SUFFIX_CATEGORIES)}
+
+_CATEGORY_TENSOR_CACHE: Dict[str, torch.Tensor] = {}
+
+
+def _build_suffix_category_tensor(vocab_size: int, device: torch.device) -> torch.Tensor:
+    """Return a (vocab_size,) long tensor mapping token-id → category index.
+    Non-suffix tokens (PAD/BOS/WORD_SEP/CC) get -1."""
+    cache_key = f"{vocab_size}:{device}"
+    cached = _CATEGORY_TENSOR_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    from util.suffixes.n2n.case_suffixes       import CASESUFFIX
+    from util.suffixes.n2n.posessive_suffix    import POSESSIVE_SUFFIX
+    from util.suffixes.n2n.plural_suffix       import PLURALS
+    from util.suffixes.n2n.derivationals       import DERIVATIONALS as N2N_DERIVATIONALS
+    from util.suffixes.n2n.conjugation_suffixes import CONJUGATIONS
+    from util.suffixes.n2n.copula              import COPULA
+    from util.suffixes.v2n.gerunds             import GERUNDS
+    from util.suffixes.v2n.infinitives         import INFINITIVES
+    from util.suffixes.v2n.nounifiers          import NOUNIFIERS
+    from util.suffixes.n2v.verbifiers          import VERBIFIERS
+    from util.suffixes.v2v.verb_derivationals  import VERB_DERIVATIONALS
+    from util.suffixes.v2v.verb_negative       import VERB_NEGATIVES
+    from util.suffixes.v2v.verb_compounds      import VERB_COMPOUNDS
+
+    buckets = [
+        ("plural",  PLURALS),
+        ("poss",    POSESSIVE_SUFFIX),
+        ("case",    CASESUFFIX),
+        ("conj",    CONJUGATIONS),
+        ("copula",  COPULA),
+        ("gerund",  GERUNDS),
+        ("infin",   INFINITIVES),
+        ("deriv",   N2N_DERIVATIONALS + VERBIFIERS + NOUNIFIERS
+                    + VERB_DERIVATIONALS + VERB_NEGATIVES + VERB_COMPOUNDS),
+    ]
+    name_to_cat_idx: Dict[str, int] = {}
+    for cat, lst in buckets:
+        idx = _CAT_NAME_TO_IDX[cat]
+        for s in lst:
+            name_to_cat_idx[s.name] = idx
+
+    other_idx = _CAT_NAME_TO_IDX["other"]
+    tensor = torch.full((vocab_size,), -1, dtype=torch.long, device=device)
+    all_sufs = _get_all_suffixes()
+    for i, s in enumerate(all_sufs):
+        tok_id = i + SUFFIX_OFFSET
+        if tok_id >= vocab_size:
+            break
+        tensor[tok_id] = name_to_cat_idx.get(s.name, other_idx)
+
+    _CATEGORY_TENSOR_CACHE[cache_key] = tensor
+    return tensor
+
+
+# ============================================================================
 # HELPER: encode / decode sentence-level token sequences
 # ============================================================================
 
@@ -296,6 +362,10 @@ class Trainer:
         # training call so the model does not forget earlier decompositions.
         self.replay_buffer: List[Tuple[List[int], List[int]]] = []
 
+        # Cached class-weight tensor for imbalanced cross-entropy. Invalidated
+        # when the replay buffer changes (see _add_to_replay).
+        self._class_weight_cache: Optional[torch.Tensor] = None
+
         try:
             self.load_checkpoint(self.path)
             print(f"Loaded model from {self.path}")
@@ -324,7 +394,7 @@ class Trainer:
 
     def _compute_metrics(
         self, preds: torch.Tensor, targets: torch.Tensor
-    ) -> Tuple[float, float, float, float, float]:
+    ) -> Tuple[float, float, float, float, float, Dict[str, Tuple[float, int]]]:
         """
         Suffix-level accuracy + macro-averaged P/R/F1, plus a separate
         word-boundary accuracy for diagnostic transparency.
@@ -335,10 +405,12 @@ class Trainer:
         WORD_SEP is trivially predictable (every word ends with one) and
         would otherwise mask poor suffix-level performance.
 
-        Returns: (suffix_acc, macro_p, macro_r, macro_f1, wordsep_acc)
+        Returns: (suffix_acc, macro_p, macro_r, macro_f1, wordsep_acc, per_cat)
+        where per_cat maps category name -> (accuracy, token_count).
         """
+        empty_per_cat: Dict[str, Tuple[float, int]] = {c: (0.0, 0) for c in SUFFIX_CATEGORIES}
         if len(targets) == 0:
-            return 0.0, 0.0, 0.0, 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0, 0.0, empty_per_cat
 
         # Isolate the "real" suffix predictions (strip WORD_SEP and BOS).
         is_special = (targets == SPECIAL_WORD_SEP) | (targets == SPECIAL_BOS)
@@ -355,9 +427,27 @@ class Trainer:
             wordsep_acc = 0.0
 
         if len(suffix_targets) == 0:
-            return 0.0, 0.0, 0.0, 0.0, wordsep_acc
+            return 0.0, 0.0, 0.0, 0.0, wordsep_acc, empty_per_cat
 
         suffix_acc = (suffix_preds == suffix_targets).float().mean().item()
+
+        # Per-category breakdown (bucket each real suffix target by semantic group).
+        cat_tensor = _build_suffix_category_tensor(self.model.vocab_size, suffix_targets.device)
+        cat_idx    = cat_tensor[suffix_targets]          # (-1 for anything unclassified)
+        valid_cat  = cat_idx >= 0
+        per_cat: Dict[str, Tuple[float, int]] = {}
+        if valid_cat.any():
+            cidx_v  = cat_idx[valid_cat]
+            correct = (suffix_preds[valid_cat] == suffix_targets[valid_cat]).float()
+            n_cats  = len(SUFFIX_CATEGORIES)
+            totals   = torch.bincount(cidx_v, minlength=n_cats).float()
+            corrects = torch.bincount(cidx_v, weights=correct, minlength=n_cats)
+            for i, name in enumerate(SUFFIX_CATEGORIES):
+                tot = int(totals[i].item())
+                acc = (corrects[i] / totals[i]).item() if tot > 0 else 0.0
+                per_cat[name] = (acc, tot)
+        else:
+            per_cat = empty_per_cat
 
         num_classes = self.model.vocab_size
         tps_mask      = (suffix_preds == suffix_targets)
@@ -371,13 +461,13 @@ class Trainer:
 
         valid_classes = target_counts > 0
         if not valid_classes.any():
-            return suffix_acc, 0.0, 0.0, 0.0, wordsep_acc
+            return suffix_acc, 0.0, 0.0, 0.0, wordsep_acc, per_cat
 
         macro_p  = precision[valid_classes].mean().item()
         macro_r  = recall[valid_classes].mean().item()
         macro_f1 = f1[valid_classes].mean().item()
 
-        return suffix_acc, macro_p, macro_r, macro_f1, wordsep_acc
+        return suffix_acc, macro_p, macro_r, macro_f1, wordsep_acc, per_cat
 
     # ------------------------------------------------------------------
     # Training
@@ -394,6 +484,44 @@ class Trainer:
             # Evict a random entry from the first half to keep a mix of old and recent.
             evict_idx = random.randrange(len(self.replay_buffer) // 2)
             self.replay_buffer.pop(evict_idx)
+        # Class-frequency stats are now stale.
+        self._class_weight_cache = None
+
+    def _compute_class_weights(self) -> Optional[torch.Tensor]:
+        """Inverse-sqrt-frequency class weights computed from the replay buffer.
+
+        Weights for classes that appear are rescaled so their mean is 1.0, which
+        keeps the effective learning rate on non-rare classes roughly unchanged.
+        Classes that never appear (including PAD) get weight 1.0; cross_entropy's
+        ignore_index still filters PAD out of the loss entirely.
+        Cached on the trainer; invalidated whenever the replay buffer changes.
+        """
+        if not config.use_class_weights:
+            return None
+        if self._class_weight_cache is not None:
+            return self._class_weight_cache
+        if not self.replay_buffer:
+            return None
+
+        V = self.model.vocab_size
+        counts = torch.zeros(V, dtype=torch.float, device=self.device)
+        for sids, _ in self.replay_buffer:
+            if not sids:
+                continue
+            ids = torch.as_tensor(sids, dtype=torch.long, device=self.device)
+            counts.scatter_add_(0, ids, torch.ones_like(ids, dtype=torch.float))
+
+        weights = torch.ones(V, dtype=torch.float, device=self.device)
+        present = counts > 0
+        if present.any():
+            inv_sqrt = 1.0 / torch.sqrt(counts[present])
+            # Normalize mean -> 1.0 across present classes.
+            inv_sqrt = inv_sqrt * (inv_sqrt.numel() / inv_sqrt.sum())
+            weights[present] = inv_sqrt
+
+        weights[SPECIAL_PAD] = 1.0  # ignore_index skips PAD anyway; keep sane.
+        self._class_weight_cache = weights
+        return weights
 
     def _build_padded_batch(
         self, seqs: List[Tuple[List[int], List[int]]]
@@ -425,6 +553,32 @@ class Trainer:
             p_mask.to(self.device, non_blocking=non_blocking),
         )
 
+    def _compute_focal_loss(self, logits: torch.Tensor, targets: torch.Tensor, gamma: float = 2.0) -> torch.Tensor:
+        """
+        Computes Focal Loss. 
+        Lowers the weight of easy, highly-confident predictions and forces 
+        the network to focus on hard, misclassified examples.
+        """
+        # Calculate raw cross entropy loss without reduction so we get a loss per token
+        ce_loss = F.cross_entropy(
+            logits.reshape(-1, logits.size(-1)),
+            targets.reshape(-1),
+            reduction='none',
+            ignore_index=SPECIAL_PAD
+        )
+        
+        # Calculate pt (probability of the correct class)
+        pt = torch.exp(-ce_loss)
+        
+        # Apply focal weighting factor: (1 - pt)^gamma
+        focal_loss = ((1 - pt) ** gamma) * ce_loss
+        
+        # Filter out padding tokens and return the mean over valid tokens
+        valid_mask = targets.reshape(-1) != SPECIAL_PAD
+        if valid_mask.any():
+            return focal_loss[valid_mask].mean()
+        return focal_loss.sum() # Fallback if sequence is entirely padding
+
     def _gradient_steps(
         self, seqs: List[Tuple[List[int], List[int]]], n_steps: int
     ) -> float:
@@ -448,11 +602,8 @@ class Trainer:
             self.optimizer.zero_grad()
             with torch.amp.autocast('cuda', enabled=use_amp):
                 logits = self.model(input_s, input_c, pad_mask=in_mask)   # (B, L-1, V)
-                loss   = F.cross_entropy(
-                    logits.reshape(-1, logits.size(-1)),
-                    target.reshape(-1),
-                    ignore_index=SPECIAL_PAD,
-                )
+                loss = self._compute_focal_loss(logits, target)
+                
             final_loss = loss.item()
 
             self.scaler.scale(loss).backward()
@@ -518,14 +669,18 @@ class Trainer:
     def train_bulk(
         self,
         all_seqs: List[Tuple[List[int], List[int]]],
-        batch_size: int = 128,
-        epochs: int = 60,
+        batch_size: int = 64,
+        epochs: int = 150,
+        validation_seqs: Optional[List[Tuple[List[int], List[int]]]] = None,
     ) -> float:
         """Train on a large pre-collected dataset in proper epoch-based batches.
 
         Used by relearn_all to avoid the overhead of per-sentence replay sampling.
         All sequences are added to the replay buffer first, then trained in
         shuffled mini-batches for `epochs` passes.
+
+        If `validation_seqs` is provided, runs a held-out evaluation after every
+        epoch so overfitting can be spotted from the train↔val gap.
 
         Returns the average loss of the final epoch.
         """
@@ -561,11 +716,7 @@ class Trainer:
                 self.optimizer.zero_grad()
                 with torch.amp.autocast('cuda', enabled=use_amp):
                     logits = self.model(input_s, input_c, pad_mask=in_mask)
-                    loss = F.cross_entropy(
-                        logits.reshape(-1, logits.size(-1)),
-                        target.reshape(-1),
-                        ignore_index=SPECIAL_PAD,
-                    )
+                    loss = self._compute_focal_loss(logits, target)
                 
                 # Extract predictions for metrics without affecting computation graph.
                 # Keep WORD_SEP and BOS in the tensors here; _compute_metrics splits
@@ -594,21 +745,121 @@ class Trainer:
                 if all_epoch_targs:
                     epoch_preds_cat = torch.cat(all_epoch_preds)
                     epoch_targs_cat = torch.cat(all_epoch_targs)
-                    suf_acc, prec, rec, f1, sep_acc = self._compute_metrics(
+                    suf_acc, prec, rec, f1, sep_acc, per_cat = self._compute_metrics(
                         epoch_preds_cat, epoch_targs_cat
                     )
-                    print(
-                        f"   Bulk epoch {epoch+1}/{epochs}: avg_loss={avg:.4f} | "
-                        f"SufAcc={suf_acc:.4f} | P={prec:.4f} | R={rec:.4f} | F1={f1:.4f} | "
-                        f"SepAcc={sep_acc:.4f} ({n_batches} batches)"
+                    header = (
+                        f"   Bulk epoch {epoch+1}/{epochs}: loss={avg:.4f} | "
+                        f"SufAcc={suf_acc:.4f} | SepAcc={sep_acc:.4f} | "
+                        f"F1={f1:.4f} P={prec:.4f} R={rec:.4f} ({n_batches} batches)"
                     )
+                    cat_cells = []
+                    for cat in SUFFIX_CATEGORIES:
+                        acc, cnt = per_cat.get(cat, (0.0, 0))
+                        if cnt == 0:
+                            cat_cells.append(f"{cat:>6}:  --- (    0)")
+                        else:
+                            cat_cells.append(f"{cat:>6}: {acc:5.3f} ({cnt:>5})")
+                    # three per row keeps it readable in an 80-col terminal
+                    rows = [cat_cells[i:i+3] for i in range(0, len(cat_cells), 3)]
+                    breakdown = "\n".join("      " + "  ".join(r) for r in rows)
+                    print(header)
+                    print(breakdown)
                 else:
                     print(f"   Bulk epoch {epoch+1}/{epochs}: avg_loss={avg:.4f}  ({n_batches} batches)")
-                    
+
+            # Held-out validation pass to detect overfitting.
+            if validation_seqs:
+                val_stats = self.validate(validation_seqs, batch_size=batch_size)
+                self.val_history.append(val_stats['loss'])
+                if val_stats['loss'] < self.best_val_loss:
+                    self.best_val_loss = val_stats['loss']
+                val_header = (
+                    f"   Validation   : loss={val_stats['loss']:.4f} | "
+                    f"SufAcc={val_stats['suffix_acc']:.4f} | "
+                    f"SepAcc={val_stats['wordsep_acc']:.4f} | "
+                    f"F1={val_stats['f1']:.4f} "
+                    f"P={val_stats['precision']:.4f} R={val_stats['recall']:.4f} "
+                    f"(best={self.best_val_loss:.4f})"
+                )
+                print(val_header)
+
             self.scheduler.step()
 
         self.train_history.append(final_loss)
         return final_loss
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    def validate(
+        self,
+        val_seqs: List[Tuple[List[int], List[int]]],
+        batch_size: int = 64,
+    ) -> Dict[str, float]:
+        """Evaluate the model on held-out sequences.
+
+        Mirrors the training forward pass (causal LM, same PAD handling) but
+        runs under `eval()` + `no_grad()` so it has no effect on weights. Returns
+        a dict with loss and the suite of metrics used by train_bulk's train-side
+        logging, so train↔val numbers are directly comparable.
+        """
+        empty = {
+            'loss': 0.0, 'suffix_acc': 0.0, 'wordsep_acc': 0.0,
+            'precision': 0.0, 'recall': 0.0, 'f1': 0.0, 'n_batches': 0,
+        }
+        if not val_seqs:
+            return empty
+
+        self.model.eval()
+        use_amp = self.device == 'cuda'
+
+        total_loss = 0.0
+        n_batches = 0
+        all_preds: List[torch.Tensor] = []
+        all_targs: List[torch.Tensor] = []
+
+        with torch.no_grad():
+            for start in range(0, len(val_seqs), batch_size):
+                batch = val_seqs[start:start + batch_size]
+                s_t, c_t, p_mask = self._build_padded_batch(batch)
+
+                input_s = s_t[:, :-1]
+                input_c = c_t[:, :-1]
+                target  = s_t[:, 1:]
+                in_mask = p_mask[:, :-1]
+
+                with torch.amp.autocast('cuda', enabled=use_amp):
+                    logits = self.model(input_s, input_c, pad_mask=in_mask)
+                    loss = self._compute_focal_loss(logits, target)
+
+                preds = logits.argmax(dim=-1).reshape(-1)
+                targs = target.reshape(-1)
+                valid_mask = targs != SPECIAL_PAD
+                all_preds.append(preds[valid_mask].cpu())
+                all_targs.append(targs[valid_mask].cpu())
+
+                total_loss += loss.item()
+                n_batches += 1
+
+        if n_batches == 0:
+            return empty
+
+        avg_loss = total_loss / n_batches
+        preds_cat = torch.cat(all_preds) if all_preds else torch.empty(0, dtype=torch.long)
+        targs_cat = torch.cat(all_targs) if all_targs else torch.empty(0, dtype=torch.long)
+        suf_acc, prec, rec, f1, sep_acc, _ = self._compute_metrics(preds_cat, targs_cat)
+
+        return {
+            'loss':        avg_loss,
+            'suffix_acc':  suf_acc,
+            'wordsep_acc': sep_acc,
+            'precision':   prec,
+            'recall':      rec,
+            'f1':          f1,
+            'n_batches':   n_batches,
+        }
 
     def train_persistent(
         self,

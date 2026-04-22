@@ -111,6 +111,15 @@ def form_for_conjugation_1pl(word, suffix_obj):
     iz_base = Suffix._apply_major_harmony(word, iz_base, suffix_obj.has_major_harmony)
     iz_base = Suffix._apply_minor_harmony(word, iz_base, suffix_obj.has_minor_harmony)
 
+
+    # 3. Durum eğer zarf eki e üstüne gelirse lim lım olması gerkiyor. Henüz ek bilgisi görmediği için
+    # yalnızca e-a ile kontrol edebilirim:
+    if word[-1:] in ['e','a']:
+        lim_base = "lim"
+        lim_base = Suffix._apply_major_harmony(word, lim_base, suffix_obj.has_major_harmony)
+        return_list.append(lim_base)
+
+
     if word and word[-1] in VOWELS:
         return_list.append('y' + iz_base)
     else:

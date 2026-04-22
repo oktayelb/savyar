@@ -29,19 +29,6 @@ class Predicative(Suffix):
 
 
 
-def form_for_continuous_iyor(word, suffix_obj):
-    base = "i"
-    base = Suffix._apply_major_harmony(word, base, suffix_obj.has_major_harmony)
-    base = Suffix._apply_minor_harmony(word, base, suffix_obj.has_minor_harmony)
-
-    base = base+"yor"
-    return [base]
-
-## bu ekin şu anki hali yanlış, aslında bu ek fiilken i eki alıp isim olmuş sözcüklere eklenir. 
-# bak-  bakı     bakı yorum.  ölü yorum , ölü oluyorum tarzında 
-# ama bekleyorum vs gibi örneklerdeki düzensizliklerden ötürü şimdilik böyle devam edecek 
-## olumsuz fiile ekleşebilenler.
-continuous_iyor = Predicative("continuous_iyor" , "iyor", form_function=form_for_continuous_iyor,)
 wish_suffix     = Predicative("wish_suffix"     , "se")
 pasttense_di    = Predicative("pasttense_di"    , "di")
 

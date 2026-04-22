@@ -82,12 +82,11 @@ def form_for_active_it(word, suffix_obj):
 
 reflexive_ik    = VerbDerivationalSuffix("reflexive_ik"    , "ik" )
 reflexive_is    = VerbDerivationalSuffix("reflexive_is"    , "iş" )
-active_it       = VerbDerivationalSuffix("active_it"       , "it" ) ## çıkart anlayamaz,
+active_it       = VerbDerivationalSuffix("active_it"       , "it", form_function=form_for_active_it )
 active_dir      = VerbDerivationalSuffix("active_dir"      , "dir")
 ##ikisinin ayrı olması iyi değil, belki tekleştirilebilir.
 active_ir       = VerbDerivationalSuffix("active_ir"       , "ir" )
 active_er       = VerbDerivationalSuffix("active_er"       , "er" )
-
 #bazen n olmasını tutmalı mı?
 passive_il      = VerbDerivationalSuffix("passive_il"      , "il" ,form_function=form_for_passive_il)
 reflexive_in    = VerbDerivationalSuffix("reflexive_in"    , "in" )

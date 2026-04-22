@@ -16,18 +16,20 @@ torch.backends.cudnn.benchmark = True
 # The vocabulary is laid out as:
 #   [0]            → PAD
 #   [1]            → WORD_SEP  (boundary between words in a sentence)
-#   [2]            → BOS       (beginning-of-sequence, prepended to every input)
-#   [3 .. V+2]     → suffix IDs  (suffix_idx + 3, where suffix_idx is 0-based)
-#   [V+3 .. ]      → closed-class word IDs
+#   [2]            → BOS       (beginning-of-sequence, kept for layout continuity)
+#   [3]            → MASK      (MLM masking placeholder)
+#   [4 .. V+3]     → suffix IDs  (suffix_idx + 4, where suffix_idx is 0-based)
+#   [V+4 .. ]      → closed-class word IDs
 #
 # Category IDs:
-#   0 → Noun, 1 → Verb, 2 → SPECIAL (PAD / WORD_SEP / BOS), 3 → ClosedClass
+#   0 → Noun, 1 → Verb, 2 → SPECIAL (PAD / WORD_SEP / BOS / MASK), 3 → ClosedClass
 
 SPECIAL_PAD           = 0
 SPECIAL_WORD_SEP      = 1
 SPECIAL_BOS           = 2          # beginning-of-sequence
-SUFFIX_OFFSET         = 3          # suffix IDs start here
-CATEGORY_SPECIAL      = 2          # category ID for PAD / WORD_SEP / BOS
+SPECIAL_MASK          = 3          # MLM mask token
+SUFFIX_OFFSET         = 4          # suffix IDs start here (shifted to make room for MASK)
+CATEGORY_SPECIAL      = 2          # category ID for PAD / WORD_SEP / BOS / MASK
 CATEGORY_CLOSED_CLASS = 3          # category ID for closed-class word tokens
 
 # CLOSED_CLASS_OFFSET is computed at runtime (SUFFIX_OFFSET + len(ALL_SUFFIXES))
@@ -173,16 +175,16 @@ def build_sentence_sequence(
 
 class SentenceDisambiguator(nn.Module):
     """
-    Causal (decoder-only) Transformer that models the joint distribution
-    over suffix token sequences at the sentence level.
+    Bidirectional (encoder-only) Transformer trained with Masked Language
+    Modeling over suffix token sequences at the sentence level.
 
-    Trained like a language model: given a confirmed sentence decomposition
-    as a flat token sequence, minimise cross-entropy of predicting each next
-    token from all previous ones.
+    Training: 15% of eligible tokens are replaced with MASK; the model
+    reconstructs them from their full left+right context.
 
-    At inference time, candidate decompositions for each word are scored by
-    summing the log-probabilities assigned to their tokens in context, so
-    every word's disambiguation is informed by all surrounding words.
+    Inference: candidate decompositions are scored via Pseudo-Log-Likelihood
+    (PLL) — for each candidate token we mask it in isolation, forward once,
+    and collect the log-prob of the true token. Summing gives a score that
+    is informed by the entire committed sentence, not just the left prefix.
     """
 
     def __init__(self, suffix_vocab_size: int, closed_class_vocab_size: int = 0):
@@ -196,14 +198,15 @@ class SentenceDisambiguator(nn.Module):
             [0]                                 → PAD
             [1]                                 → WORD_SEP
             [2]                                 → BOS
-            [3 .. suffix_vocab_size+2]          → suffix IDs
-            [suffix_vocab_size+3 .. total-1]    → closed-class word IDs
+            [3]                                 → MASK
+            [4 .. suffix_vocab_size+3]          → suffix IDs
+            [suffix_vocab_size+4 .. total-1]    → closed-class word IDs
         Category IDs:
-            0 = Noun, 1 = Verb, 2 = Special (PAD/WORD_SEP/BOS), 3 = ClosedClass
+            0 = Noun, 1 = Verb, 2 = Special (PAD/WORD_SEP/BOS/MASK), 3 = ClosedClass
         """
         super().__init__()
         self.embed_dim = config.embed_dim
-        # Full token vocab: PAD + WORD_SEP + suffixes + closed-class words
+        # Full token vocab: PAD + WORD_SEP + BOS + MASK + suffixes + closed-class words
         self.vocab_size = SUFFIX_OFFSET + suffix_vocab_size + closed_class_vocab_size
 
         # Token embeddings (shared with LM head via weight tying)
@@ -216,7 +219,7 @@ class SentenceDisambiguator(nn.Module):
         # Project concatenated embeddings → model dim
         self.input_proj = nn.Linear(self.embed_dim * 3, self.embed_dim)
 
-        # Causal (decoder) transformer layers
+        # Bidirectional encoder layers (no causal mask)
         layer = nn.TransformerEncoderLayer(
             d_model=self.embed_dim,
             nhead=config.num_heads,
@@ -245,13 +248,6 @@ class SentenceDisambiguator(nn.Module):
             elif 'bias' in name:
                 nn.init.zeros_(p)
 
-    @staticmethod
-    def _causal_mask(length: int, device: torch.device) -> torch.Tensor:
-        """Upper-triangular mask so position i can only attend to 0..i."""
-        return torch.triu(
-            torch.ones(length, length, dtype=torch.bool, device=device), diagonal=1
-        )
-
     def forward(
         self,
         suffix_ids:   torch.Tensor,   # (B, L)
@@ -260,8 +256,9 @@ class SentenceDisambiguator(nn.Module):
     ) -> torch.Tensor:
         """
         Returns logits of shape (B, L, vocab_size).
-        Logits[b, i, :] = distribution over the token at position i+1
-        given positions 0..i  (standard causal LM).
+        Each position attends to the full sequence (bidirectional) — so
+        logits[b, i, :] is the MLM distribution over what token belongs at
+        position i given all surrounding positions.
         """
         B, L = suffix_ids.shape
         pos = torch.arange(L, device=suffix_ids.device).unsqueeze(0).expand(B, L)
@@ -274,9 +271,7 @@ class SentenceDisambiguator(nn.Module):
 
         x = self.input_proj(x)              # (B, L, embed_dim)
 
-        causal = self._causal_mask(L, suffix_ids.device)
-
-        x = self.transformer(x, mask=causal, src_key_padding_mask=pad_mask)
+        x = self.transformer(x, src_key_padding_mask=pad_mask)
 
         return self.lm_head(x)              # (B, L, vocab_size)
 
@@ -287,22 +282,55 @@ class SentenceDisambiguator(nn.Module):
         pad_mask:     Optional[torch.Tensor] = None,  # (B, L)
     ) -> torch.Tensor:
         """
-        Returns token-level log-probs of shape (B, L-1):
-            log P(token[i] | token[0..i-1])   for i in 1..L-1.
+        Per-token pseudo-log-likelihood of shape (B, L).
 
-        Used during scoring to evaluate candidate decompositions.
+        For each non-special, non-pad position i, we mask the token at i in
+        isolation, forward, and take the log-prob the model assigns to the
+        true token. Special tokens (PAD / WORD_SEP / BOS / MASK) contribute 0.
+
+        Cost: O(K) forward passes per batch where K is the total number of
+        eligible positions across the batch (all K stacked into one forward).
         """
-        logits = self.forward(suffix_ids, category_ids, pad_mask=pad_mask)  # (B, L, V)
-        log_p  = F.log_softmax(logits[:, :-1, :], dim=-1)  # (B, L-1, V)
-        targets = suffix_ids[:, 1:]                          # (B, L-1)
-        token_log_probs = log_p.gather(dim=-1, index=targets.unsqueeze(-1)).squeeze(-1)  # (B, L-1)
+        B, L = suffix_ids.shape
+        device = suffix_ids.device
+        result = torch.zeros(B, L, dtype=torch.float, device=device)
 
+        # Eligible positions = real suffix / closed-class tokens (not specials, not pad).
+        is_special = (
+            (suffix_ids == SPECIAL_PAD)
+            | (suffix_ids == SPECIAL_WORD_SEP)
+            | (suffix_ids == SPECIAL_BOS)
+            | (suffix_ids == SPECIAL_MASK)
+        )
         if pad_mask is not None:
-            # Mask out padding tokens in the target
-            target_mask = pad_mask[:, 1:]
-            token_log_probs.masked_fill_(target_mask, 0.0)
+            is_special = is_special | pad_mask
+        eligible = ~is_special
 
-        return token_log_probs
+        flat_eligible = eligible.reshape(-1)
+        if not flat_eligible.any():
+            return result
+
+        flat_idx   = flat_eligible.nonzero(as_tuple=False).squeeze(-1)  # (K,)
+        batch_ids  = flat_idx // L                                      # (K,)
+        pos_ids    = flat_idx %  L                                      # (K,)
+        K          = flat_idx.numel()
+
+        batched_s = suffix_ids[batch_ids].clone()
+        batched_c = category_ids[batch_ids].clone()
+        row_range = torch.arange(K, device=device)
+        batched_s[row_range, pos_ids] = SPECIAL_MASK
+
+        batched_pad = pad_mask[batch_ids] if pad_mask is not None else None
+
+        logits = self.forward(batched_s, batched_c, pad_mask=batched_pad)  # (K, L, V)
+        # Only need logits at the masked position of each row.
+        slot_logits = logits[row_range, pos_ids]                           # (K, V)
+        log_p       = F.log_softmax(slot_logits, dim=-1)                   # (K, V)
+        true_toks   = suffix_ids[batch_ids, pos_ids]                       # (K,)
+        scores      = log_p.gather(1, true_toks.unsqueeze(-1)).squeeze(-1) # (K,)
+
+        result[batch_ids, pos_ids] = scores
+        return result
 
 
 # ============================================================================
@@ -312,10 +340,12 @@ class SentenceDisambiguator(nn.Module):
 class Trainer:
     """
     Wraps SentenceDisambiguator and handles:
-      - Causal LM training on confirmed sentence decompositions
-      - Context-aware candidate scoring at inference time
+      - Masked Language Model training on confirmed sentence decompositions
+      - Context-aware candidate scoring at inference time (PLL)
       - Checkpointing
     """
+
+    MLM_MASK_PROB = 0.15
 
     def __init__(self, model: SentenceDisambiguator):
         self.model = model
@@ -579,31 +609,72 @@ class Trainer:
             return focal_loss[valid_mask].mean()
         return focal_loss.sum() # Fallback if sequence is entirely padding
 
+    def _mlm_mask_batch(
+        self,
+        s_t:    torch.Tensor,   # (B, L) original suffix ids
+        p_mask: torch.Tensor,   # (B, L) True = padding
+        mask_prob: float = MLM_MASK_PROB,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Apply MLM masking to a padded batch.
+
+        Returns:
+            masked_s: copy of s_t where ~mask_prob of eligible tokens are
+                      replaced with SPECIAL_MASK. Categories are left untouched
+                      — the model can still see that the masked slot sits in
+                      a noun/verb context.
+            loss_target: copy of s_t where unmasked and padding positions are
+                         set to SPECIAL_PAD so focal loss (ignore_index=PAD)
+                         scores only the masked tokens.
+
+        Eligible tokens = any token that is not PAD / WORD_SEP / BOS.
+        MASK cannot appear in input yet (s_t is freshly built) so no filter
+        for it here.
+        """
+        eligible = (
+            (s_t != SPECIAL_PAD)
+            & (s_t != SPECIAL_WORD_SEP)
+            & (s_t != SPECIAL_BOS)
+            & (~p_mask)
+        )
+        draws        = torch.rand_like(s_t, dtype=torch.float)
+        should_mask  = eligible & (draws < mask_prob)
+
+        masked_s = s_t.clone()
+        masked_s[should_mask] = SPECIAL_MASK
+
+        loss_target = s_t.clone()
+        loss_target[~should_mask] = SPECIAL_PAD  # focal loss ignores PAD
+        return masked_s, loss_target
+
     def _gradient_steps(
         self, seqs: List[Tuple[List[int], List[int]]], n_steps: int
     ) -> float:
         """
-        Run `n_steps` gradient updates on a padded batch of sequences.
+        Run `n_steps` MLM gradient updates on a padded batch of sequences.
+        A fresh random mask is drawn each step so the same sequence produces
+        different training signal across iterations.
         Returns the loss from the final step.
         """
         s_t, c_t, p_mask = self._build_padded_batch(seqs)
-
-        # Causal LM: predict token[i] from tokens[0..i-1]
-        input_s  = s_t[:, :-1]
-        input_c  = c_t[:, :-1]
-        target   = s_t[:, 1:]
-        in_mask  = p_mask[:, :-1]   # padding mask for the input side
 
         self.model.train()
         final_loss = 0.0
         use_amp = self.device == 'cuda'
 
         for _ in range(n_steps):
+            masked_s, target = self._mlm_mask_batch(s_t, p_mask)
+
+            # If nothing got masked in this draw (e.g. tiny batch, unlucky rand),
+            # there is no learnable signal — skip the step.
+            if (target != SPECIAL_PAD).sum() == 0:
+                continue
+
             self.optimizer.zero_grad()
             with torch.amp.autocast('cuda', enabled=use_amp):
-                logits = self.model(input_s, input_c, pad_mask=in_mask)   # (B, L-1, V)
+                logits = self.model(masked_s, c_t, pad_mask=p_mask)   # (B, L, V)
                 loss = self._compute_focal_loss(logits, target)
-                
+
             final_loss = loss.item()
 
             self.scaler.scale(loss).backward()
@@ -639,7 +710,7 @@ class Trainer:
         Args:
             word_chains: one encoded chain per word (empty chain = bare root).
         Returns:
-            cross-entropy loss from the final gradient step.
+            MLM focal loss from the final gradient step.
         """
         suffix_ids, category_ids = build_sentence_sequence(word_chains)
 
@@ -707,20 +778,21 @@ class Trainer:
             for start in range(0, len(data), batch_size):
                 batch = data[start:start + batch_size]
                 s_t, c_t, p_mask = self._build_padded_batch(batch)
-                input_s  = s_t[:, :-1]
-                input_c  = c_t[:, :-1]
-                target   = s_t[:, 1:]
-                in_mask  = p_mask[:, :-1]
+
+                masked_s, target = self._mlm_mask_batch(s_t, p_mask)
+                if (target != SPECIAL_PAD).sum() == 0:
+                    continue  # no tokens got masked in this draw
 
                 self.model.train()
                 self.optimizer.zero_grad()
                 with torch.amp.autocast('cuda', enabled=use_amp):
-                    logits = self.model(input_s, input_c, pad_mask=in_mask)
+                    logits = self.model(masked_s, c_t, pad_mask=p_mask)
                     loss = self._compute_focal_loss(logits, target)
-                
-                # Extract predictions for metrics without affecting computation graph.
-                # Keep WORD_SEP and BOS in the tensors here; _compute_metrics splits
-                # them out into suffix-level and word-boundary accuracies separately.
+
+                # Metrics: only the masked positions were scored, so preds and
+                # targets below live on the same subset. _compute_metrics splits
+                # suffix tokens from WORD_SEP internally (BOS/WORD_SEP are filtered
+                # from masking upstream, so they won't appear here anyway).
                 with torch.no_grad():
                     preds = logits.argmax(dim=-1).reshape(-1)
                     targs = target.reshape(-1)
@@ -800,10 +872,11 @@ class Trainer:
     ) -> Dict[str, float]:
         """Evaluate the model on held-out sequences.
 
-        Mirrors the training forward pass (causal LM, same PAD handling) but
-        runs under `eval()` + `no_grad()` so it has no effect on weights. Returns
-        a dict with loss and the suite of metrics used by train_bulk's train-side
-        logging, so train↔val numbers are directly comparable.
+        Mirrors the training forward pass (MLM, same PAD handling) but
+        runs under `eval()` + `no_grad()` so it has no effect on weights. A
+        fresh mask is drawn per batch; over a full val pass the noise averages
+        out. Returns loss and the suite of metrics used by train_bulk's
+        train-side logging, so train↔val numbers are directly comparable.
         """
         empty = {
             'loss': 0.0, 'suffix_acc': 0.0, 'wordsep_acc': 0.0,
@@ -825,13 +898,12 @@ class Trainer:
                 batch = val_seqs[start:start + batch_size]
                 s_t, c_t, p_mask = self._build_padded_batch(batch)
 
-                input_s = s_t[:, :-1]
-                input_c = c_t[:, :-1]
-                target  = s_t[:, 1:]
-                in_mask = p_mask[:, :-1]
+                masked_s, target = self._mlm_mask_batch(s_t, p_mask)
+                if (target != SPECIAL_PAD).sum() == 0:
+                    continue
 
                 with torch.amp.autocast('cuda', enabled=use_amp):
-                    logits = self.model(input_s, input_c, pad_mask=in_mask)
+                    logits = self.model(masked_s, c_t, pad_mask=p_mask)
                     loss = self._compute_focal_loss(logits, target)
 
                 preds = logits.argmax(dim=-1).reshape(-1)
@@ -888,29 +960,32 @@ class Trainer:
         right_chains:   Optional[List[List[Tuple[int, int]]]] = None,  # future words (optional)
     ) -> List[float]:
         """
-        Score each candidate chain for the *current* word given sentence context.
+        Pseudo-Log-Likelihood scoring of each candidate chain for the
+        *current* word, conditioned on optional left and right context.
 
-        For each candidate we build:
-            context_tokens  +  candidate_tokens  +  WORD_SEP
-        and sum the log-probabilities of the candidate tokens (and their SEP)
-        conditioned on the context.  Higher is better.
+        For each candidate we build the full sequence
+            [BOS] + left_context + candidate + [WORD_SEP] + right_context
+        and score the candidate's own suffix tokens only. For token i of the
+        candidate we mask position (prefix_len + i) and read off the model's
+        log-prob for the true token. The candidate's score is the sum of
+        these per-token PLL values. Higher is better.
+
+        The trailing WORD_SEP and the right-context tokens are *kept visible*
+        — they form the right context the model gets to peek at. Bare-root
+        candidates have no tokens to score and return 0.0.
+
+        All K masked variants of a single candidate are stacked into one
+        forward pass so the cost is one forward per candidate (not per token).
 
         Args:
             context_chains: encoded chains for words already chosen (left).
             candidates:     encoded chains to rank for the current word.
             right_chains:   encoded chains for future words (right context).
-                            If provided, they are appended after the candidate
-                            so the model has bidirectional context during scoring.
-                            (This requires the right context to already be committed,
-                            e.g. in a re-ranking pass.)
         Returns:
-            List of log-prob scores, one per candidate.
+            List of PLL scores, one per candidate.
         """
         self.model.eval()
 
-        # Build the fixed prefix: BOS + raw left-context tokens.
-        # Using _chain_tokens (not build_sentence_sequence) avoids a double BOS
-        # when we concatenate ctx + cand + right fragments below.
         ctx_s, ctx_c     = _chain_tokens(context_chains) if context_chains else ([], [])
         right_s, right_c = _chain_tokens(right_chains)   if right_chains   else ([], [])
 
@@ -921,88 +996,38 @@ class Trainer:
         scores: List[float] = []
         with torch.no_grad():
             for chain in candidates:
-                # Raw candidate tokens (no BOS): chain + WORD_SEP.
-                # Bare root → cand = [WORD_SEP], cand_len == 1 (still scorable).
+                # _chain_tokens([chain]) → chain_tokens + [WORD_SEP].
                 cand_s, cand_c = _chain_tokens([chain])
-                cand_len = len(cand_s)
+                # We score the suffix tokens of the candidate, not the trailing SEP.
+                num_cand_toks = len(cand_s) - 1
+                if num_cand_toks <= 0:
+                    # Bare root: nothing to score via PLL.
+                    scores.append(0.0)
+                    continue
 
                 full_s = prefix_s + cand_s + right_s
                 full_c = prefix_c + cand_c + right_c
+                L = len(full_s)
 
-                s_t, c_t = self._to_tensor(full_s, full_c)
-                lp = self.model.log_probs(s_t, c_t)   # (1, L-1)
+                base_s = torch.tensor(full_s, dtype=torch.long, device=self.device)
+                base_c = torch.tensor(full_c, dtype=torch.long, device=self.device)
 
-                # lp[0, i] = log P(full_s[i+1] | full_s[0..i]).
-                # Candidate tokens occupy positions prefix_len .. prefix_len+cand_len-1
-                # in full_s, so they are predicted by lp[0, prefix_len-1 : prefix_len-1+cand_len].
-                # Because BOS is always present, prefix_len >= 1, so start >= 0 with no clamping.
-                start = prefix_len - 1
-                end   = start + cand_len
-                scores.append(lp[0, start:end].sum().item())
+                # K copies of the full sequence; mask a different candidate pos in each.
+                batched_s = base_s.unsqueeze(0).expand(num_cand_toks, L).clone()
+                batched_c = base_c.unsqueeze(0).expand(num_cand_toks, L).clone()
+
+                positions = torch.arange(num_cand_toks, device=self.device) + prefix_len
+                rows      = torch.arange(num_cand_toks, device=self.device)
+                batched_s[rows, positions] = SPECIAL_MASK
+
+                logits = self.model(batched_s, batched_c)                # (K, L, V)
+                slot   = logits[rows, positions]                         # (K, V)
+                log_p  = F.log_softmax(slot, dim=-1)
+                true_toks = base_s[positions]                            # (K,)
+                per_tok   = log_p.gather(1, true_toks.unsqueeze(-1)).squeeze(-1)
+                scores.append(per_tok.sum().item())
 
         return scores
-
-    def fast_batch_predict(
-        self,
-        all_candidates: List[List[List[Tuple[int, int]]]],
-        batch_size: int = 512
-    ) -> List[int]:
-        """
-        Evaluates a large list of words, each having multiple candidate chains,
-        using padded GPU batches to maximize throughput.
-        Returns a list of best_indices (one per word).
-        """
-        self.model.eval()
-
-        # Flatten into one list of jobs: (word_idx, cand_idx, suffix_seq, cat_seq).
-        # build_sentence_sequence prepends BOS, so every seq is length >= 2.
-        flat_jobs = []
-        for w_idx, candidates in enumerate(all_candidates):
-            for c_idx, chain in enumerate(candidates):
-                cand_s, cand_c = build_sentence_sequence([chain])
-                flat_jobs.append((w_idx, c_idx, cand_s, cand_c))
-
-        if not flat_jobs:
-            return []
-
-        # w_idx -> list of scores (same order as candidates)
-        scores_map = {w_idx: [] for w_idx in range(len(all_candidates))}
-
-        with torch.no_grad():
-            for i in range(0, len(flat_jobs), batch_size):
-                batch = flat_jobs[i:i + batch_size]
-                max_len = max(len(job[2]) for job in batch)
-                bsz = len(batch)
-                
-                # Allocate tensors
-                s_t = torch.full((bsz, max_len), SPECIAL_PAD, dtype=torch.long, device=self.device)
-                c_t = torch.full((bsz, max_len), CATEGORY_SPECIAL, dtype=torch.long, device=self.device)
-                p_mask = torch.ones((bsz, max_len), dtype=torch.bool, device=self.device) # True = pad
-
-                for b_idx, (_, _, seq_s, seq_c) in enumerate(batch):
-                    seq_len = len(seq_s)
-                    s_t[b_idx, :seq_len] = torch.tensor(seq_s, dtype=torch.long, device=self.device)
-                    c_t[b_idx, :seq_len] = torch.tensor(seq_c, dtype=torch.long, device=self.device)
-                    p_mask[b_idx, :seq_len] = False
-
-                lp = self.model.log_probs(s_t, c_t, pad_mask=p_mask) # (bsz, max_len - 1)
-
-                # Sum the log probabilities for each sequence
-                sums = lp.sum(dim=1).tolist()
-
-                for b_idx, job in enumerate(batch):
-                    scores_map[job[0]].append(sums[b_idx])
-
-        # Pick best index per word
-        best_indices = []
-        for w_idx in range(len(all_candidates)):
-            c_scores = scores_map[w_idx]
-            if not c_scores:
-                best_indices.append(0)
-            else:
-                best_indices.append(self._get_best_index(c_scores))
-
-        return best_indices
 
     def predict(
         self,

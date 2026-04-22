@@ -276,11 +276,14 @@ class WorkflowEngine:
             self.save()
         return loss
 
-    def relearn_all(self) -> Tuple[int, int]:
-        from ml.ml_ranking_model import build_sentence_sequence
-        entries = self.data_manager.get_valid_decomps()
+    def _entries_to_sequences(self, entries: List[Dict]) -> Tuple[List[Tuple[List[int], List[int]]], int, int]:
+        """Convert logged/treebank-adapted entries into flat (suffix_ids, category_ids) sequences.
 
-        all_seqs = []   # (suffix_ids, category_ids) flat sentence sequences
+        Returns (sequences, total_words, skipped).
+        """
+        from ml.ml_ranking_model import build_sentence_sequence
+
+        all_seqs: List[Tuple[List[int], List[int]]] = []
         skipped = 0
         total_words = 0
 
@@ -298,7 +301,6 @@ class WorkflowEngine:
                             all_seqs.append((sids, cids))
                             total_words += len(chains)
                 else:
-                    # Word entry — encode directly from stored suffix names (no decomposer)
                     sfx_dicts = entry.get('suffixes', [])
                     if sfx_dicts:
                         encoded = morph.encode_suffix_names(sfx_dicts)
@@ -312,9 +314,27 @@ class WorkflowEngine:
             except Exception:
                 skipped += 1
 
+        return all_seqs, total_words, skipped
+
+    def _load_validation_sequences(self) -> List[Tuple[List[int], List[int]]]:
+        """Load and encode the held-out validation set as training sequences."""
+        entries = self.data_manager.get_validation_entries()
+        if not entries:
+            return []
+        val_seqs, val_words, _ = self._entries_to_sequences(entries)
+        if val_seqs:
+            print(f"   Validation set loaded: {len(val_seqs)} sequences ({val_words} words)")
+        return val_seqs
+
+    def relearn_all(self) -> Tuple[int, int]:
+        entries = self.data_manager.get_valid_decomps()
+        all_seqs, total_words, skipped = self._entries_to_sequences(entries)
+
+        val_seqs = self._load_validation_sequences()
+
         if all_seqs:
             print(f"   Bulk training on {len(all_seqs)} sequences ({total_words} words)...")
-            self.trainer.train_bulk(all_seqs)
+            self.trainer.train_bulk(all_seqs, validation_seqs=val_seqs)
 
         self.training_count += total_words
         self.save()

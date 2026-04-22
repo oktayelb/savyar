@@ -650,12 +650,16 @@ class Trainer:
         all_seqs: List[Tuple[List[int], List[int]]],
         batch_size: int = 64,
         epochs: int = 310,
+        validation_seqs: Optional[List[Tuple[List[int], List[int]]]] = None,
     ) -> float:
         """Train on a large pre-collected dataset in proper epoch-based batches.
 
         Used by relearn_all to avoid the overhead of per-sentence replay sampling.
         All sequences are added to the replay buffer first, then trained in
         shuffled mini-batches for `epochs` passes.
+
+        If `validation_seqs` is provided, runs a held-out evaluation after every
+        epoch so overfitting can be spotted from the train↔val gap.
 
         Returns the average loss of the final epoch.
         """
@@ -749,11 +753,103 @@ class Trainer:
                     print(breakdown)
                 else:
                     print(f"   Bulk epoch {epoch+1}/{epochs}: avg_loss={avg:.4f}  ({n_batches} batches)")
-                    
+
+            # Held-out validation pass to detect overfitting.
+            if validation_seqs:
+                val_stats = self.validate(validation_seqs, batch_size=batch_size)
+                self.val_history.append(val_stats['loss'])
+                if val_stats['loss'] < self.best_val_loss:
+                    self.best_val_loss = val_stats['loss']
+                val_header = (
+                    f"   Validation   : loss={val_stats['loss']:.4f} | "
+                    f"SufAcc={val_stats['suffix_acc']:.4f} | "
+                    f"SepAcc={val_stats['wordsep_acc']:.4f} | "
+                    f"F1={val_stats['f1']:.4f} "
+                    f"P={val_stats['precision']:.4f} R={val_stats['recall']:.4f} "
+                    f"(best={self.best_val_loss:.4f})"
+                )
+                print(val_header)
+
             self.scheduler.step()
 
         self.train_history.append(final_loss)
         return final_loss
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    def validate(
+        self,
+        val_seqs: List[Tuple[List[int], List[int]]],
+        batch_size: int = 64,
+    ) -> Dict[str, float]:
+        """Evaluate the model on held-out sequences.
+
+        Mirrors the training forward pass (causal LM, same PAD handling) but
+        runs under `eval()` + `no_grad()` so it has no effect on weights. Returns
+        a dict with loss and the suite of metrics used by train_bulk's train-side
+        logging, so train↔val numbers are directly comparable.
+        """
+        empty = {
+            'loss': 0.0, 'suffix_acc': 0.0, 'wordsep_acc': 0.0,
+            'precision': 0.0, 'recall': 0.0, 'f1': 0.0, 'n_batches': 0,
+        }
+        if not val_seqs:
+            return empty
+
+        self.model.eval()
+        use_amp = self.device == 'cuda'
+
+        total_loss = 0.0
+        n_batches = 0
+        all_preds: List[torch.Tensor] = []
+        all_targs: List[torch.Tensor] = []
+
+        with torch.no_grad():
+            for start in range(0, len(val_seqs), batch_size):
+                batch = val_seqs[start:start + batch_size]
+                s_t, c_t, p_mask = self._build_padded_batch(batch)
+
+                input_s = s_t[:, :-1]
+                input_c = c_t[:, :-1]
+                target  = s_t[:, 1:]
+                in_mask = p_mask[:, :-1]
+
+                with torch.amp.autocast('cuda', enabled=use_amp):
+                    logits = self.model(input_s, input_c, pad_mask=in_mask)
+                    loss = F.cross_entropy(
+                        logits.reshape(-1, logits.size(-1)),
+                        target.reshape(-1),
+                        ignore_index=SPECIAL_PAD,
+                    )
+
+                preds = logits.argmax(dim=-1).reshape(-1)
+                targs = target.reshape(-1)
+                valid_mask = targs != SPECIAL_PAD
+                all_preds.append(preds[valid_mask].cpu())
+                all_targs.append(targs[valid_mask].cpu())
+
+                total_loss += loss.item()
+                n_batches += 1
+
+        if n_batches == 0:
+            return empty
+
+        avg_loss = total_loss / n_batches
+        preds_cat = torch.cat(all_preds) if all_preds else torch.empty(0, dtype=torch.long)
+        targs_cat = torch.cat(all_targs) if all_targs else torch.empty(0, dtype=torch.long)
+        suf_acc, prec, rec, f1, sep_acc, _ = self._compute_metrics(preds_cat, targs_cat)
+
+        return {
+            'loss':        avg_loss,
+            'suffix_acc':  suf_acc,
+            'wordsep_acc': sep_acc,
+            'precision':   prec,
+            'recall':      rec,
+            'f1':          f1,
+            'n_batches':   n_batches,
+        }
 
     def train_persistent(
         self,

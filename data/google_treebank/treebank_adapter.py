@@ -1159,9 +1159,12 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
                 })
                 continue
 
-            is_proper = any(
-                layer["features"].get("Proper") == "True"
-                for layer in word["feature_layers"]
+            is_proper = (
+                any(
+                    layer["features"].get("Proper") == "True"
+                    for layer in word["feature_layers"]
+                )
+                or (lemma and lemma[0].isupper())
             )
             tb_verb = any(
                 (layer["upos"] == "VERB" and layer["xpos"] != "NOMP")

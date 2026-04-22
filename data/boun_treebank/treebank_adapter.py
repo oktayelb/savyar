@@ -1214,8 +1214,10 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
                 })
                 continue
 
-            is_proper = head_upos == "PROPN" or any(
-                l["upos"] == "PROPN" for l in word["feature_layers"]
+            is_proper = (
+                head_upos == "PROPN"
+                or any(l["upos"] == "PROPN" for l in word["feature_layers"])
+                or (lemma and lemma[0].isupper())
             )
             tb_verb = any(
                 (l["upos"] == "VERB" and any(

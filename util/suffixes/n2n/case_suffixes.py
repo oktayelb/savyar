@@ -46,13 +46,15 @@ class CaseSuffix(Suffix):
         base = Suffix._apply_minor_harmony(word, base, suffix_obj.has_minor_harmony)
         base = Suffix._apply_consonant_hardening(word, base)
 
-        if word and word[-1] in ["a","e","ı","i","o","ö","u","ü"]:  # If the last character is a vowel, we need to consider buffer consonants
+        candidates.append(base)  # Always include the base form (e.g. kapı+dan, kalma+da)
+
+        # Buffer consonants only apply when the stem ends in a vowel.
+        # 'n' covers post-possessive chains (evi-n-den); 'y' covers vowel+vowel (kapı-y-ı).
+        if word and word[-1] in ["a","e","ı","i","o","ö","u","ü"]:
             candidates.append('n' + base)
 
             if suffix_obj.needs_y_buffer:
                 candidates.append('y' + base)
-        else:
-            candidates.append(base)
 
         return candidates
 

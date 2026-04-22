@@ -28,7 +28,7 @@ class MarkingKi(Suffix):
     def _default_form(word, suffix_obj):
 
         if word[-2:] in ["de", "da", "te", "ta","in","ın"]:
-            return "ki"
+            return ["ki"]
         return ["ki", "kü"]
 
 ###form fonksiyonu mu dizsek?

@@ -5,6 +5,7 @@ class FilePaths:
     valid_decompositions_path: str  = "data/sentence_valid_decompositions.jsonl"
     treebank_adapted_path: str      = "data/metu_treebank/treebank_adapted.jsonl"
     google_treebank_adapted_path: str = "data/google_treebank/treebank_adapted.jsonl"
+    boun_treebank_adapted_path: str = "data/boun_treebank/treebank_adapted.jsonl"
     validation_conllu_path: str     = "data/validation_set/validation.connlu"
     validation_adapted_path: str    = "data/validation_set/validation_adapted.jsonl"
     sample_text_path: str           = "sample/sample.txt"

@@ -1,3 +1,4 @@
+import math
 import random
 import torch
 import torch.nn as nn
@@ -345,8 +346,6 @@ class Trainer:
       - Checkpointing
     """
 
-    MLM_MASK_PROB = 0.15
-
     def __init__(self, model: SentenceDisambiguator, path: Optional[str] = None):
         """
         Args:
@@ -385,9 +384,7 @@ class Trainer:
             weight_decay=config.weight_decay,
             betas=(0.9, 0.999),
         )
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer, T_0=10, T_mult=2, eta_min=config.learning_rate * 0.01
-        )
+        self.scheduler = self._build_schedule(self.optimizer)
 
         # Training state
         self.train_history: List[float] = []
@@ -415,6 +412,29 @@ class Trainer:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_schedule(optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler.LambdaLR:
+        """Linear warmup then cosine decay to `lr_eta_min_ratio * base_lr`.
+
+        Called once per optimizer step (not per epoch / per train_sentence call),
+        so warmup_steps counts gradient steps. Decay horizon is fixed to a long
+        multiple of warmup_steps — we don't know the total step count at
+        construction time (train_bulk is called ad-hoc), so we aim for a
+        "warm up quickly, then slowly decay" profile that behaves well across
+        both short interactive runs and long bulk runs.
+        """
+        warmup      = max(1, int(config.warmup_steps))
+        eta_min     = float(config.lr_eta_min_ratio)
+        decay_total = max(warmup * 50, 1)
+
+        def lr_lambda(step: int) -> float:
+            if step < warmup:
+                return (step + 1) / warmup
+            progress = min(1.0, (step - warmup) / decay_total)
+            return eta_min + 0.5 * (1.0 - eta_min) * (1.0 + math.cos(math.pi * progress))
+
+        return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
     def _to_tensor(
         self, suffix_ids: List[int], category_ids: List[int]
@@ -591,68 +611,123 @@ class Trainer:
             p_mask.to(self.device, non_blocking=non_blocking),
         )
 
-    def _compute_focal_loss(self, logits: torch.Tensor, targets: torch.Tensor, gamma: float = 2.0) -> torch.Tensor:
+    def _compute_focal_loss(
+        self,
+        logits: torch.Tensor,
+        targets: torch.Tensor,
+        gamma: Optional[float] = None,
+    ) -> torch.Tensor:
         """
-        Computes Focal Loss. 
-        Lowers the weight of easy, highly-confident predictions and forces 
-        the network to focus on hard, misclassified examples.
+        Cross-entropy with an optional focal weighting term (1-pt)^gamma.
+        gamma=0.0 reduces to plain cross-entropy; config default is 0.0 under
+        the MLM objective because focal weighting on already-sparse MLM
+        supervision shrinks the loss magnitude and slows early learning.
         """
-        # Calculate raw cross entropy loss without reduction so we get a loss per token
+        if gamma is None:
+            gamma = config.focal_gamma
+
         ce_loss = F.cross_entropy(
             logits.reshape(-1, logits.size(-1)),
             targets.reshape(-1),
             reduction='none',
-            ignore_index=SPECIAL_PAD
+            ignore_index=SPECIAL_PAD,
         )
-        
-        # Calculate pt (probability of the correct class)
-        pt = torch.exp(-ce_loss)
-        
-        # Apply focal weighting factor: (1 - pt)^gamma
-        focal_loss = ((1 - pt) ** gamma) * ce_loss
-        
-        # Filter out padding tokens and return the mean over valid tokens
+
+        if gamma > 0.0:
+            pt = torch.exp(-ce_loss)
+            loss_per_tok = ((1 - pt) ** gamma) * ce_loss
+        else:
+            loss_per_tok = ce_loss
+
         valid_mask = targets.reshape(-1) != SPECIAL_PAD
         if valid_mask.any():
-            return focal_loss[valid_mask].mean()
-        return focal_loss.sum() # Fallback if sequence is entirely padding
+            return loss_per_tok[valid_mask].mean()
+        return loss_per_tok.sum()  # fallback: entirely-padding batch
 
     def _mlm_mask_batch(
         self,
         s_t:    torch.Tensor,   # (B, L) original suffix ids
         p_mask: torch.Tensor,   # (B, L) True = padding
-        mask_prob: float = MLM_MASK_PROB,
+        mask_prob: Optional[float] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Apply MLM masking to a padded batch.
 
-        Returns:
-            masked_s: copy of s_t where ~mask_prob of eligible tokens are
-                      replaced with SPECIAL_MASK. Categories are left untouched
-                      — the model can still see that the masked slot sits in
-                      a noun/verb context.
-            loss_target: copy of s_t where unmasked and padding positions are
-                         set to SPECIAL_PAD so focal loss (ignore_index=PAD)
-                         scores only the masked tokens.
+        Selection: for each eligible (non-PAD/SEP/BOS, non-pad) position, draw
+        Bernoulli(mask_prob). If `config.mlm_ensure_one_mask` is set, any
+        sequence that ends up with 0 selected tokens but has eligible tokens
+        gets exactly one of them force-selected — prevents short sequences
+        from contributing zero gradient due to unlucky draws.
 
-        Eligible tokens = any token that is not PAD / WORD_SEP / BOS.
-        MASK cannot appear in input yet (s_t is freshly built) so no filter
-        for it here.
+        Replacement (BERT 80/10/10 if `config.mlm_use_bert_mix`):
+            80% of selected → SPECIAL_MASK
+            10% of selected → random real token (suffix or closed-class)
+            10% of selected → keep original token unchanged
+        Otherwise 100% of selected → SPECIAL_MASK (the original behavior).
+
+        Returns:
+            masked_s:    copy of s_t with the replacements applied.
+            loss_target: copy of s_t with PAD at every *non-selected* position
+                         (and at original PAD positions), so cross-entropy
+                         scores only the selected positions.
         """
+        if mask_prob is None:
+            mask_prob = config.mlm_mask_prob
+
         eligible = (
             (s_t != SPECIAL_PAD)
             & (s_t != SPECIAL_WORD_SEP)
             & (s_t != SPECIAL_BOS)
             & (~p_mask)
         )
-        draws        = torch.rand_like(s_t, dtype=torch.float)
-        should_mask  = eligible & (draws < mask_prob)
 
-        masked_s = s_t.clone()
-        masked_s[should_mask] = SPECIAL_MASK
+        draws    = torch.rand_like(s_t, dtype=torch.float)
+        selected = eligible & (draws < mask_prob)
+
+        # Guarantee at least one selection per sequence that has any eligible
+        # positions: pick the eligible position with the lowest random draw.
+        if config.mlm_ensure_one_mask:
+            has_elig     = eligible.any(dim=1)                        # (B,)
+            has_selected = selected.any(dim=1)                        # (B,)
+            need_force   = has_elig & (~has_selected)                 # (B,)
+            if need_force.any():
+                # For rows that need a forced mask, pick the eligible slot with
+                # the smallest random draw. Non-eligible slots get +inf so they
+                # are never chosen as the argmin.
+                forced_draws = draws.masked_fill(~eligible, float('inf'))
+                forced_pos   = forced_draws.argmin(dim=1)             # (B,)
+                rows         = torch.arange(s_t.size(0), device=s_t.device)
+                rows         = rows[need_force]
+                cols         = forced_pos[need_force]
+                selected[rows, cols] = True
 
         loss_target = s_t.clone()
-        loss_target[~should_mask] = SPECIAL_PAD  # focal loss ignores PAD
+        loss_target[~selected] = SPECIAL_PAD  # CE ignores PAD
+
+        masked_s = s_t.clone()
+        if config.mlm_use_bert_mix:
+            role_draws = torch.rand_like(s_t, dtype=torch.float)
+            # Split the selected set into 80% MASK / 10% random / 10% keep.
+            mask_slot   = selected & (role_draws < 0.80)
+            random_slot = selected & (role_draws >= 0.80) & (role_draws < 0.90)
+            # The remaining 10% (role_draws >= 0.90) keep the original token.
+
+            masked_s[mask_slot] = SPECIAL_MASK
+
+            if random_slot.any():
+                # Draw random real tokens from [SUFFIX_OFFSET, vocab_size).
+                n_rand = int(random_slot.sum().item())
+                rand_tokens = torch.randint(
+                    low=SUFFIX_OFFSET,
+                    high=self.model.vocab_size,
+                    size=(n_rand,),
+                    device=s_t.device,
+                    dtype=s_t.dtype,
+                )
+                masked_s[random_slot] = rand_tokens
+        else:
+            masked_s[selected] = SPECIAL_MASK
+
         return masked_s, loss_target
 
     def _gradient_steps(
@@ -690,6 +765,7 @@ class Trainer:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.scaler.step(self.optimizer)
             self.scaler.update()
+            self.scheduler.step()
             self.global_step += 1
 
         return final_loss
@@ -736,20 +812,20 @@ class Trainer:
             others = [x for x in self.replay_buffer if x is not batch[0]]
             batch.extend(random.sample(others, k))
 
-        # 3. Fixed gradient steps on mixed batch.
+        # 3. Fixed gradient steps on mixed batch. _gradient_steps advances the
+        # LR scheduler per optimizer step, so no scheduler.step() call here.
         print(f"   Training on {len(batch)} examples...", end="", flush=True)
         final_loss = self._gradient_steps(batch, config.steps_per_update)
         print(f" loss={final_loss:.4f}")
 
-        self.scheduler.step()
         self.train_history.append(final_loss)
         return final_loss
 
     def train_bulk(
         self,
         all_seqs: List[Tuple[List[int], List[int]]],
-        batch_size: int = 64,
-        epochs: int = 150,
+        batch_size: Optional[int] = None,
+        epochs: Optional[int] = None,
         validation_seqs: Optional[List[Tuple[List[int], List[int]]]] = None,
     ) -> float:
         """Train on a large pre-collected dataset in proper epoch-based batches.
@@ -758,11 +834,20 @@ class Trainer:
         All sequences are added to the replay buffer first, then trained in
         shuffled mini-batches for `epochs` passes.
 
+        `batch_size` and `epochs` default to `config.bulk_batch_size` /
+        `config.bulk_epochs` when not supplied. Defaults are MLM-oriented
+        (more epochs, bigger batches) because MLM gives roughly 1/5 the
+        per-step gradient signal of causal LM.
+
         If `validation_seqs` is provided, runs a held-out evaluation after every
         epoch so overfitting can be spotted from the train↔val gap.
 
         Returns the average loss of the final epoch.
         """
+        if batch_size is None:
+            batch_size = config.bulk_batch_size
+        if epochs is None:
+            epochs = config.bulk_epochs
         if not all_seqs:
             return 0.0
 
@@ -813,6 +898,7 @@ class Trainer:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
+                self.scheduler.step()
                 self.global_step += 1
                 epoch_loss += loss.item()
                 n_batches += 1
@@ -864,7 +950,8 @@ class Trainer:
                 )
                 print(val_header)
 
-            self.scheduler.step()
+            # Scheduler is advanced inside the per-batch loop above, so no
+            # per-epoch step is needed.
 
         self.train_history.append(final_loss)
         return final_loss

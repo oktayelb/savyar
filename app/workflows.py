@@ -340,6 +340,82 @@ class WorkflowEngine:
         self.save()
         return total_words, skipped
 
+    def run_kfold_cv(self, k: int = 10, seed: int = 42) -> Optional[Dict[str, Any]]:
+        """K-fold cross-validation on the full confirmed-decomp dataset.
+
+        Each fold trains a *fresh* model (no weight transfer across folds, no
+        touch to the production checkpoint) and evaluates on its held-out slice.
+        Reports per-metric mean ± 95% CI via the t-distribution.
+
+        The heavy lifting (splitting, aggregation, CI math) lives in
+        `app.kfold_cv`, which has no ML imports. This method is just the glue:
+        it loads the dataset, builds a per-fold runner that knows how to spin
+        up a model + Trainer, and hands off.
+        """
+        import os
+        import tempfile
+        from app.kfold_cv import run_k_fold_cv
+
+        entries = self.data_manager.get_valid_decomps()
+        all_seqs, total_words, skipped = self._entries_to_sequences(entries)
+
+        if len(all_seqs) < k:
+            print(
+                f"   Not enough data for {k}-fold CV: "
+                f"have {len(all_seqs)} sequences, need at least {k}."
+            )
+            return None
+
+        print(
+            f"   Running {k}-fold CV on {len(all_seqs)} sequences "
+            f"({total_words} words, {skipped} skipped)."
+        )
+
+        tmp_dir = tempfile.mkdtemp(prefix="savyar_kfold_")
+
+        def fold_runner(train_seqs, val_seqs, fold_idx: int):
+            # Fresh model + trainer per fold. Point the trainer at a throwaway
+            # path so it starts from random init (load raises FileNotFoundError
+            # → "Starting fresh") and its save_checkpoint (if ever called)
+            # won't clobber the production model.pt.
+            fold_path = os.path.join(tmp_dir, f"fold_{fold_idx}.pt")
+            model = SentenceDisambiguator(
+                suffix_vocab_size=len(sfx.ALL_SUFFIXES),
+                closed_class_vocab_size=len(ALL_CLOSED_CLASS_WORDS),
+            )
+            trainer = Trainer(model=model, path=fold_path)
+
+            trainer.train_bulk(list(train_seqs), validation_seqs=None)
+            stats = trainer.validate(list(val_seqs))
+
+            # Free GPU memory between folds.
+            del trainer, model
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+
+            # Return only the numeric fields so the aggregator gets clean input.
+            return {
+                name: float(val)
+                for name, val in stats.items()
+                if isinstance(val, (int, float)) and name != "n_batches"
+            }
+
+        try:
+            result = run_k_fold_cv(all_seqs, k=k, fold_runner=fold_runner, seed=seed)
+        finally:
+            # Best-effort cleanup of throwaway per-fold checkpoints.
+            try:
+                import shutil
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+        return result
+
     def evaluate_word(self, word: str) -> Optional[Dict]:
         decompositions = self.get_decompositions(word)
         if not decompositions:

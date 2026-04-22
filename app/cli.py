@@ -15,6 +15,7 @@ class AppCLI:
         print("  - 'auto' - Start auto mode (random words from dictionary)")
         print("  - 'eval <word>' - Evaluate model on a word")
         print("  - 'relearn' - Train on all logged decompositions")
+        print("  - '10FKV' - 10-fold cross-validation with 95% CI")
         print("  - 'stats' - Show training statistics")
         print("  - 'sample' - Analyze a text word by word.")
         print("  - 'sample sentence' - Analyze a text sentence by sentence.")
@@ -317,6 +318,8 @@ class AppCLI:
                 elif cmd == 'relearn':
                     trained, skipped = self.engine.relearn_all()
                     self.show_message(f"\n  Trained on {trained} examples, skipped {skipped}.")
+                elif cmd == '10fkv':
+                    self.engine.run_kfold_cv(k=10)
                 elif cmd.startswith('eval sentence '):
                     result = self.handle_eval_sentence(raw[14:].strip())
                     if result is None and self.confirm_save():

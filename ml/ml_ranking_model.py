@@ -347,11 +347,19 @@ class Trainer:
 
     MLM_MASK_PROB = 0.15
 
-    def __init__(self, model: SentenceDisambiguator):
+    def __init__(self, model: SentenceDisambiguator, path: Optional[str] = None):
+        """
+        Args:
+            model: the SentenceDisambiguator to wrap.
+            path:  optional override for the checkpoint path. Defaults to
+                   `config.model_path`. K-fold CV uses this to point at a
+                   throwaway file so per-fold trainers don't load or clobber
+                   the production checkpoint.
+        """
         self.model = model
 
         self.checkpoint_frequency = config.checkpoint_frequency
-        self.path                 = str(config.model_path)
+        self.path                 = path if path is not None else str(config.model_path)
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model.to(self.device)

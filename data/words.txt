@@ -2627,14 +2627,11 @@ bembeyaz
 bemoł
 ben
 benbenci
-bence
 benci
 bencilce
 bencileyin
-bende
 bendegan
 bendehane
-benden
 bendezade
 bendir
 bengi
@@ -2642,7 +2639,6 @@ beniadem
 benibeşer
 beniçinci
 benildemek
-benimki
 benimseme
 benimsenmek
 benimsetmek
@@ -10643,7 +10639,7 @@ iletişim
 iletken
 iletki
 ilga
-ilgilendiriş
+ilgi
 ilginç
 ilhak
 ilham
@@ -18015,7 +18011,6 @@ olijist
 olimpik
 olimpiyat
 olivin
-olmadık
 olmak
 olta
 oltacı
@@ -21004,9 +20999,6 @@ senaryo
 senaryocu
 senato
 senatör
-sence
-sende
-senden
 sendik
 sendika
 sendikal
@@ -25003,7 +24995,6 @@ uzviyet
 üremi
 üremik
 üretimevi
-üretmek
 Ürgüp
 ürkek
 ürkekçe

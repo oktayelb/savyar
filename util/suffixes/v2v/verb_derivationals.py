@@ -1,5 +1,5 @@
 from util.suffix import Suffix, Type, SuffixGroup
-
+from util.word_methods import VOWELS
 # ============================================================================
 # FORM FUNCTIONS
 # ============================================================================
@@ -36,13 +36,9 @@ class VerbDerivationalSuffix(Suffix):
             is_unique=is_unique
         )
 
-
+"""
 def form_for_passive_il(word, suffix_obj):
-    """
-    Form function for passive_il suffix (Passive Sıfat-Fiil)
-    - Default forms: il, in (reflexive), ele (randomative)
-    - Note: Does not soften (l and n are soft/continuant).
-    """
+
     result_list = []
     
     # il form with harmony
@@ -59,8 +55,7 @@ def form_for_passive_il(word, suffix_obj):
 
 
     return result_list
-
-##niye çalışmıyor
+"""
 def form_for_active_it(word, suffix_obj):
     """
     Form function for active_it suffix (Active Sıfat-Fiil)
@@ -70,12 +65,12 @@ def form_for_active_it(word, suffix_obj):
     result_list = []
     
     # it form with harmony
-    it_base = 'it'
+    it_base = "it"
     it_base = Suffix._apply_major_harmony(word, it_base, suffix_obj.has_major_harmony)
     it_base = Suffix._apply_minor_harmony(word, it_base, suffix_obj.has_minor_harmony)
     result_list.append(it_base)
 
-    if word[-1] in "r" :
+    if word[-1] in (["r"] + VOWELS):
         result_list.append("t")
 
     return result_list
@@ -87,8 +82,8 @@ active_dir      = VerbDerivationalSuffix("active_dir"      , "dir")
 ##ikisinin ayrı olması iyi değil, belki tekleştirilebilir.
 active_ir       = VerbDerivationalSuffix("active_ir"       , "ir" )
 active_er       = VerbDerivationalSuffix("active_er"       , "er" )
-#bazen n olmasını tutmalı mı?
-passive_il      = VerbDerivationalSuffix("passive_il"      , "il" ,form_function=form_for_passive_il)
+
+passive_il      = VerbDerivationalSuffix("passive_il"      , "il" )
 reflexive_in    = VerbDerivationalSuffix("reflexive_in"    , "in" )
 randomative_ele = VerbDerivationalSuffix("randomative_ele" , "ele")
 

@@ -2,8 +2,8 @@ bu sabah erkenden uyan+pasttense_di_dı+conjugation_1sg_m.
 
 gökyüzü bugün çok mavi görün+continuous_iyor_üyor.
 
-pazar+locative_den_dan taze meyve+plural_ler_ler alt+posessive_1sg_ım.
+pazar+ablative_den_dan taze+dative_e_e meyve+plural_ler_ler al+pasttense_noundi_dı+conjugation_1sg_m.
 
 kitap okumak insan+accusative_i_ı din+aplicative_le_le+reflexive_in_n+active_dir_dir+factative_ir_ir.
 
-yavaşça yer+posessive_3sg_i+locative_den_nden kalk+adverbial_ip_ıp kapı+dative_e_na yönel+pasttense_di_di.
+yavaş+relative_ce_ça yer+posessive_3sg_i+ablative_den_den kalk+adverbial_ip_ıp kapı+dative_e_a yönel+pasttense_di_di.

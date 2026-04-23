@@ -4,6 +4,7 @@ import functools
 # ============================================================================
 # IMPORTS
 # ============================================================================
+from util.suffixes.v2n.nounifiers import Nounifier
 from util.suffixes.v2v_suffixes import VERB2VERB
 from util.suffixes.n2v_suffixes import NOUN2VERB
 from util.suffixes.n2n_suffixes import NOUN2NOUN
@@ -85,7 +86,7 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     if last_g == SuffixGroup.VERB_COMPOUND and next_g <= SuffixGroup.VERB_COMPOUND:
         return True
 
-    if last_g == SuffixGroup.VERB_NEGATING and next_g == SuffixGroup.V2N_DERIVATIONAL_NOUNIFIER:
+    if last_g == SuffixGroup.VERB_NEGATING and type(next_suffix) == Nounifier:
         return False   
 
     # --- RULE 4: Self-Looping Constraints ---
@@ -96,7 +97,7 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     
     # zarf fiilden sonra bir şey gelmez. erekten örneği gözardı ediliyor.
     # Sadece  ol-a -lım  ol-a-yım ol-a-sın örnekleri için conjugation alabilir kabul edilecek
-    if last_g is SuffixGroup.DERIVATIONAL_LOCKING_VERB and next_g != SuffixGroup.CONJUGATION:
+    if last_g is SuffixGroup.DERIVATIONAL_LOCKING_VERB and next_g != SuffixGroup.CONJUGATION: 
         return False
     ## şelale hallediyor diye silindi
     # isim tamlamasından sonra yalnızca ki gelebilir

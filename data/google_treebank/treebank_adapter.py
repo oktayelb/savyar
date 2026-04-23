@@ -129,7 +129,7 @@ DERIVATION_MAP = {
     "Doct":      "ideologicative_izm",   # -izm
     # ── User-directed routings (semantic differences intentionally ignored) ──
     # Inh (-ıcı habitual doer) → if_se per directive.
-    "Inh":       "if_se",
+    "Inh":       "actor_ci",
     # From (-li from-origin) → composessive_li (shares surface -li/-lı).
     "From":      "composessive_li",
     # Everything else previously unmapped routes to suitative_lik (-lık):
@@ -644,7 +644,6 @@ def _try_add_verb_lemma_to_dict(lemma, treebank_says_verb=False):
     for inf in (lemma_lower + "mek", lemma_lower + "mak"):
         if inf in wrd.WORDS_SET:
             wrd.WORDS_SET.add(lemma_lower)
-            wrd.WORDS_LIST.append(lemma_lower)
             decompose.cache_clear()
             return True
     if treebank_says_verb and lemma_lower:
@@ -652,7 +651,6 @@ def _try_add_verb_lemma_to_dict(lemma, treebank_says_verb=False):
         harmony = major_harmony(lemma_lower)
         inf = lemma_lower + ("mak" if harmony == MajorHarmony.BACK else "mek")
         wrd.WORDS_SET.add(inf)
-        wrd.WORDS_LIST.append(inf)
         decompose.cache_clear()
         return True
     return False

@@ -102,7 +102,7 @@ V2N_GERUND_FEATURES = {
     "While":                "when_ken",          # -ken (while/when)
     "AsLongAs":             "adverbial_dikçe",   # -dikçe/-dıkça
     "SinceDoingSo":         "adverbial_dikçe",   # approximate
-    "WithoutHavingDoneSo":  "adverbial_meden",   # -meden/-madan
+    "WithoutHavingDoneSo":  "nondoing_meden",    # -meden/-madan
     "InBetween":            "adverbial_ip",      # -ip (in-between actions)
 }
 
@@ -813,7 +813,6 @@ def _try_add_verb_lemma_to_dict(lemma: str, treebank_says_verb: bool = False) ->
     for inf in (lemma_lower + "mek", lemma_lower + "mak"):
         if inf in wrd.WORDS_SET:
             wrd.WORDS_SET.add(lemma_lower)
-            wrd.WORDS_LIST.append(lemma_lower)
             decompose.cache_clear()
             return True
 
@@ -823,7 +822,6 @@ def _try_add_verb_lemma_to_dict(lemma: str, treebank_says_verb: bool = False) ->
         harmony = major_harmony(lemma_lower)
         inf = lemma_lower + ("mak" if harmony == MajorHarmony.BACK else "mek")
         wrd.WORDS_SET.add(inf)
-        wrd.WORDS_LIST.append(inf)
         decompose.cache_clear()
         return True
 

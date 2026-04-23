@@ -91,6 +91,7 @@ class Suffix:
         
         candidates = [] # Start empty!
     
+        ## buralarda bir hata var
         # 4. Çarpışma Kontrolü (Collision Check)
         vowel_collision = Suffix._vowel_collision(word, base)
 

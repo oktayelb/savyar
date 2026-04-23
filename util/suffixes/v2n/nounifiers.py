@@ -40,44 +40,6 @@ class Nounifier(Suffix):
             is_unique=is_unique
         )
 
-def form_for_perfectative_ik(word, suffix_obj):
-    """
-    Form for perfectative_ik (e.g. Aç-ık -> Açığı)
-    Includes softening (k -> ğ).
-    """
-    result_list = []
-    base = suffix_obj.suffix
-    base = Suffix._apply_major_harmony(word, base, suffix_obj.has_major_harmony)
-    base = Suffix._apply_minor_harmony(word, base, suffix_obj.has_minor_harmony)
-    base = Suffix._apply_consonant_hardening(word, base)
-    if word and word[-1] in VOWELS:
-        # y buffer
-        y_form = 'y' + base
-        result_list.append(y_form)
-
-        soft_y = Suffix._apply_softening(y_form)
-        if soft_y != y_form:
-            result_list.append(soft_y)
-
-        result_list.append('ğ' + base)
-
-        # k variant
-        k_form = base[1:]
-        result_list.append(k_form)
-
-        # Softening k variant: k -> ğ
-        soft_k = Suffix._apply_softening(k_form)
-        if soft_k != k_form:
-            result_list.append(soft_k)
-    else:
-        result_list.append(base)
-
-        # Softening base: ik -> iğ
-        soft_base = Suffix._apply_softening(base)
-        if soft_base != base:
-            result_list.append(soft_base)
-
-    return result_list
 
 def form_for_nounifier_inti(word, suffix_obj):
     result_list = []
@@ -131,8 +93,8 @@ toolative_ek        = Nounifier("toolative_ek", "ek")
 ##TODO form for form for constofactattive koy, agan eğen biçimleri için
 constofactative_gen = Nounifier("constofactative_gen", "gen")
 constofactative_gin = Nounifier("constofactative_gin", "gin")
-perfectative_ik     = Nounifier("perfectative_ik", "ik", form_function= form_for_perfectative_ik)
-nounifier_i         = Nounifier("nounifier_i" , "i",needs_y_buffer=False)
+perfectative_ik     = Nounifier("perfectative_ik", "ik")
+nounifier_i         = Nounifier("nounifier_i" , "i",needs_y_buffer=False)   
 #belki birleşebilir
 nounifier_gi        = Nounifier("nounifier_gi", "gi")
 nounifier_ge        = Nounifier("nounifier_ge", "ge")

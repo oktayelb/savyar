@@ -48,7 +48,7 @@ class MLConfig:
     # --- Bulk-training defaults ---
     # Used when train_bulk() is called without explicit overrides. Epochs bumped
     # significantly because MLM gives ~1/5 the per-step signal of causal LM.
-    bulk_epochs: int = 600
+    bulk_epochs: int = 300
     bulk_batch_size: int = 128
 
     # --- LR Schedule ---

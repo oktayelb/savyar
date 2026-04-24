@@ -1,9 +1,22 @@
 import os
 from typing import List, Optional, Dict, Any
+
 from app.workflows import WorkflowEngine
 from app.sequence_matcher import get_top_sentence_predictions
+from app.input import sanitize_word, sanitize_sentence
+
 
 class AppCLI:
+    """Thin I/O layer for the interactive flow.
+
+    Each command follows the same shape:
+        raw text -> sanitize -> engine.analyze_* -> display -> user input
+                 -> engine.commit_*
+
+    Sanitation happens here at the boundary; the engine and analyzer only
+    ever see canonical (tr_lower'd, apostrophe-stripped) input.
+    """
+
     def __init__(self):
         self.engine = WorkflowEngine()
 
@@ -85,7 +98,7 @@ class AppCLI:
                 return None
             if choice == 's':
                 return [-1]
-            
+
             normalized = choice.replace(',', ' ').replace('-', ' ').replace('/', ' ')
             parts = normalized.split()
             if not parts:
@@ -114,59 +127,63 @@ class AppCLI:
             bot_line += p.ljust(width) + "   "
         return f"{top_line.strip()}\n    {bot_line.strip()}"
 
-    def handle_word(self, word: str) -> Optional[bool]:
-        result = self.engine.prepare_word_training(word)
-        if not result:
+    def handle_word(self, raw_word: str) -> Optional[bool]:
+        word = sanitize_word(raw_word)
+        if not word:
+            return False
+
+        analysis = self.engine.analyze_word(word)
+        if analysis is None:
             self.show_message(f"\n  No decompositions found for '{word}'")
             return False
-        
-        if result.get('single_decomposition'):
+
+        if len(analysis['decomps']) == 1:
             self.show_message(f"\n Only one decomposition for '{word}' - skipping")
             return False
-            
-        if result.get('has_scores'):
+
+        if analysis['vms'] and analysis['vms'][0].get('score') is not None:
             self.show_message("\n ML Model predictions shown")
 
-        self.show_decompositions(word, result['view_models'])
-        
-        choices = self.get_user_choices(len(result['sorted_decomps']))
-        if choices is None: 
+        self.show_decompositions(word, analysis['vms'])
+
+        choices = self.get_user_choices(len(analysis['decomps']))
+        if choices is None:
             return None
-        if choices == [-1]: 
+        if choices == [-1]:
             return False
 
-        correct_decomps = [result['sorted_decomps'][i] for i in choices]
-        original_indices = [result['original_decompositions'].index(d) for d in correct_decomps]
-        
-        loss, deleted_msgs = self.engine.commit_word_training(word, correct_decomps, result['encoded_chains'], original_indices)
-        
+        loss, deleted_msgs = self.engine.commit_word(analysis, choices)
+
         for msg in deleted_msgs:
             print(f"  {msg}")
-            
+
         self.show_message(f"\n Training complete. Loss: {loss:.4f}")
         self.show_message(f"Total examples: {self.engine.training_count}")
         return True
 
-    def handle_sentence(self, sentence: str, word_data: Optional[List[Dict]] = None) -> Optional[bool]:
-        if word_data is None:
-            word_data = self.engine.prepare_sentence_training(sentence)
-            if not word_data:
-                self.show_message(f"\n Could not parse all words in: {sentence}")
+    def handle_sentence(self, raw_sentence: str, analyses: Optional[List[Dict]] = None) -> Optional[bool]:
+        if analyses is None:
+            words = sanitize_sentence(raw_sentence)
+            if not words:
+                self.show_message(f"\n Could not parse: {raw_sentence}")
                 return False
-
+            analyses = self.engine.analyze_sentence(words)
+            if analyses is None:
+                self.show_message(f"\n Could not parse all words in: {raw_sentence}")
+                return False
             self.clear_screen()
-            self.show_message(f"Sentence: {sentence}\n")
-        
-        words = sentence.strip().split()
-        
+            self.show_message(f"Sentence: {raw_sentence}\n")
+
+        words = [a['word'] for a in analyses]
+
         while True:
             target_str = self.get_input("Enter correct decomposition string (or prefix) ['q' to cancel]: ").strip()
             if target_str.lower() == 'q':
                 return False
-                
+
             self.show_message("\nSearching for legal combinations...")
-            all_sentences, furthest_text, furthest_idx = self.engine.evaluate_sentence_target(word_data, target_str)
-            
+            all_sentences, furthest_text, furthest_idx = self.engine.evaluate_sentence_target(analyses, target_str)
+
             if not all_sentences:
                 self.show_message(f"\n[!] Invalid Decomposition Provided: '{target_str}'")
                 if furthest_idx < len(words):
@@ -175,7 +192,7 @@ class AppCLI:
                     self.show_message(f" -> Matched successfully up to: {prefix_msg}")
                     self.show_message(f" -> Mismatch detected at word {furthest_idx + 1}: '{failed_word}'")
                     self.show_message(f" -> Valid morphological variations for '{failed_word}':")
-                    unique_options = list(dict.fromkeys(word_data[furthest_idx]['typing_strings']))
+                    unique_options = list(dict.fromkeys(analyses[furthest_idx]['typing_strings']))
                     for opt in unique_options:
                         self.show_message(f"      - {opt}")
                 self.show_message("\nPlease try again.\n")
@@ -183,12 +200,12 @@ class AppCLI:
             break
 
         display_list = all_sentences
-        
+
         if len(display_list) == 1:
             self.show_message("\nAuto-selected the only legal match:")
             c = display_list[0]
             aligned_display = self._format_aligned_sentence(words, c['parts'])
-            vms = [word_data[w_idx]['vms'][c['combo_indices'][w_idx]] for w_idx in range(len(words))]
+            vms = [analyses[w_idx]['vms'][c['combo_indices'][w_idx]] for w_idx in range(len(words))]
             self.show_sentence_prediction(0, c['score'], words, vms, aligned_display)
             correct_combo = c['combo_indices']
         else:
@@ -205,7 +222,7 @@ class AppCLI:
                 filt_words = [words[idx] for idx in varying_indices]
                 filt_parts = [c['parts'][idx] for idx in varying_indices]
                 aligned_display = self._format_aligned_sentence(filt_words, filt_parts)
-                filt_vms = [word_data[w_idx]['vms'][c['combo_indices'][w_idx]] for w_idx in varying_indices]
+                filt_vms = [analyses[w_idx]['vms'][c['combo_indices'][w_idx]] for w_idx in varying_indices]
                 self.show_sentence_prediction(i, c['score'], filt_words, filt_vms, aligned_display)
 
             while True:
@@ -218,45 +235,49 @@ class AppCLI:
                 self.show_message("Invalid selection.")
 
         self.show_message("\nTraining on full sentence context...")
-        loss = self.engine.commit_sentence_training(sentence, words, word_data, correct_combo)
+        loss = self.engine.commit_sentence_training(raw_sentence, words, analyses, correct_combo)
         self.show_message(f"Sentence loss: {loss:.4f}")
         return True
 
-    def handle_eval_sentence(self, sentence: str) -> Optional[bool]:
-        word_data = self.engine.prepare_sentence_training(sentence)
-        if not word_data:
+    def handle_eval_sentence(self, raw_sentence: str) -> Optional[bool]:
+        words = sanitize_sentence(raw_sentence)
+        if not words:
+            self.show_message("\n Could not parse sentence.")
+            return False
+
+        analyses = self.engine.analyze_sentence(words)
+        if analyses is None:
             self.show_message("\n Could not parse sentence.")
             return False
 
         self.clear_screen()
-        self.show_message(f"Sentence: {sentence}\n")
+        self.show_message(f"Sentence: {raw_sentence}\n")
         self.show_message("Evaluating top predictions (Beam Search)...")
-        
-        top_predictions = get_top_sentence_predictions(word_data, self.engine.trainer, top_k=10)
-        words = sentence.strip().split()
-        
+
+        top_predictions = get_top_sentence_predictions(analyses, self.engine.trainer, top_k=10)
+
         for i, c in enumerate(top_predictions):
             aligned_display = self._format_aligned_sentence(words, c['parts'])
-            vms = [word_data[w_idx]['vms'][c['combo_indices'][w_idx]] for w_idx in range(len(words))]
+            vms = [analyses[w_idx]['vms'][c['combo_indices'][w_idx]] for w_idx in range(len(words))]
             self.show_sentence_prediction(i, c['score'], words, vms, aligned_display)
-            
+
         while True:
             choice = self.get_input(f"\nSelect correct decomposition by number (0-{len(top_predictions)-1}), 'm' to manually enter target string, or 'q' to cancel: ").strip().lower()
-            
+
             if choice == 'q':
                 return False
-                
+
             if choice == 'm':
-                return self.handle_sentence(sentence, word_data=word_data)
-                
+                return self.handle_sentence(raw_sentence, analyses=analyses)
+
             if choice.isdigit() and int(choice) < len(top_predictions):
                 correct_combo = top_predictions[int(choice)]['combo_indices']
                 break
-                
+
             self.show_message("Invalid selection.")
-            
+
         self.show_message("\nTraining on full sentence context...")
-        loss = self.engine.commit_sentence_training(sentence, words, word_data, correct_combo)
+        loss = self.engine.commit_sentence_training(raw_sentence, words, analyses, correct_combo)
         self.show_message(f"Sentence loss: {loss:.4f}")
         return True
 
@@ -301,7 +322,8 @@ class AppCLI:
                     self.run_auto_mode()
                 elif cmd == 'sample':
                     filename = self.get_input("Enter filename (default: sample.txt): ").strip()
-                    if not filename: filename = "sample.txt"
+                    if not filename:
+                        filename = "sample.txt"
                     self.show_message("Decomposing and ranking words...")
                     success = self.engine.sample_text(filename)
                     if success:
@@ -326,7 +348,7 @@ class AppCLI:
                         self.engine.save()
                         break
                 elif cmd.startswith('eval '):
-                    word = raw[5:].strip()
+                    word = sanitize_word(raw[5:])
                     vm = self.engine.evaluate_word(word)
                     if vm:
                         self.show_message("\n ML Model's top prediction:")

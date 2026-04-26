@@ -19,6 +19,7 @@ class MLConfig:
     num_layers: int = 6         # 6 to prevent memorizing the 21,064 sequences.
     num_heads: int = 16          # 512 / 16 = 32; divides cleanly.
     dropout: float = 0.1       # Bumped alongside embed_dim to counter the extra capacity.
+    feature_embed_dim: int = 32
 
     # --- Training Hyperparameters ---
     learning_rate: float = 3e-4
@@ -65,6 +66,7 @@ class MLConfig:
 
     # --- Interactive/Loop Settings ---
     checkpoint_frequency: int = 1000
+    bare_root_prior_logprob: float = -0.75
 
 # Create the global config instance
 config = MLConfig()

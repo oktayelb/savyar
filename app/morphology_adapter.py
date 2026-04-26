@@ -1,12 +1,22 @@
 from typing import List, Dict, Tuple, Any
 import util.decomposer as sfx
-from ml.ml_ranking_model import SUFFIX_OFFSET, CATEGORY_CLOSED_CLASS
-from util.suffix import Suffix
+from ml.ml_ranking_model import (
+    SUFFIX_OFFSET,
+    CATEGORY_CLOSED_CLASS,
+    CATEGORY_SPECIAL,
+    GROUP_TO_ID,
+    TYPE_TO_ID,
+    SPECIAL_FEATURE_ID,
+    WORD_FINAL_NO,
+    WORD_FINAL_YES,
+)
+from util.suffix import Suffix, Type
 from util.words.closed_class import ClosedClassMarker, ALL_CLOSED_CLASS_WORDS
 
 # --- Module-level ID lookup caches (built once, reused for all encode calls) ---
 def _build_caches():
     suffix_to_id = {s.name: idx + SUFFIX_OFFSET for idx, s in enumerate(sfx.ALL_SUFFIXES)}
+    suffix_by_name = {s.name: s for s in sfx.ALL_SUFFIXES}
     cc_offset = SUFFIX_OFFSET + len(sfx.ALL_SUFFIXES)
     cc_to_id = {id(cc): cc_offset + idx for idx, cc in enumerate(ALL_CLOSED_CLASS_WORDS)}
     cc_name_to_id = {}
@@ -14,9 +24,9 @@ def _build_caches():
         name = f"cc_{cc.category}"
         if name not in cc_name_to_id:
             cc_name_to_id[name] = cc_offset + idx
-    return suffix_to_id, cc_to_id, cc_name_to_id, cc_offset
+    return suffix_to_id, suffix_by_name, cc_to_id, cc_name_to_id, cc_offset
 
-_SUFFIX_TO_ID, _CC_TO_ID, _CC_NAME_TO_ID, _CC_OFFSET = _build_caches()
+_SUFFIX_TO_ID, _SUFFIX_BY_NAME, _CC_TO_ID, _CC_NAME_TO_ID, _CC_OFFSET = _build_caches()
 
 
 ## translatxions between representations
@@ -35,36 +45,66 @@ def match_decompositions(entries: List[Dict], decompositions: List[Tuple]) -> Li
                 break
     return indices
 
-def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int]]:
+def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, int, int, int, int]]:
     """Encode suffix chain directly from JSONL suffix dicts (name/makes strings)."""
     category_to_id = {'NOUN': 0, 'VERB': 1, 'noun': 0, 'verb': 1, 'Noun': 0, 'Verb': 1}
+    type_name_to_enum = {
+        'NOUN': Type.NOUN, 'noun': Type.NOUN, 'Noun': Type.NOUN,
+        'VERB': Type.VERB, 'verb': Type.VERB, 'Verb': Type.VERB,
+        'BOTH': Type.BOTH, 'both': Type.BOTH, 'Both': Type.BOTH,
+    }
     encoded = []
-    for sd in suffix_dicts:
+    last_idx = len(suffix_dicts) - 1
+    for idx, sd in enumerate(suffix_dicts):
         name = sd['name']
         makes = sd.get('makes', 'NOUN')
         if name.startswith('cc_'):
             token_id = _CC_NAME_TO_ID.get(name, _CC_OFFSET)
-            encoded.append((token_id, CATEGORY_CLOSED_CLASS))
+            encoded.append((
+                token_id, CATEGORY_CLOSED_CLASS, SPECIAL_FEATURE_ID,
+                SPECIAL_FEATURE_ID, SPECIAL_FEATURE_ID, idx + 1,
+                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
+            ))
         else:
             token_id = _SUFFIX_TO_ID.get(name, SUFFIX_OFFSET)
             cat_id = category_to_id.get(makes, 0)
-            encoded.append((token_id, cat_id))
+            suffix_obj = _SUFFIX_BY_NAME.get(name)
+            group_id = GROUP_TO_ID.get(getattr(suffix_obj, 'group', None), SPECIAL_FEATURE_ID)
+            comes_to_id = TYPE_TO_ID.get(getattr(suffix_obj, 'comes_to', None), SPECIAL_FEATURE_ID)
+            makes_id = TYPE_TO_ID.get(type_name_to_enum.get(makes), SPECIAL_FEATURE_ID)
+            encoded.append((
+                token_id, cat_id, group_id, comes_to_id, makes_id, idx + 1,
+                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
+            ))
     return encoded
 
 
-def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int]]:
+def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int, int, int, int, int]]:
     """Encodes a suffix chain into (token_id, category_id) pairs for the ML model."""
     if not suffix_chain:
         return []
     encoded = []
-    for s in suffix_chain:
+    last_idx = len(suffix_chain) - 1
+    for idx, s in enumerate(suffix_chain):
         if isinstance(s, ClosedClassMarker):
             token_id = _CC_TO_ID.get(id(s.cc_word), _CC_OFFSET)
-            encoded.append((token_id, CATEGORY_CLOSED_CLASS))
+            encoded.append((
+                token_id, CATEGORY_CLOSED_CLASS, SPECIAL_FEATURE_ID,
+                SPECIAL_FEATURE_ID, SPECIAL_FEATURE_ID, idx + 1,
+                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
+            ))
         else:
             token_id = _SUFFIX_TO_ID.get(s.name, SUFFIX_OFFSET)
             cat_id   = 1 if s.makes.name == 'Verb' else 0
-            encoded.append((token_id, cat_id))
+            encoded.append((
+                token_id,
+                cat_id,
+                GROUP_TO_ID.get(getattr(s, 'group', None), SPECIAL_FEATURE_ID),
+                TYPE_TO_ID.get(getattr(s, 'comes_to', None), SPECIAL_FEATURE_ID),
+                TYPE_TO_ID.get(getattr(s, 'makes', None), SPECIAL_FEATURE_ID),
+                idx + 1,
+                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
+            ))
     return encoded
 
 def reconstruct_morphology(word: str, decomposition: Tuple) -> Dict[str, Any]:

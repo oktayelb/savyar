@@ -62,9 +62,11 @@ class WorkflowEngine:
                             if sfx_dicts:
                                 chains.append(morph.encode_suffix_names(sfx_dicts))
                     if chains:
-                        sids, cids = build_sentence_sequence(chains)
+                        sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final = build_sentence_sequence(chains)
                         if len(sids) >= 2:
-                            self.trainer._add_to_replay(sids, cids)
+                            self.trainer._add_to_replay(
+                                sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final
+                            )
                             loaded += 1
                 else:
                     decomps = self.get_decompositions(entry['word'])
@@ -77,9 +79,11 @@ class WorkflowEngine:
                         sfx_dicts = entry.get('suffixes', [])
                         encoded = morph.encode_suffix_names(sfx_dicts) if sfx_dicts else []
                     if encoded:
-                        sids, cids = build_sentence_sequence([encoded])
+                        sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final = build_sentence_sequence([encoded])
                         if len(sids) >= 2:
-                            self.trainer._add_to_replay(sids, cids)
+                            self.trainer._add_to_replay(
+                                sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final
+                            )
                             loaded += 1
             except Exception:
                 continue
@@ -284,11 +288,11 @@ class WorkflowEngine:
         """Legacy wrapper used by sample_sentences — split a raw sentence."""
         return self.analyze_sentence(sentence.strip().split())
 
-    def _entries_to_sequences(self, entries: List[Dict]) -> Tuple[List[Tuple[List[int], List[int]]], int, int]:
-        """Convert logged/treebank-adapted entries into flat (suffix_ids, category_ids) sequences."""
+    def _entries_to_sequences(self, entries: List[Dict]) -> Tuple[List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]], int, int]:
+        """Convert logged/treebank-adapted entries into flat training sequences."""
         from ml.ml_ranking_model import build_sentence_sequence
 
-        all_seqs: List[Tuple[List[int], List[int]]] = []
+        all_seqs: List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]] = []
         skipped = 0
         total_words = 0
 
@@ -301,18 +305,18 @@ class WorkflowEngine:
                         if sfx_dicts:
                             chains.append(morph.encode_suffix_names(sfx_dicts))
                     if chains:
-                        sids, cids = build_sentence_sequence(chains)
+                        sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final = build_sentence_sequence(chains)
                         if len(sids) >= 2:
-                            all_seqs.append((sids, cids))
+                            all_seqs.append((sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final))
                             total_words += len(chains)
                 else:
                     sfx_dicts = entry.get('suffixes', [])
                     if sfx_dicts:
                         encoded = morph.encode_suffix_names(sfx_dicts)
                         if encoded:
-                            sids, cids = build_sentence_sequence([encoded])
+                            sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final = build_sentence_sequence([encoded])
                             if len(sids) >= 2:
-                                all_seqs.append((sids, cids))
+                                all_seqs.append((sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final))
                                 total_words += 1
                     else:
                         skipped += 1
@@ -321,7 +325,7 @@ class WorkflowEngine:
 
         return all_seqs, total_words, skipped
 
-    def _load_validation_sequences(self) -> List[Tuple[List[int], List[int]]]:
+    def _load_validation_sequences(self) -> List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]]:
         """Load and encode the held-out validation set as training sequences."""
         entries = self.data_manager.get_validation_entries()
         if not entries:

@@ -1,6 +1,5 @@
 import torch
 from typing import List, Dict, Tuple
-from ml.ml_ranking_model import build_sentence_sequence
 
 def find_matching_combinations(word_data: List[Dict], target_str: str, trainer) -> Tuple[List[Dict], str, int]:
     """
@@ -68,14 +67,7 @@ def find_matching_combinations(word_data: List[Dict], target_str: str, trainer) 
     with torch.no_grad():
         for indices, full_text, parts in matches:
             sentence_chains = [word_data[w_idx]['encoded_chains'][d_idx] for w_idx, d_idx in enumerate(indices)]
-            full_s, full_c = build_sentence_sequence(sentence_chains)
-            
-            if len(full_s) < 2:
-                total_score = 0.0
-            else:
-                s_t, c_t = trainer._to_tensor(full_s, full_c)
-                lp = trainer.model.log_probs(s_t, c_t)
-                total_score = lp.sum().item()
+            total_score = trainer.score_sentence_chains(sentence_chains)
                 
             scored_matches.append({
                 'score': total_score,
@@ -103,14 +95,7 @@ def get_top_sentence_predictions(word_data: List[Dict], trainer, top_k: int = 10
                     new_parts = beam['parts'] + [wd['typing_strings'][d_idx]]
                     
                     sentence_chains = [word_data[i]['encoded_chains'][idx] for i, idx in enumerate(new_indices)]
-                    full_s, full_c = build_sentence_sequence(sentence_chains)
-                    
-                    if len(full_s) < 2:
-                        score = 0.0
-                    else:
-                        s_t, c_t = trainer._to_tensor(full_s, full_c)
-                        lp = trainer.model.log_probs(s_t, c_t)
-                        score = lp.sum().item()
+                    score = trainer.score_sentence_chains(sentence_chains)
                         
                     new_beams.append({
                         'score': score,

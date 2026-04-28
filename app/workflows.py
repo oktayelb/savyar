@@ -1,4 +1,5 @@
 import re
+import random
 from typing import List, Optional, Tuple, Dict, Any
 
 import util.decomposer as sfx
@@ -9,6 +10,7 @@ import app.morphology_adapter as morph
 import app.analyzer as analyzer
 from app.sequence_matcher import find_matching_combinations, get_top_sentence_predictions
 from ml.ml_ranking_model import SentenceDisambiguator, Trainer
+from ml.config import config
 from util.words.closed_class import ALL_CLOSED_CLASS_WORDS
 
 
@@ -335,15 +337,45 @@ class WorkflowEngine:
             print(f"   Validation set loaded: {len(val_seqs)} sequences ({val_words} words)")
         return val_seqs
 
+    def _split_train_validation_sequences(
+        self,
+        all_seqs: List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]],
+    ) -> Tuple[
+        List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]],
+        List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]],
+    ]:
+        """Create a deterministic validation split when no external set exists."""
+        if len(all_seqs) < 10 or config.validation_split <= 0.0:
+            return all_seqs, []
+
+        data = list(all_seqs)
+        random.Random(config.validation_seed).shuffle(data)
+        val_count = max(1, int(round(len(data) * config.validation_split)))
+        if val_count >= len(data):
+            val_count = len(data) - 1
+        if val_count <= 0:
+            return all_seqs, []
+
+        val_seqs = data[:val_count]
+        train_seqs = data[val_count:]
+        print(
+            f"   Validation split created from training data: "
+            f"{len(train_seqs)} train / {len(val_seqs)} val"
+        )
+        return train_seqs, val_seqs
+
     def relearn_all(self) -> Tuple[int, int]:
         entries = self.data_manager.get_valid_decomps()
         all_seqs, total_words, skipped = self._entries_to_sequences(entries)
 
         val_seqs = self._load_validation_sequences()
+        train_seqs = all_seqs
+        if not val_seqs:
+            train_seqs, val_seqs = self._split_train_validation_sequences(all_seqs)
 
-        if all_seqs:
-            print(f"   Bulk training on {len(all_seqs)} sequences ({total_words} words)...")
-            self.trainer.train_bulk(all_seqs, validation_seqs=val_seqs)
+        if train_seqs:
+            print(f"   Bulk training on {len(train_seqs)} sequences ({total_words} words)...")
+            self.trainer.train_bulk(train_seqs, validation_seqs=val_seqs)
 
         self.training_count += total_words
         self.save()

@@ -3,7 +3,7 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Any
 from .config import config  
 from util.suffix import SuffixGroup, Type
 
@@ -39,69 +39,6 @@ TYPE_TO_ID = {
 
 EncodedToken = Tuple[int, int, int, int, int, int, int]
 FlatSequence = Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]
-
-# ============================================================================
-# PER-CATEGORY ACCURACY BUCKETS
-# ============================================================================
-
-SUFFIX_CATEGORIES: List[str] = [
-    "plural", "poss", "case", "conj", "copula",
-    "gerund", "infin", "deriv", "other",
-]
-_CAT_NAME_TO_IDX = {c: i for i, c in enumerate(SUFFIX_CATEGORIES)}
-
-_CATEGORY_TENSOR_CACHE: Dict[str, torch.Tensor] = {}
-
-
-def _build_suffix_category_tensor(vocab_size: int, device: torch.device) -> torch.Tensor:
-    cache_key = f"{vocab_size}:{device}"
-    cached = _CATEGORY_TENSOR_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
-
-    from util.suffixes.n2n.case_suffixes       import CASESUFFIX
-    from util.suffixes.n2n.posessive_suffix    import POSESSIVE_SUFFIX
-    from util.suffixes.n2n.plural_suffix       import PLURALS
-    from util.suffixes.n2n.derivationals       import DERIVATIONALS as N2N_DERIVATIONALS
-    from util.suffixes.n2n.conjugation_suffixes import CONJUGATIONS
-    from util.suffixes.n2n.copula              import COPULA
-    from util.suffixes.v2n.gerunds             import GERUNDS
-    from util.suffixes.v2n.infinitives         import INFINITIVES
-    from util.suffixes.v2n.nounifiers          import NOUNIFIERS
-    from util.suffixes.n2v.verbifiers          import VERBIFIERS
-    from util.suffixes.v2v.verb_derivationals  import VERB_DERIVATIONALS
-    from util.suffixes.v2v.verb_negative       import VERB_NEGATIVES
-    from util.suffixes.v2v.verb_compounds      import VERB_COMPOUNDS
-
-    buckets = [
-        ("plural",  PLURALS),
-        ("poss",    POSESSIVE_SUFFIX),
-        ("case",    CASESUFFIX),
-        ("conj",    CONJUGATIONS),
-        ("copula",  COPULA),
-        ("gerund",  GERUNDS),
-        ("infin",   INFINITIVES),
-        ("deriv",   N2N_DERIVATIONALS + VERBIFIERS + NOUNIFIERS
-                    + VERB_DERIVATIONALS + VERB_NEGATIVES + VERB_COMPOUNDS),
-    ]
-    name_to_cat_idx: Dict[str, int] = {}
-    for cat, lst in buckets:
-        idx = _CAT_NAME_TO_IDX[cat]
-        for s in lst:
-            name_to_cat_idx[s.name] = idx
-
-    other_idx = _CAT_NAME_TO_IDX["other"]
-    tensor = torch.full((vocab_size,), -1, dtype=torch.long, device=device)
-    all_sufs = _get_all_suffixes()
-    for i, s in enumerate(all_sufs):
-        tok_id = i + SUFFIX_OFFSET
-        if tok_id >= vocab_size:
-            break
-        tensor[tok_id] = name_to_cat_idx.get(s.name, other_idx)
-
-    _CATEGORY_TENSOR_CACHE[cache_key] = tensor
-    return tensor
-
 
 # ============================================================================
 # HELPER: encode / decode sentence-level token sequences
@@ -209,8 +146,6 @@ class SentenceDisambiguator(nn.Module):
             config.wordfinal_embed_dim
         )
 
-        # Replaced single linear projection with a 2-layer MLP (GeLU)
-        # This prevents affine compression of disparate categorical logic states.
         self.input_proj = nn.Sequential(
             nn.Linear(feature_width, 512),
             nn.GELU(),
@@ -423,10 +358,9 @@ class Trainer:
 
     def _compute_metrics(
         self, preds: torch.Tensor, targets: torch.Tensor
-    ) -> Tuple[float, float, float, float, Dict[str, Tuple[float, int]]]:
-        empty_per_cat: Dict[str, Tuple[float, int]] = {c: (0.0, 0) for c in SUFFIX_CATEGORIES}
+    ) -> Tuple[float, float, float, float, List[Dict[str, Any]]]:
         if len(targets) == 0:
-            return 0.0, 0.0, 0.0, 0.0, empty_per_cat
+            return 0.0, 0.0, 0.0, 0.0, []
 
         is_special = (targets == SPECIAL_WORD_SEP) | (targets == SPECIAL_BOS)
         suffix_mask = ~is_special
@@ -435,26 +369,9 @@ class Trainer:
         suffix_targets = targets[suffix_mask]
 
         if len(suffix_targets) == 0:
-            return 0.0, 0.0, 0.0, 0.0, empty_per_cat
+            return 0.0, 0.0, 0.0, 0.0, []
 
         suffix_acc = (suffix_preds == suffix_targets).float().mean().item()
-
-        cat_tensor = _build_suffix_category_tensor(self.model.vocab_size, suffix_targets.device)
-        cat_idx    = cat_tensor[suffix_targets]          
-        valid_cat  = cat_idx >= 0
-        per_cat: Dict[str, Tuple[float, int]] = {}
-        if valid_cat.any():
-            cidx_v  = cat_idx[valid_cat]
-            correct = (suffix_preds[valid_cat] == suffix_targets[valid_cat]).float()
-            n_cats  = len(SUFFIX_CATEGORIES)
-            totals   = torch.bincount(cidx_v, minlength=n_cats).float()
-            corrects = torch.bincount(cidx_v, weights=correct, minlength=n_cats)
-            for i, name in enumerate(SUFFIX_CATEGORIES):
-                tot = int(totals[i].item())
-                acc = (corrects[i] / totals[i]).item() if tot > 0 else 0.0
-                per_cat[name] = (acc, tot)
-        else:
-            per_cat = empty_per_cat
 
         num_classes = self.model.vocab_size
         tps_mask      = (suffix_preds == suffix_targets)
@@ -468,13 +385,24 @@ class Trainer:
 
         valid_classes = target_counts > 0
         if not valid_classes.any():
-            return suffix_acc, 0.0, 0.0, 0.0, per_cat
+            return suffix_acc, 0.0, 0.0, 0.0, []
 
         macro_p  = precision[valid_classes].mean().item()
         macro_r  = recall[valid_classes].mean().item()
         macro_f1 = f1[valid_classes].mean().item()
 
-        return suffix_acc, macro_p, macro_r, macro_f1, per_cat
+        per_suffix = []
+        valid_idx = valid_classes.nonzero(as_tuple=False).squeeze(-1)
+        for idx in valid_idx.tolist():
+            per_suffix.append({
+                'id': idx,
+                'p': precision[idx].item(),
+                'r': recall[idx].item(),
+                'f1': f1[idx].item(),
+                'count': int(target_counts[idx].item())
+            })
+
+        return suffix_acc, macro_p, macro_r, macro_f1, per_suffix
 
     def _add_to_replay(
         self,
@@ -788,7 +716,7 @@ class Trainer:
                 if all_epoch_targs:
                     epoch_preds_cat = torch.cat(all_epoch_preds)
                     epoch_targs_cat = torch.cat(all_epoch_targs)
-                    suf_acc, prec, rec, f1, per_cat = self._compute_metrics(
+                    suf_acc, prec, rec, f1, per_suffix = self._compute_metrics(
                         epoch_preds_cat, epoch_targs_cat
                     )
                     header = (
@@ -796,15 +724,25 @@ class Trainer:
                         f"SufAcc={suf_acc:.4f} | F1={f1:.4f} "
                         f"P={prec:.4f} R={rec:.4f} ({n_batches} batches)"
                     )
+                    
+                    all_sufs = _get_all_suffixes()
+                    id_to_name = {i + SUFFIX_OFFSET: s.name for i, s in enumerate(all_sufs)}
+                    
+                    filtered_sufs = [s for s in per_suffix if s['count'] >= 10]
+                    if not filtered_sufs:
+                        filtered_sufs = per_suffix
+                    filtered_sufs.sort(key=lambda x: x['f1'])
+                    lowest_sufs = filtered_sufs[:12] 
+                    
                     cat_cells = []
-                    for cat in SUFFIX_CATEGORIES:
-                        acc, cnt = per_cat.get(cat, (0.0, 0))
-                        if cnt == 0:
-                            cat_cells.append(f"{cat:>6}:  --- (    0)")
-                        else:
-                            cat_cells.append(f"{cat:>6}: {acc:5.3f} ({cnt:>5})")
-                    rows = [cat_cells[i:i+3] for i in range(0, len(cat_cells), 3)]
-                    breakdown = "\n".join("      " + "  ".join(r) for r in rows)
+                    for s_stat in lowest_sufs:
+                        name = id_to_name.get(s_stat['id'], f"UNK_{s_stat['id']}")
+                        cat_cells.append(f"{name[:14]:>14}: F1={s_stat['f1']:.2f} P={s_stat['p']:.2f} R={s_stat['r']:.2f} ({s_stat['count']:>4})")
+                    
+                    rows = [cat_cells[i:i+2] for i in range(0, len(cat_cells), 2)]
+                    breakdown = "      Lowest Performing Suffixes (Count >= 10):\n"
+                    breakdown += "\n".join("      " + "   ".join(r) for r in rows)
+                    
                     print(header)
                     print(breakdown)
                 else:

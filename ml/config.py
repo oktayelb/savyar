@@ -46,7 +46,7 @@ class MLConfig:
     focal_gamma: float = 0.0    
 
     # --- Bulk-training defaults ---
-    bulk_epochs: int = 150  
+    bulk_epochs: int = 120  
     bulk_batch_size: int = 128
 
     # --- LR Schedule ---

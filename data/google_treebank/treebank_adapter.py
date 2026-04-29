@@ -54,6 +54,11 @@ from util.suffix import Type
 from util.words.closed_class import CLOSED_CLASS_LOOKUP
 from util.word_methods import tr_lower
 import util.word_methods as wrd
+from data.treebank_vnoun import (
+    AMBIGUOUS_VNOUN,
+    has_unexpected_nounifier_is,
+    resolve_ambiguous_vnoun_suffixes,
+)
 
 SUFFIX_BY_NAME = {s.name: s for s in ALL_SUFFIXES}
 
@@ -103,7 +108,7 @@ DERIVATION_MAP = {
     "PerNom":    "pastfactative_miş",
     "AorNom":    "factative_ir",
     "Inf":       "infinitive_mek",       # -mek/-mak
-    "Nonf":      "infinitive_me",        # -me/-ma (non-finite / action nominal)
+    "Nonf":      AMBIGUOUS_VNOUN,        # surface decides between -me/-ma and -iş/-ış/-uş/-üş
     # adverbial / gerund
     "Ger":       "adverbial_erek",       # -erek/-arak
     "After":     "adverbial_ip",         # -ip/-ıp
@@ -129,7 +134,7 @@ DERIVATION_MAP = {
     "Doct":      "ideologicative_izm",   # -izm
     # ── User-directed routings (semantic differences intentionally ignored) ──
     # Inh (-ıcı habitual doer) → if_se per directive.
-    "Inh":       "if_se",
+    "Inh":       "actor_ci",
     # From (-li from-origin) → composessive_li (shares surface -li/-lı).
     "From":      "composessive_li",
     # Everything else previously unmapped routes to suitative_lik (-lık):
@@ -281,8 +286,6 @@ SKIP_UPOS = {"NUM", "PUNCT", "X", "ONOM", "AFFIX", "SYM"}
 # decomposer. Same shape as the METU adapter uses.
 SUFFIX_ALTERNATIVES = {
     "active_dir":        ["active_it", "active_ir", "active_er"],
-    "infinitive_me":     ["infinitive_mek", "nounifier_iş"],
-    "infinitive_mek":    ["infinitive_me", "nounifier_iş"],
     "passive_il":        ["reflexive_in"],
     "reflexive_in":      ["passive_il"],
     "adverbial_erek":    ["adverbial_ip"],
@@ -614,6 +617,12 @@ def features_to_suffix_names(word, unmapped_sink):
             unmapped_on_word.append(f"{k}={v}")
             _record_unmapped(unmapped_sink, k, v, word)
 
+    suffix_names = resolve_ambiguous_vnoun_suffixes(
+        word["surface"],
+        word["lemma"],
+        suffix_names,
+        SUFFIX_BY_NAME,
+    )
     return suffix_names, unmapped_on_word, has_unmappable
 
 
@@ -644,7 +653,6 @@ def _try_add_verb_lemma_to_dict(lemma, treebank_says_verb=False):
     for inf in (lemma_lower + "mek", lemma_lower + "mak"):
         if inf in wrd.WORDS_SET:
             wrd.WORDS_SET.add(lemma_lower)
-            wrd.WORDS_LIST.append(lemma_lower)
             decompose.cache_clear()
             return True
     if treebank_says_verb and lemma_lower:
@@ -652,7 +660,6 @@ def _try_add_verb_lemma_to_dict(lemma, treebank_says_verb=False):
         harmony = major_harmony(lemma_lower)
         inf = lemma_lower + ("mak" if harmony == MajorHarmony.BACK else "mek")
         wrd.WORDS_SET.add(inf)
-        wrd.WORDS_LIST.append(inf)
         decompose.cache_clear()
         return True
     return False
@@ -819,6 +826,8 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
     best_score = (False, -1, float("-inf"), float("-inf"))
     for root, start_pos, chain, final_pos in candidates:
         chain_names = get_chain_names(chain)
+        if has_unexpected_nounifier_is(root, lemma_lower, chain_names, expected_filtered):
+            continue
         is_lemma = (root == lemma_lower)
         for exp_variant in all_expected_variants:
             tier = _match_tier(chain_names, exp_variant)

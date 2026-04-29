@@ -37,38 +37,39 @@ class MinorHarmony(Enum):
     FRONT_WIDE  = 3
 
 # --- Centralized Dictionary State ---
-WORDS_LIST: List[str] = []
 WORDS_SET: set = set()
+VERB_SET: set = set()
 
 def _load_dictionary():
-    global WORDS_LIST, WORDS_SET
+    global WORDS_SET, VERB_SET
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
-            WORDS_LIST = [line.strip() for line in f if line.strip()]
-            WORDS_SET = set(WORDS_LIST)
+            WORDS_SET = {line.strip() for line in f if line.strip()}
+            VERB_SET = {w[:-3] for w in WORDS_SET if w.endswith("mak") or w.endswith("mek")}
     except FileNotFoundError:
         print(f"Warning: {DATA_FILE} not found")
-        WORDS_LIST = []
         WORDS_SET = set()
+        VERB_SET = set()
 
 # Initialize on module load
 _load_dictionary()
 
 def delete_word(word: str) -> bool:
     """Removes a word from the in-memory dictionary state."""
-    if word in WORDS_SET:
-        WORDS_SET.remove(word)
-        WORDS_LIST.remove(word)
-        return True
-    return False
+    if word not in WORDS_SET:
+        return False
+    WORDS_SET.discard(word)
+    if word.endswith("mak") or word.endswith("mek"):
+        VERB_SET.discard(word[:-3])
+    return True
 
 def get_all_words() -> List[str]:
     """Returns the current list of dictionary words."""
-    return WORDS_LIST
+    return list(WORDS_SET)
 
 def get_random_word() -> Optional[str]:
     """Returns a random word from the dictionary."""
-    return random.choice(WORDS_LIST) if WORDS_LIST else None
+    return random.choice(list(WORDS_SET)) if WORDS_SET else None
 
 def exists(word: str) -> bool:
     return can_be_noun(word) or can_be_verb(word)
@@ -94,10 +95,8 @@ def can_be_noun(word: str) -> bool:
     return False
 
 def can_be_verb(word: str) -> bool:
-    """Checks if a root is a verb by verifying its infinitive form."""
-    if word in ("e", "ha", "da", "ra", "ço"):
-        return False
-    return can_be_noun(infinitive(word))
+    """Checks if a root is a verb by looking it up in VERB_SET."""
+    return word in VERB_SET
 
 # --- Harmony functions ---
 def major_harmony(word: str) -> MajorHarmony | None:
@@ -123,25 +122,10 @@ def minor_harmony(word: str) -> MinorHarmony | None:
     return None
 
 # --- Morphological utilities ---
-def infinitive(word: str) -> str:
-    """Returns the infinitive form of a verb root."""
-    suffix = "mak" if major_harmony(word) == MajorHarmony.BACK else "mek"
-    return word + suffix
-
-def ends_with_vowel(word: str) -> bool:
-    """Check if word ends with a vowel"""
-    return word and word[-1] in VOWELS
 
 def ends_with_consonant(word: str) -> bool:
     """Check if word ends with a consonant"""
     return word and word[-1] not in VOWELS
-
-def has_no_vowels(word: str) -> bool:
-    """Return True if the given word contains no vowels."""
-    for ch in word:
-        if ch in VOWELS:
-            return False
-    return True
 
 # --- Derived-word detection ---
 # Common Turkish derivational suffix patterns that create new dictionary entries.

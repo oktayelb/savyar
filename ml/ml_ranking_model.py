@@ -1,116 +1,51 @@
+import math
 import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Optional, Tuple, Dict
-from .config import config  # Direct import from sibling file
+from typing import List, Optional, Tuple, Dict, Any
+from .config import config  
+from util.suffix import SuffixGroup, Type
 
-# Enable cuDNN auto-tuner — finds fastest convolution algorithms for fixed input sizes
+# Enable cuDNN auto-tuner
 torch.backends.cudnn.benchmark = True
 
 # ============================================================================
 # SPECIAL TOKENS
 # ============================================================================
-#
-# Token ID 0 is reserved as padding (also used by Embedding padding_idx).
-# The vocabulary is laid out as:
-#   [0]            → PAD
-#   [1]            → WORD_SEP  (boundary between words in a sentence)
-#   [2]            → BOS       (beginning-of-sequence, prepended to every input)
-#   [3 .. V+2]     → suffix IDs  (suffix_idx + 3, where suffix_idx is 0-based)
-#   [V+3 .. ]      → closed-class word IDs
-#
-# Category IDs:
-#   0 → Noun, 1 → Verb, 2 → SPECIAL (PAD / WORD_SEP / BOS), 3 → ClosedClass
 
 SPECIAL_PAD           = 0
 SPECIAL_WORD_SEP      = 1
-SPECIAL_BOS           = 2          # beginning-of-sequence
-SUFFIX_OFFSET         = 3          # suffix IDs start here
-CATEGORY_SPECIAL      = 2          # category ID for PAD / WORD_SEP / BOS
-CATEGORY_CLOSED_CLASS = 3          # category ID for closed-class word tokens
+SPECIAL_BOS           = 2          
+SPECIAL_MASK          = 3          
+SUFFIX_OFFSET         = 4          
+CATEGORY_SPECIAL      = 2          
+CATEGORY_CLOSED_CLASS = 3          
 
-# CLOSED_CLASS_OFFSET is computed at runtime (SUFFIX_OFFSET + len(ALL_SUFFIXES))
-# and passed in to SentenceDisambiguator as closed_class_vocab_size.
+SPECIAL_FEATURE_ID    = 0
+WORD_FINAL_NO         = 0
+WORD_FINAL_YES        = 1
 
+GROUP_TO_ID = {None: SPECIAL_FEATURE_ID}
+for idx, group in enumerate(SuffixGroup):
+    GROUP_TO_ID[group] = idx + 1
 
-# ============================================================================
-# PER-CATEGORY ACCURACY BUCKETS
-# ============================================================================
-# Human-meaningful suffix categories for the relearn diagnostic breakdown.
-# Any suffix not explicitly listed falls into "other".
-SUFFIX_CATEGORIES: List[str] = [
-    "plural", "poss", "case", "conj", "copula",
-    "gerund", "infin", "deriv", "other",
-]
-_CAT_NAME_TO_IDX = {c: i for i, c in enumerate(SUFFIX_CATEGORIES)}
+TYPE_TO_ID = {
+    None: SPECIAL_FEATURE_ID,
+    Type.NOUN: 1,
+    Type.VERB: 2,
+    Type.BOTH: 3,
+}
 
-_CATEGORY_TENSOR_CACHE: Dict[str, torch.Tensor] = {}
-
-
-def _build_suffix_category_tensor(vocab_size: int, device: torch.device) -> torch.Tensor:
-    """Return a (vocab_size,) long tensor mapping token-id → category index.
-    Non-suffix tokens (PAD/BOS/WORD_SEP/CC) get -1."""
-    cache_key = f"{vocab_size}:{device}"
-    cached = _CATEGORY_TENSOR_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
-
-    from util.suffixes.n2n.case_suffixes       import CASESUFFIX
-    from util.suffixes.n2n.posessive_suffix    import POSESSIVE_SUFFIX
-    from util.suffixes.n2n.plural_suffix       import PLURALS
-    from util.suffixes.n2n.derivationals       import DERIVATIONALS as N2N_DERIVATIONALS
-    from util.suffixes.n2n.conjugation_suffixes import CONJUGATIONS
-    from util.suffixes.n2n.copula              import COPULA
-    from util.suffixes.v2n.gerunds             import GERUNDS
-    from util.suffixes.v2n.infinitives         import INFINITIVES
-    from util.suffixes.v2n.nounifiers          import NOUNIFIERS
-    from util.suffixes.n2v.verbifiers          import VERBIFIERS
-    from util.suffixes.v2v.verb_derivationals  import VERB_DERIVATIONALS
-    from util.suffixes.v2v.verb_negative       import VERB_NEGATIVES
-    from util.suffixes.v2v.verb_compounds      import VERB_COMPOUNDS
-
-    buckets = [
-        ("plural",  PLURALS),
-        ("poss",    POSESSIVE_SUFFIX),
-        ("case",    CASESUFFIX),
-        ("conj",    CONJUGATIONS),
-        ("copula",  COPULA),
-        ("gerund",  GERUNDS),
-        ("infin",   INFINITIVES),
-        ("deriv",   N2N_DERIVATIONALS + VERBIFIERS + NOUNIFIERS
-                    + VERB_DERIVATIONALS + VERB_NEGATIVES + VERB_COMPOUNDS),
-    ]
-    name_to_cat_idx: Dict[str, int] = {}
-    for cat, lst in buckets:
-        idx = _CAT_NAME_TO_IDX[cat]
-        for s in lst:
-            name_to_cat_idx[s.name] = idx
-
-    other_idx = _CAT_NAME_TO_IDX["other"]
-    tensor = torch.full((vocab_size,), -1, dtype=torch.long, device=device)
-    all_sufs = _get_all_suffixes()
-    for i, s in enumerate(all_sufs):
-        tok_id = i + SUFFIX_OFFSET
-        if tok_id >= vocab_size:
-            break
-        tensor[tok_id] = name_to_cat_idx.get(s.name, other_idx)
-
-    _CATEGORY_TENSOR_CACHE[cache_key] = tensor
-    return tensor
-
+EncodedToken = Tuple[int, int, int, int, int, int, int]
+FlatSequence = Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]
 
 # ============================================================================
 # HELPER: encode / decode sentence-level token sequences
 # ============================================================================
 
-def encode_chain(suffix_chain) -> List[Tuple[int, int]]:
-    """
-    Convert a List[Suffix] → List[(suffix_token_id, category_id)].
-    An empty chain (bare root) returns an empty list; the caller must
-    still emit a WORD_SEP token.
-    """
-    from ml.ml_ranking_model import SUFFIX_OFFSET, CATEGORY_SPECIAL  # avoid circular at module level
+def encode_chain(suffix_chain) -> List[EncodedToken]:
+    from ml.ml_ranking_model import SUFFIX_OFFSET, CATEGORY_SPECIAL  
 
     suffix_to_id = {
         suffix.name: idx + SUFFIX_OFFSET
@@ -119,52 +54,66 @@ def encode_chain(suffix_chain) -> List[Tuple[int, int]]:
     category_to_id = {'Noun': 0, 'Verb': 1}
 
     encoded = []
-    for s in suffix_chain:
-        sid  = suffix_to_id.get(s.name, SUFFIX_OFFSET)  # unknown → first real suffix
+    last_idx = len(suffix_chain) - 1
+    for idx, s in enumerate(suffix_chain):
+        sid  = suffix_to_id.get(s.name, SUFFIX_OFFSET)  
         cid  = category_to_id.get(s.makes.name, 0)
-        encoded.append((sid, cid))
+        gid  = GROUP_TO_ID.get(getattr(s, 'group', None), SPECIAL_FEATURE_ID)
+        comes_to_id = TYPE_TO_ID.get(getattr(s, 'comes_to', None), SPECIAL_FEATURE_ID)
+        makes_id    = TYPE_TO_ID.get(getattr(s, 'makes', None), SPECIAL_FEATURE_ID)
+        pos_in_word = idx + 1
+        is_final    = WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO
+        encoded.append((sid, cid, gid, comes_to_id, makes_id, pos_in_word, is_final))
     return encoded
 
 
 def _get_all_suffixes():
-    """Lazy import to avoid circular deps."""
     import util.decomposer as sfx
     return sfx.ALL_SUFFIXES
 
 
 def _chain_tokens(
-    word_chains: List[List[Tuple[int, int]]]
-) -> Tuple[List[int], List[int]]:
-    """
-    Raw per-word tokens (suffixes + trailing WORD_SEP per word). No BOS.
-    Used when concatenating fragments (ctx + candidate + right) in scoring.
-    """
+    word_chains: List[List[EncodedToken]]
+) -> FlatSequence:
     suffix_ids:   List[int] = []
     category_ids: List[int] = []
+    group_ids:    List[int] = []
+    comes_to_ids: List[int] = []
+    makes_ids:    List[int] = []
+    pos_ids:      List[int] = []
+    word_final:   List[int] = []
     for chain in word_chains:
-        for (sid, cid) in chain:
+        for (sid, cid, gid, comes_to_id, makes_id, pos_in_word, is_final) in chain:
             suffix_ids.append(sid)
             category_ids.append(cid)
+            group_ids.append(gid)
+            comes_to_ids.append(comes_to_id)
+            makes_ids.append(makes_id)
+            pos_ids.append(pos_in_word)
+            word_final.append(is_final)
         suffix_ids.append(SPECIAL_WORD_SEP)
         category_ids.append(CATEGORY_SPECIAL)
-    return suffix_ids, category_ids
+        group_ids.append(SPECIAL_FEATURE_ID)
+        comes_to_ids.append(SPECIAL_FEATURE_ID)
+        makes_ids.append(SPECIAL_FEATURE_ID)
+        pos_ids.append(SPECIAL_FEATURE_ID)
+        word_final.append(WORD_FINAL_NO)
+    return suffix_ids, category_ids, group_ids, comes_to_ids, makes_ids, pos_ids, word_final
 
 
 def build_sentence_sequence(
-    word_chains: List[List[Tuple[int, int]]]
-) -> Tuple[List[int], List[int]]:
-    """
-    Full trainable sequence: BOS prefix + raw chain tokens.
-
-    Layout for a 2-word sentence  [BOS | w1_suf1, w1_suf2, SEP | w2_suf1, SEP]:
-        suffix_ids   = [BOS, w1_suf1_id, w1_suf2_id, WORD_SEP, w2_suf1_id, WORD_SEP]
-        category_ids = [C_SPEC, w1_cat1, w1_cat2,    C_SPEC,   w2_cat1,    C_SPEC]
-
-    The leading BOS gives the model a conditioning token for the very first
-    suffix prediction (otherwise the first-token probability is unscorable).
-    """
-    s, c = _chain_tokens(word_chains)
-    return [SPECIAL_BOS] + s, [CATEGORY_SPECIAL] + c
+    word_chains: List[List[EncodedToken]]
+) -> FlatSequence:
+    s, c, g, ct, m, p, wf = _chain_tokens(word_chains)
+    return (
+        [SPECIAL_BOS] + s,
+        [CATEGORY_SPECIAL] + c,
+        [SPECIAL_FEATURE_ID] + g,
+        [SPECIAL_FEATURE_ID] + ct,
+        [SPECIAL_FEATURE_ID] + m,
+        [SPECIAL_FEATURE_ID] + p,
+        [WORD_FINAL_NO] + wf,
+    )
 
 
 # ============================================================================
@@ -172,51 +121,37 @@ def build_sentence_sequence(
 # ============================================================================
 
 class SentenceDisambiguator(nn.Module):
-    """
-    Causal (decoder-only) Transformer that models the joint distribution
-    over suffix token sequences at the sentence level.
-
-    Trained like a language model: given a confirmed sentence decomposition
-    as a flat token sequence, minimise cross-entropy of predicting each next
-    token from all previous ones.
-
-    At inference time, candidate decompositions for each word are scored by
-    summing the log-probabilities assigned to their tokens in context, so
-    every word's disambiguation is informed by all surrounding words.
-    """
-
     def __init__(self, suffix_vocab_size: int, closed_class_vocab_size: int = 0):
-        """
-        Args:
-            suffix_vocab_size: number of real suffix types (from ALL_SUFFIXES).
-            closed_class_vocab_size: number of closed-class word types
-                                     (from ALL_CLOSED_CLASS_WORDS). Defaults to 0
-                                     for backward compatibility.
-        Total token vocab layout:
-            [0]                                 → PAD
-            [1]                                 → WORD_SEP
-            [2]                                 → BOS
-            [3 .. suffix_vocab_size+2]          → suffix IDs
-            [suffix_vocab_size+3 .. total-1]    → closed-class word IDs
-        Category IDs:
-            0 = Noun, 1 = Verb, 2 = Special (PAD/WORD_SEP/BOS), 3 = ClosedClass
-        """
         super().__init__()
         self.embed_dim = config.embed_dim
-        # Full token vocab: PAD + WORD_SEP + suffixes + closed-class words
         self.vocab_size = SUFFIX_OFFSET + suffix_vocab_size + closed_class_vocab_size
 
-        # Token embeddings (shared with LM head via weight tying)
-        self.suffix_embed   = nn.Embedding(self.vocab_size,          self.embed_dim, padding_idx=SPECIAL_PAD)
-        # Category embedding: 0=Noun, 1=Verb, 2=Special, 3=ClosedClass  →  4 categories
-        self.category_embed = nn.Embedding(4,                         self.embed_dim)
-        # Positional embedding (up to 512 tokens per sentence)
-        self.pos_embed      = nn.Embedding(512,                       self.embed_dim)
+        self.suffix_embed   = nn.Embedding(self.vocab_size, self.embed_dim, padding_idx=SPECIAL_PAD)
+        
+        self.category_embed = nn.Embedding(4, config.category_embed_dim)
+        self.group_embed    = nn.Embedding(len(GROUP_TO_ID), config.group_embed_dim)
+        self.comes_to_embed = nn.Embedding(max(TYPE_TO_ID.values()) + 1, config.comes_makes_embed_dim)
+        self.makes_embed    = nn.Embedding(max(TYPE_TO_ID.values()) + 1, config.comes_makes_embed_dim)
+        self.wordpos_embed  = nn.Embedding(64, config.wordpos_embed_dim)
+        self.wordfinal_embed = nn.Embedding(2, config.wordfinal_embed_dim)
+        
+        self.pos_embed      = nn.Embedding(512, self.embed_dim)
 
-        # Project concatenated embeddings → model dim
-        self.input_proj = nn.Linear(self.embed_dim * 3, self.embed_dim)
+        feature_width = (
+            self.embed_dim * 2 + 
+            config.category_embed_dim + 
+            config.group_embed_dim + 
+            config.comes_makes_embed_dim * 2 + 
+            config.wordpos_embed_dim + 
+            config.wordfinal_embed_dim
+        )
 
-        # Causal (decoder) transformer layers
+        self.input_proj = nn.Sequential(
+            nn.Linear(feature_width, 512),
+            nn.GELU(),
+            nn.Linear(512, self.embed_dim)
+        )
+
         layer = nn.TransformerEncoderLayer(
             d_model=self.embed_dim,
             nhead=config.num_heads,
@@ -224,14 +159,11 @@ class SentenceDisambiguator(nn.Module):
             dropout=config.dropout,
             batch_first=True,
             activation='gelu',
-            norm_first=True,   # Pre-LN for stability
+            norm_first=True,   
         )
         self.transformer = nn.TransformerEncoder(layer, num_layers=config.num_layers)
 
-        # Language-model head: hidden → vocab logits
         self.lm_head = nn.Linear(self.embed_dim, self.vocab_size, bias=False)
-
-        # Tie weights (token embedding ↔ LM head), standard LM trick
         self.lm_head.weight = self.suffix_embed.weight
 
         self._init_weights()
@@ -245,64 +177,94 @@ class SentenceDisambiguator(nn.Module):
             elif 'bias' in name:
                 nn.init.zeros_(p)
 
-    @staticmethod
-    def _causal_mask(length: int, device: torch.device) -> torch.Tensor:
-        """Upper-triangular mask so position i can only attend to 0..i."""
-        return torch.triu(
-            torch.ones(length, length, dtype=torch.bool, device=device), diagonal=1
-        )
-
     def forward(
         self,
-        suffix_ids:   torch.Tensor,   # (B, L)
-        category_ids: torch.Tensor,   # (B, L)
-        pad_mask:     Optional[torch.Tensor] = None,  # (B, L) True = padding
+        suffix_ids:   torch.Tensor,   
+        category_ids: torch.Tensor,   
+        group_ids:    torch.Tensor,   
+        comes_to_ids: torch.Tensor,   
+        makes_ids:    torch.Tensor,   
+        word_pos_ids: torch.Tensor,   
+        word_final:   torch.Tensor,   
+        pad_mask:     Optional[torch.Tensor] = None,  
     ) -> torch.Tensor:
-        """
-        Returns logits of shape (B, L, vocab_size).
-        Logits[b, i, :] = distribution over the token at position i+1
-        given positions 0..i  (standard causal LM).
-        """
         B, L = suffix_ids.shape
         pos = torch.arange(L, device=suffix_ids.device).unsqueeze(0).expand(B, L)
 
         x = torch.cat([
             self.suffix_embed(suffix_ids),
             self.category_embed(category_ids),
+            self.group_embed(group_ids),
+            self.comes_to_embed(comes_to_ids),
+            self.makes_embed(makes_ids),
+            self.wordpos_embed(word_pos_ids.clamp(max=self.wordpos_embed.num_embeddings - 1)),
+            self.wordfinal_embed(word_final),
             self.pos_embed(pos),
-        ], dim=-1)                          # (B, L, embed_dim * 3)
+        ], dim=-1)
 
-        x = self.input_proj(x)              # (B, L, embed_dim)
+        x = self.input_proj(x)              
 
-        causal = self._causal_mask(L, suffix_ids.device)
+        x = self.transformer(x, src_key_padding_mask=pad_mask)
 
-        x = self.transformer(x, mask=causal, src_key_padding_mask=pad_mask)
-
-        return self.lm_head(x)              # (B, L, vocab_size)
+        return self.lm_head(x)              
 
     def log_probs(
         self,
-        suffix_ids:   torch.Tensor,   # (B, L)
-        category_ids: torch.Tensor,   # (B, L)
-        pad_mask:     Optional[torch.Tensor] = None,  # (B, L)
+        suffix_ids:   torch.Tensor,   
+        category_ids: torch.Tensor,   
+        group_ids:    torch.Tensor,   
+        comes_to_ids: torch.Tensor,   
+        makes_ids:    torch.Tensor,   
+        word_pos_ids: torch.Tensor,   
+        word_final:   torch.Tensor,   
+        pad_mask:     Optional[torch.Tensor] = None,  
     ) -> torch.Tensor:
-        """
-        Returns token-level log-probs of shape (B, L-1):
-            log P(token[i] | token[0..i-1])   for i in 1..L-1.
+        B, L = suffix_ids.shape
+        device = suffix_ids.device
+        result = torch.zeros(B, L, dtype=torch.float, device=device)
 
-        Used during scoring to evaluate candidate decompositions.
-        """
-        logits = self.forward(suffix_ids, category_ids, pad_mask=pad_mask)  # (B, L, V)
-        log_p  = F.log_softmax(logits[:, :-1, :], dim=-1)  # (B, L-1, V)
-        targets = suffix_ids[:, 1:]                          # (B, L-1)
-        token_log_probs = log_p.gather(dim=-1, index=targets.unsqueeze(-1)).squeeze(-1)  # (B, L-1)
-
+        is_special = (
+            (suffix_ids == SPECIAL_PAD)
+            | (suffix_ids == SPECIAL_WORD_SEP)
+            | (suffix_ids == SPECIAL_BOS)
+            | (suffix_ids == SPECIAL_MASK)
+        )
         if pad_mask is not None:
-            # Mask out padding tokens in the target
-            target_mask = pad_mask[:, 1:]
-            token_log_probs.masked_fill_(target_mask, 0.0)
+            is_special = is_special | pad_mask
+        eligible = ~is_special
 
-        return token_log_probs
+        flat_eligible = eligible.reshape(-1)
+        if not flat_eligible.any():
+            return result
+
+        flat_idx   = flat_eligible.nonzero(as_tuple=False).squeeze(-1)  
+        batch_ids  = flat_idx // L                                      
+        pos_ids    = flat_idx %  L                                      
+        K          = flat_idx.numel()
+
+        batched_s  = suffix_ids[batch_ids].clone()
+        batched_c  = category_ids[batch_ids].clone()
+        batched_g  = group_ids[batch_ids].clone()
+        batched_ct = comes_to_ids[batch_ids].clone()
+        batched_m  = makes_ids[batch_ids].clone()
+        batched_wp = word_pos_ids[batch_ids].clone()
+        batched_wf = word_final[batch_ids].clone()
+        row_range = torch.arange(K, device=device)
+        batched_s[row_range, pos_ids] = SPECIAL_MASK
+
+        batched_pad = pad_mask[batch_ids] if pad_mask is not None else None
+
+        logits = self.forward(
+            batched_s, batched_c, batched_g, batched_ct, batched_m, batched_wp, batched_wf,
+            pad_mask=batched_pad,
+        )
+        slot_logits = logits[row_range, pos_ids]                           
+        log_p       = F.log_softmax(slot_logits, dim=-1)                   
+        true_toks   = suffix_ids[batch_ids, pos_ids]                       
+        scores      = log_p.gather(1, true_toks.unsqueeze(-1)).squeeze(-1) 
+
+        result[batch_ids, pos_ids] = scores
+        return result
 
 
 # ============================================================================
@@ -310,29 +272,19 @@ class SentenceDisambiguator(nn.Module):
 # ============================================================================
 
 class Trainer:
-    """
-    Wraps SentenceDisambiguator and handles:
-      - Causal LM training on confirmed sentence decompositions
-      - Context-aware candidate scoring at inference time
-      - Checkpointing
-    """
-
-    def __init__(self, model: SentenceDisambiguator):
+    def __init__(self, model: SentenceDisambiguator, path: Optional[str] = None):
         self.model = model
 
         self.checkpoint_frequency = config.checkpoint_frequency
-        self.path                 = str(config.model_path)
+        self.path                 = path if path is not None else str(config.model_path)
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model.to(self.device)
 
-        # Mixed precision scaler (CUDA only; no-op on CPU)
         self.scaler = torch.amp.GradScaler('cuda', enabled=(self.device == 'cuda'))
 
-        # torch.compile for kernel fusion / faster execution (PyTorch 2.0+, Linux/Mac only)
-        # Skipped on Windows — requires MSVC cl.exe which is rarely available.
         if not torch.cuda.is_available() or not hasattr(torch, 'compile'):
-            pass  # CPU-only or old PyTorch — skip
+            pass  
         elif torch.version.cuda and hasattr(torch, 'compile'):
             import platform
             if platform.system() != 'Windows':
@@ -347,23 +299,16 @@ class Trainer:
             weight_decay=config.weight_decay,
             betas=(0.9, 0.999),
         )
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer, T_0=10, T_mult=2, eta_min=config.learning_rate * 0.01
-        )
+        
+        # Interactive fallback scheduler
+        self.scheduler = self._build_schedule(self.optimizer)
 
-        # Training state
         self.train_history: List[float] = []
         self.val_history:   List[float] = []
         self.best_val_loss  = float('inf')
         self.global_step    = 0
 
-        # Experience replay buffer: list of (suffix_ids, category_ids) tuples.
-        # Populated from confirmed examples; used to mix past data into each
-        # training call so the model does not forget earlier decompositions.
-        self.replay_buffer: List[Tuple[List[int], List[int]]] = []
-
-        # Cached class-weight tensor for imbalanced cross-entropy. Invalidated
-        # when the replay buffer changes (see _add_to_replay).
+        self.replay_buffer: List[FlatSequence] = []
         self._class_weight_cache: Optional[torch.Tensor] = None
 
         try:
@@ -378,76 +323,55 @@ class Trainer:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _build_schedule(optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler.LambdaLR:
+        warmup      = max(1, int(config.warmup_steps))
+        eta_min     = float(config.lr_eta_min_ratio)
+        decay_total = max(warmup * 50, 1)
+
+        def lr_lambda(step: int) -> float:
+            if step < warmup:
+                return (step + 1) / warmup
+            progress = min(1.0, (step - warmup) / decay_total)
+            return eta_min + 0.5 * (1.0 - eta_min) * (1.0 + math.cos(math.pi * progress))
+
+        return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
     def _to_tensor(
-        self, suffix_ids: List[int], category_ids: List[int]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Convert flat id lists to (1, L) tensors on device."""
-        s = torch.tensor(suffix_ids,   dtype=torch.long, device=self.device).unsqueeze(0)
-        c = torch.tensor(category_ids, dtype=torch.long, device=self.device).unsqueeze(0)
-        return s, c
+        self,
+        suffix_ids: List[int],
+        category_ids: List[int],
+        group_ids: List[int],
+        comes_to_ids: List[int],
+        makes_ids: List[int],
+        word_pos_ids: List[int],
+        word_final: List[int],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        tensors = [
+            torch.tensor(values, dtype=torch.long, device=self.device).unsqueeze(0)
+            for values in (suffix_ids, category_ids, group_ids, comes_to_ids, makes_ids, word_pos_ids, word_final)
+        ]
+        return tuple(tensors)
 
     def _get_best_index(self, scores: List[float]) -> int:
-        """Pick the argmax score. With BOS prepended to every sequence,
-        every candidate — including bare roots — produces a real log-prob,
-        so no sentinel filtering is needed."""
         return int(max(range(len(scores)), key=lambda i: scores[i]))
 
     def _compute_metrics(
         self, preds: torch.Tensor, targets: torch.Tensor
-    ) -> Tuple[float, float, float, float, float, Dict[str, Tuple[float, int]]]:
-        """
-        Suffix-level accuracy + macro-averaged P/R/F1, plus a separate
-        word-boundary accuracy for diagnostic transparency.
-
-        The caller is expected to have already filtered PAD tokens. This
-        function additionally isolates real suffix tokens from the special
-        WORD_SEP / BOS tokens before computing the headline metrics, because
-        WORD_SEP is trivially predictable (every word ends with one) and
-        would otherwise mask poor suffix-level performance.
-
-        Returns: (suffix_acc, macro_p, macro_r, macro_f1, wordsep_acc, per_cat)
-        where per_cat maps category name -> (accuracy, token_count).
-        """
-        empty_per_cat: Dict[str, Tuple[float, int]] = {c: (0.0, 0) for c in SUFFIX_CATEGORIES}
+    ) -> Tuple[float, float, float, float, List[Dict[str, Any]]]:
         if len(targets) == 0:
-            return 0.0, 0.0, 0.0, 0.0, 0.0, empty_per_cat
+            return 0.0, 0.0, 0.0, 0.0, []
 
-        # Isolate the "real" suffix predictions (strip WORD_SEP and BOS).
         is_special = (targets == SPECIAL_WORD_SEP) | (targets == SPECIAL_BOS)
         suffix_mask = ~is_special
 
         suffix_preds   = preds[suffix_mask]
         suffix_targets = targets[suffix_mask]
 
-        # Word-boundary accuracy, reported separately for visibility.
-        sep_targets_mask = (targets == SPECIAL_WORD_SEP)
-        if sep_targets_mask.any():
-            wordsep_acc = (preds[sep_targets_mask] == SPECIAL_WORD_SEP).float().mean().item()
-        else:
-            wordsep_acc = 0.0
-
         if len(suffix_targets) == 0:
-            return 0.0, 0.0, 0.0, 0.0, wordsep_acc, empty_per_cat
+            return 0.0, 0.0, 0.0, 0.0, []
 
         suffix_acc = (suffix_preds == suffix_targets).float().mean().item()
-
-        # Per-category breakdown (bucket each real suffix target by semantic group).
-        cat_tensor = _build_suffix_category_tensor(self.model.vocab_size, suffix_targets.device)
-        cat_idx    = cat_tensor[suffix_targets]          # (-1 for anything unclassified)
-        valid_cat  = cat_idx >= 0
-        per_cat: Dict[str, Tuple[float, int]] = {}
-        if valid_cat.any():
-            cidx_v  = cat_idx[valid_cat]
-            correct = (suffix_preds[valid_cat] == suffix_targets[valid_cat]).float()
-            n_cats  = len(SUFFIX_CATEGORIES)
-            totals   = torch.bincount(cidx_v, minlength=n_cats).float()
-            corrects = torch.bincount(cidx_v, weights=correct, minlength=n_cats)
-            for i, name in enumerate(SUFFIX_CATEGORIES):
-                tot = int(totals[i].item())
-                acc = (corrects[i] / totals[i]).item() if tot > 0 else 0.0
-                per_cat[name] = (acc, tot)
-        else:
-            per_cat = empty_per_cat
 
         num_classes = self.model.vocab_size
         tps_mask      = (suffix_preds == suffix_targets)
@@ -461,41 +385,44 @@ class Trainer:
 
         valid_classes = target_counts > 0
         if not valid_classes.any():
-            return suffix_acc, 0.0, 0.0, 0.0, wordsep_acc, per_cat
+            return suffix_acc, 0.0, 0.0, 0.0, []
 
         macro_p  = precision[valid_classes].mean().item()
         macro_r  = recall[valid_classes].mean().item()
         macro_f1 = f1[valid_classes].mean().item()
 
-        return suffix_acc, macro_p, macro_r, macro_f1, wordsep_acc, per_cat
+        per_suffix = []
+        valid_idx = valid_classes.nonzero(as_tuple=False).squeeze(-1)
+        for idx in valid_idx.tolist():
+            per_suffix.append({
+                'id': idx,
+                'p': precision[idx].item(),
+                'r': recall[idx].item(),
+                'f1': f1[idx].item(),
+                'count': int(target_counts[idx].item())
+            })
 
-    # ------------------------------------------------------------------
-    # Training
-    # ------------------------------------------------------------------
+        return suffix_acc, macro_p, macro_r, macro_f1, per_suffix
 
-    # ------------------------------------------------------------------
-    # Experience replay helpers
-    # ------------------------------------------------------------------
-
-    def _add_to_replay(self, suffix_ids: List[int], category_ids: List[int]) -> None:
-        """Add a confirmed sequence to the replay buffer, evicting old entries if full."""
-        self.replay_buffer.append((suffix_ids, category_ids))
+    def _add_to_replay(
+        self,
+        suffix_ids: List[int],
+        category_ids: List[int],
+        group_ids: List[int],
+        comes_to_ids: List[int],
+        makes_ids: List[int],
+        word_pos_ids: List[int],
+        word_final: List[int],
+    ) -> None:
+        self.replay_buffer.append(
+            (suffix_ids, category_ids, group_ids, comes_to_ids, makes_ids, word_pos_ids, word_final)
+        )
         if len(self.replay_buffer) > config.replay_buffer_size:
-            # Evict a random entry from the first half to keep a mix of old and recent.
             evict_idx = random.randrange(len(self.replay_buffer) // 2)
             self.replay_buffer.pop(evict_idx)
-        # Class-frequency stats are now stale.
         self._class_weight_cache = None
 
     def _compute_class_weights(self) -> Optional[torch.Tensor]:
-        """Inverse-sqrt-frequency class weights computed from the replay buffer.
-
-        Weights for classes that appear are rescaled so their mean is 1.0, which
-        keeps the effective learning rate on non-rare classes roughly unchanged.
-        Classes that never appear (including PAD) get weight 1.0; cross_entropy's
-        ignore_index still filters PAD out of the loss entirely.
-        Cached on the trainer; invalidated whenever the replay buffer changes.
-        """
         if not config.use_class_weights:
             return None
         if self._class_weight_cache is not None:
@@ -505,7 +432,7 @@ class Trainer:
 
         V = self.model.vocab_size
         counts = torch.zeros(V, dtype=torch.float, device=self.device)
-        for sids, _ in self.replay_buffer:
+        for sids, *_ in self.replay_buffer:
             if not sids:
                 continue
             ids = torch.as_tensor(sids, dtype=torch.long, device=self.device)
@@ -515,95 +442,156 @@ class Trainer:
         present = counts > 0
         if present.any():
             inv_sqrt = 1.0 / torch.sqrt(counts[present])
-            # Normalize mean -> 1.0 across present classes.
             inv_sqrt = inv_sqrt * (inv_sqrt.numel() / inv_sqrt.sum())
             weights[present] = inv_sqrt
 
-        weights[SPECIAL_PAD] = 1.0  # ignore_index skips PAD anyway; keep sane.
+        weights[SPECIAL_PAD] = 1.0  
         self._class_weight_cache = weights
         return weights
 
     def _build_padded_batch(
-        self, seqs: List[Tuple[List[int], List[int]]]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Pad a list of (suffix_ids, category_ids) sequences to the same length.
-        Returns (suffix_tensor, category_tensor, pad_mask) each of shape (B, L).
-        pad_mask is True where the position is padding.
-        Tensors are built on CPU then transferred in a single .to(device) call.
-        """
-        max_len = max(len(s) for s, _ in seqs)
+        self, seqs: List[FlatSequence]
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        max_len = max(len(seq[0]) for seq in seqs)
         bsz = len(seqs)
 
         pin = self.device == 'cuda'
-        s_t    = torch.full((bsz, max_len), SPECIAL_PAD,      dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), SPECIAL_PAD,      dtype=torch.long)
-        c_t    = torch.full((bsz, max_len), CATEGORY_SPECIAL, dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), CATEGORY_SPECIAL, dtype=torch.long)
+        s_t    = torch.full((bsz, max_len), SPECIAL_PAD,        dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), SPECIAL_PAD,        dtype=torch.long)
+        c_t    = torch.full((bsz, max_len), CATEGORY_SPECIAL,   dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), CATEGORY_SPECIAL,   dtype=torch.long)
+        g_t    = torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long)
+        ct_t   = torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long)
+        m_t    = torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long)
+        wp_t   = torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long)
+        wf_t   = torch.full((bsz, max_len), WORD_FINAL_NO,      dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), WORD_FINAL_NO,      dtype=torch.long)
         p_mask = torch.ones((bsz, max_len), dtype=torch.bool)
 
-        for i, (sids, cids) in enumerate(seqs):
+        for i, (sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final) in enumerate(seqs):
             L = len(sids)
             s_t[i, :L]    = torch.tensor(sids, dtype=torch.long)
             c_t[i, :L]    = torch.tensor(cids, dtype=torch.long)
+            g_t[i, :L]    = torch.tensor(gids, dtype=torch.long)
+            ct_t[i, :L]   = torch.tensor(comes_to_ids, dtype=torch.long)
+            m_t[i, :L]    = torch.tensor(makes_ids, dtype=torch.long)
+            wp_t[i, :L]   = torch.tensor(word_pos_ids, dtype=torch.long)
+            wf_t[i, :L]   = torch.tensor(word_final, dtype=torch.long)
             p_mask[i, :L] = False
 
         non_blocking = self.device == 'cuda'
         return (
             s_t.to(self.device, non_blocking=non_blocking),
             c_t.to(self.device, non_blocking=non_blocking),
+            g_t.to(self.device, non_blocking=non_blocking),
+            ct_t.to(self.device, non_blocking=non_blocking),
+            m_t.to(self.device, non_blocking=non_blocking),
+            wp_t.to(self.device, non_blocking=non_blocking),
+            wf_t.to(self.device, non_blocking=non_blocking),
             p_mask.to(self.device, non_blocking=non_blocking),
         )
 
-    def _compute_focal_loss(self, logits: torch.Tensor, targets: torch.Tensor, gamma: float = 2.0) -> torch.Tensor:
-        """
-        Computes Focal Loss. 
-        Lowers the weight of easy, highly-confident predictions and forces 
-        the network to focus on hard, misclassified examples.
-        """
-        # Calculate raw cross entropy loss without reduction so we get a loss per token
+    def _compute_focal_loss(
+        self,
+        logits: torch.Tensor,
+        targets: torch.Tensor,
+        gamma: Optional[float] = None,
+    ) -> torch.Tensor:
+        if gamma is None:
+            gamma = config.focal_gamma
+
         ce_loss = F.cross_entropy(
             logits.reshape(-1, logits.size(-1)),
             targets.reshape(-1),
             reduction='none',
-            ignore_index=SPECIAL_PAD
+            ignore_index=SPECIAL_PAD,
         )
-        
-        # Calculate pt (probability of the correct class)
-        pt = torch.exp(-ce_loss)
-        
-        # Apply focal weighting factor: (1 - pt)^gamma
-        focal_loss = ((1 - pt) ** gamma) * ce_loss
-        
-        # Filter out padding tokens and return the mean over valid tokens
+
+        if gamma > 0.0:
+            pt = torch.exp(-ce_loss)
+            loss_per_tok = ((1 - pt) ** gamma) * ce_loss
+        else:
+            loss_per_tok = ce_loss
+
         valid_mask = targets.reshape(-1) != SPECIAL_PAD
         if valid_mask.any():
-            return focal_loss[valid_mask].mean()
-        return focal_loss.sum() # Fallback if sequence is entirely padding
+            return loss_per_tok[valid_mask].mean()
+        return loss_per_tok.sum()  
+
+    def _mlm_mask_batch(
+        self,
+        s_t:    torch.Tensor,   
+        p_mask: torch.Tensor,   
+        mask_prob: Optional[float] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if mask_prob is None:
+            mask_prob = config.mlm_mask_prob
+
+        eligible = (
+            (s_t != SPECIAL_PAD)
+            & (s_t != SPECIAL_WORD_SEP)
+            & (s_t != SPECIAL_BOS)
+            & (~p_mask)
+        )
+
+        draws    = torch.rand_like(s_t, dtype=torch.float)
+        selected = eligible & (draws < mask_prob)
+
+        if config.mlm_ensure_one_mask:
+            has_elig     = eligible.any(dim=1)                        
+            has_selected = selected.any(dim=1)                        
+            need_force   = has_elig & (~has_selected)                 
+            if need_force.any():
+                forced_draws = draws.masked_fill(~eligible, float('inf'))
+                forced_pos   = forced_draws.argmin(dim=1)             
+                rows         = torch.arange(s_t.size(0), device=s_t.device)
+                rows         = rows[need_force]
+                cols         = forced_pos[need_force]
+                selected[rows, cols] = True
+
+        loss_target = s_t.clone()
+        loss_target[~selected] = SPECIAL_PAD  
+
+        masked_s = s_t.clone()
+        if config.mlm_use_bert_mix:
+            role_draws = torch.rand_like(s_t, dtype=torch.float)
+            mask_slot   = selected & (role_draws < 0.80)
+            random_slot = selected & (role_draws >= 0.80) & (role_draws < 0.90)
+
+            masked_s[mask_slot] = SPECIAL_MASK
+
+            if random_slot.any():
+                n_rand = int(random_slot.sum().item())
+                rand_tokens = torch.randint(
+                    low=SUFFIX_OFFSET,
+                    high=self.model.vocab_size,
+                    size=(n_rand,),
+                    device=s_t.device,
+                    dtype=s_t.dtype,
+                )
+                masked_s[random_slot] = rand_tokens
+        else:
+            masked_s[selected] = SPECIAL_MASK
+
+        return masked_s, loss_target
 
     def _gradient_steps(
         self, seqs: List[Tuple[List[int], List[int]]], n_steps: int
     ) -> float:
-        """
-        Run `n_steps` gradient updates on a padded batch of sequences.
-        Returns the loss from the final step.
-        """
-        s_t, c_t, p_mask = self._build_padded_batch(seqs)
-
-        # Causal LM: predict token[i] from tokens[0..i-1]
-        input_s  = s_t[:, :-1]
-        input_c  = c_t[:, :-1]
-        target   = s_t[:, 1:]
-        in_mask  = p_mask[:, :-1]   # padding mask for the input side
+        s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(seqs)
 
         self.model.train()
         final_loss = 0.0
         use_amp = self.device == 'cuda'
 
         for _ in range(n_steps):
+            masked_s, target = self._mlm_mask_batch(s_t, p_mask)
+
+            if (target != SPECIAL_PAD).sum() == 0:
+                continue
+
             self.optimizer.zero_grad()
             with torch.amp.autocast('cuda', enabled=use_amp):
-                logits = self.model(input_s, input_c, pad_mask=in_mask)   # (B, L-1, V)
+                logits = self.model(masked_s, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
                 loss = self._compute_focal_loss(logits, target)
-                
+
             final_loss = loss.item()
 
             self.scaler.scale(loss).backward()
@@ -611,85 +599,72 @@ class Trainer:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.scaler.step(self.optimizer)
             self.scaler.update()
+            self.scheduler.step()
             self.global_step += 1
 
         return final_loss
 
-    # ------------------------------------------------------------------
-    # Training (public API)
-    # ------------------------------------------------------------------
-
     def train_sentence(
         self,
-        word_chains: List[List[Tuple[int, int]]],
-        max_retries: int = None,   # kept for call-site compatibility, ignored
+        word_chains: List[List[EncodedToken]],
+        max_retries: int = None,   
     ) -> float:
-        """
-        Train on a confirmed sentence (or single-word) decomposition.
+        suffix_ids, category_ids, group_ids, comes_to_ids, makes_ids, word_pos_ids, word_final = build_sentence_sequence(word_chains)
 
-        Strategy — experience replay:
-          1. Encode the new example into a flat token sequence.
-          2. Add it to the replay buffer.
-          3. Sample `replay_k` past examples from the buffer.
-          4. Run `steps_per_update` gradient steps on the mixed batch.
-
-        This replaces the old "repeat 20 times on one sentence until loss < 0.05"
-        loop, which caused memorisation and catastrophic forgetting.
-
-        Args:
-            word_chains: one encoded chain per word (empty chain = bare root).
-        Returns:
-            cross-entropy loss from the final gradient step.
-        """
-        suffix_ids, category_ids = build_sentence_sequence(word_chains)
-
-        # Sequences with only a WORD_SEP token carry no learnable signal.
         if len(suffix_ids) < 2:
             return 0.0
 
-        # 1. Add new example to replay buffer.
-        self._add_to_replay(suffix_ids, category_ids)
+        self._add_to_replay(
+            suffix_ids, category_ids, group_ids, comes_to_ids, makes_ids, word_pos_ids, word_final
+        )
 
-        # 2. Sample past examples.
-        batch: List[Tuple[List[int], List[int]]] = [(suffix_ids, category_ids)]
+        batch: List[FlatSequence] = [
+            (suffix_ids, category_ids, group_ids, comes_to_ids, makes_ids, word_pos_ids, word_final)
+        ]
         if len(self.replay_buffer) > 1:
             k = min(config.replay_k, len(self.replay_buffer) - 1)
             others = [x for x in self.replay_buffer if x is not batch[0]]
             batch.extend(random.sample(others, k))
 
-        # 3. Fixed gradient steps on mixed batch.
         print(f"   Training on {len(batch)} examples...", end="", flush=True)
         final_loss = self._gradient_steps(batch, config.steps_per_update)
         print(f" loss={final_loss:.4f}")
 
-        self.scheduler.step()
         self.train_history.append(final_loss)
         return final_loss
 
     def train_bulk(
         self,
-        all_seqs: List[Tuple[List[int], List[int]]],
-        batch_size: int = 64,
-        epochs: int = 150,
+        all_seqs: List[FlatSequence],
+        batch_size: Optional[int] = None,
+        epochs: Optional[int] = None,
         validation_seqs: Optional[List[Tuple[List[int], List[int]]]] = None,
     ) -> float:
-        """Train on a large pre-collected dataset in proper epoch-based batches.
-
-        Used by relearn_all to avoid the overhead of per-sentence replay sampling.
-        All sequences are added to the replay buffer first, then trained in
-        shuffled mini-batches for `epochs` passes.
-
-        If `validation_seqs` is provided, runs a held-out evaluation after every
-        epoch so overfitting can be spotted from the train↔val gap.
-
-        Returns the average loss of the final epoch.
-        """
+        if batch_size is None:
+            batch_size = config.bulk_batch_size
+        if epochs is None:
+            epochs = config.bulk_epochs
         if not all_seqs:
             return 0.0
 
-        # Populate replay buffer with all sequences
-        for sids, cids in all_seqs:
-            self._add_to_replay(sids, cids)
+        for sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final in all_seqs:
+            self._add_to_replay(
+                sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final
+            )
+
+        # Build dynamic learning rate schedule exactly matched to total steps
+        total_steps = epochs * ((len(all_seqs) + batch_size - 1) // batch_size)
+        warmup = max(1, int(config.warmup_steps))
+        eta_min = float(config.lr_eta_min_ratio)
+
+        def bulk_lr_lambda(step: int) -> float:
+            if step < warmup:
+                return (step + 1) / warmup
+            progress = min(1.0, (step - warmup) / max(total_steps - warmup, 1))
+            return eta_min + 0.5 * (1.0 - eta_min) * (1.0 + math.cos(math.pi * progress))
+
+        # Re-initialize scheduler to lock decay perfectly to bulk training timeframe
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, bulk_lr_lambda)
 
         use_amp = self.device == 'cuda'
         final_loss = 0.0
@@ -700,27 +675,23 @@ class Trainer:
             epoch_loss = 0.0
             n_batches = 0
             
-            # Lists to store epoch predictions and targets for metric calculation
             all_epoch_preds = []
             all_epoch_targs = []
 
             for start in range(0, len(data), batch_size):
                 batch = data[start:start + batch_size]
-                s_t, c_t, p_mask = self._build_padded_batch(batch)
-                input_s  = s_t[:, :-1]
-                input_c  = c_t[:, :-1]
-                target   = s_t[:, 1:]
-                in_mask  = p_mask[:, :-1]
+                s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(batch)
+
+                masked_s, target = self._mlm_mask_batch(s_t, p_mask)
+                if (target != SPECIAL_PAD).sum() == 0:
+                    continue  
 
                 self.model.train()
                 self.optimizer.zero_grad()
                 with torch.amp.autocast('cuda', enabled=use_amp):
-                    logits = self.model(input_s, input_c, pad_mask=in_mask)
+                    logits = self.model(masked_s, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
                     loss = self._compute_focal_loss(logits, target)
-                
-                # Extract predictions for metrics without affecting computation graph.
-                # Keep WORD_SEP and BOS in the tensors here; _compute_metrics splits
-                # them out into suffix-level and word-boundary accuracies separately.
+
                 with torch.no_grad():
                     preds = logits.argmax(dim=-1).reshape(-1)
                     targs = target.reshape(-1)
@@ -733,6 +704,7 @@ class Trainer:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
+                self.scheduler.step()
                 self.global_step += 1
                 epoch_loss += loss.item()
                 n_batches += 1
@@ -741,34 +713,41 @@ class Trainer:
                 avg = epoch_loss / n_batches
                 final_loss = avg
                 
-                # Calculate metrics for the epoch
                 if all_epoch_targs:
                     epoch_preds_cat = torch.cat(all_epoch_preds)
                     epoch_targs_cat = torch.cat(all_epoch_targs)
-                    suf_acc, prec, rec, f1, sep_acc, per_cat = self._compute_metrics(
+                    suf_acc, prec, rec, f1, per_suffix = self._compute_metrics(
                         epoch_preds_cat, epoch_targs_cat
                     )
                     header = (
                         f"   Bulk epoch {epoch+1}/{epochs}: loss={avg:.4f} | "
-                        f"SufAcc={suf_acc:.4f} | SepAcc={sep_acc:.4f} | "
-                        f"F1={f1:.4f} P={prec:.4f} R={rec:.4f} ({n_batches} batches)"
+                        f"SufAcc={suf_acc:.4f} | F1={f1:.4f} "
+                        f"P={prec:.4f} R={rec:.4f} ({n_batches} batches)"
                     )
+                    
+                    all_sufs = _get_all_suffixes()
+                    id_to_name = {i + SUFFIX_OFFSET: s.name for i, s in enumerate(all_sufs)}
+                    
+                    filtered_sufs = [s for s in per_suffix if s['count'] >= 10]
+                    if not filtered_sufs:
+                        filtered_sufs = per_suffix
+                    filtered_sufs.sort(key=lambda x: x['f1'])
+                    lowest_sufs = filtered_sufs[:12] 
+                    
                     cat_cells = []
-                    for cat in SUFFIX_CATEGORIES:
-                        acc, cnt = per_cat.get(cat, (0.0, 0))
-                        if cnt == 0:
-                            cat_cells.append(f"{cat:>6}:  --- (    0)")
-                        else:
-                            cat_cells.append(f"{cat:>6}: {acc:5.3f} ({cnt:>5})")
-                    # three per row keeps it readable in an 80-col terminal
-                    rows = [cat_cells[i:i+3] for i in range(0, len(cat_cells), 3)]
-                    breakdown = "\n".join("      " + "  ".join(r) for r in rows)
+                    for s_stat in lowest_sufs:
+                        name = id_to_name.get(s_stat['id'], f"UNK_{s_stat['id']}")
+                        cat_cells.append(f"{name[:14]:>14}: F1={s_stat['f1']:.2f} P={s_stat['p']:.2f} R={s_stat['r']:.2f} ({s_stat['count']:>4})")
+                    
+                    rows = [cat_cells[i:i+2] for i in range(0, len(cat_cells), 2)]
+                    breakdown = "      Lowest Performing Suffixes (Count >= 10):\n"
+                    breakdown += "\n".join("      " + "   ".join(r) for r in rows)
+                    
                     print(header)
                     print(breakdown)
                 else:
                     print(f"   Bulk epoch {epoch+1}/{epochs}: avg_loss={avg:.4f}  ({n_batches} batches)")
 
-            # Held-out validation pass to detect overfitting.
             if validation_seqs:
                 val_stats = self.validate(validation_seqs, batch_size=batch_size)
                 self.val_history.append(val_stats['loss'])
@@ -777,36 +756,22 @@ class Trainer:
                 val_header = (
                     f"   Validation   : loss={val_stats['loss']:.4f} | "
                     f"SufAcc={val_stats['suffix_acc']:.4f} | "
-                    f"SepAcc={val_stats['wordsep_acc']:.4f} | "
                     f"F1={val_stats['f1']:.4f} "
                     f"P={val_stats['precision']:.4f} R={val_stats['recall']:.4f} "
                     f"(best={self.best_val_loss:.4f})"
                 )
                 print(val_header)
 
-            self.scheduler.step()
-
         self.train_history.append(final_loss)
         return final_loss
 
-    # ------------------------------------------------------------------
-    # Validation
-    # ------------------------------------------------------------------
-
     def validate(
         self,
-        val_seqs: List[Tuple[List[int], List[int]]],
+        val_seqs: List[FlatSequence],
         batch_size: int = 64,
     ) -> Dict[str, float]:
-        """Evaluate the model on held-out sequences.
-
-        Mirrors the training forward pass (causal LM, same PAD handling) but
-        runs under `eval()` + `no_grad()` so it has no effect on weights. Returns
-        a dict with loss and the suite of metrics used by train_bulk's train-side
-        logging, so train↔val numbers are directly comparable.
-        """
         empty = {
-            'loss': 0.0, 'suffix_acc': 0.0, 'wordsep_acc': 0.0,
+            'loss': 0.0, 'suffix_acc': 0.0,
             'precision': 0.0, 'recall': 0.0, 'f1': 0.0, 'n_batches': 0,
         }
         if not val_seqs:
@@ -823,15 +788,14 @@ class Trainer:
         with torch.no_grad():
             for start in range(0, len(val_seqs), batch_size):
                 batch = val_seqs[start:start + batch_size]
-                s_t, c_t, p_mask = self._build_padded_batch(batch)
+                s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(batch)
 
-                input_s = s_t[:, :-1]
-                input_c = c_t[:, :-1]
-                target  = s_t[:, 1:]
-                in_mask = p_mask[:, :-1]
+                masked_s, target = self._mlm_mask_batch(s_t, p_mask)
+                if (target != SPECIAL_PAD).sum() == 0:
+                    continue
 
                 with torch.amp.autocast('cuda', enabled=use_amp):
-                    logits = self.model(input_s, input_c, pad_mask=in_mask)
+                    logits = self.model(masked_s, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
                     loss = self._compute_focal_loss(logits, target)
 
                 preds = logits.argmax(dim=-1).reshape(-1)
@@ -849,12 +813,11 @@ class Trainer:
         avg_loss = total_loss / n_batches
         preds_cat = torch.cat(all_preds) if all_preds else torch.empty(0, dtype=torch.long)
         targs_cat = torch.cat(all_targs) if all_targs else torch.empty(0, dtype=torch.long)
-        suf_acc, prec, rec, f1, sep_acc, _ = self._compute_metrics(preds_cat, targs_cat)
+        suf_acc, prec, rec, f1, _ = self._compute_metrics(preds_cat, targs_cat)
 
         return {
             'loss':        avg_loss,
             'suffix_acc':  suf_acc,
-            'wordsep_acc': sep_acc,
             'precision':   prec,
             'recall':      rec,
             'f1':          f1,
@@ -866,7 +829,6 @@ class Trainer:
         training_data: List[Tuple],
         max_retries: int = None,
     ) -> float:
-        """Legacy wrapper — converts old-style training tuples and delegates."""
         confirmed_chains = []
         for (_, candidates, correct_idx) in training_data:
             if correct_idx < len(candidates):
@@ -877,143 +839,98 @@ class Trainer:
                 confirmed_chains.append([])
         return self.train_sentence(confirmed_chains)
 
-    # ------------------------------------------------------------------
-    # Inference
-    # ------------------------------------------------------------------
-
     def score_candidates(
         self,
-        context_chains: List[List[Tuple[int, int]]],   # already-committed words (left context)
-        candidates:     List[List[Tuple[int, int]]],   # chains to score for the current word
-        right_chains:   Optional[List[List[Tuple[int, int]]]] = None,  # future words (optional)
+        context_chains: List[List[EncodedToken]],   
+        candidates:     List[List[EncodedToken]],   
+        right_chains:   Optional[List[List[EncodedToken]]] = None,  
     ) -> List[float]:
-        """
-        Score each candidate chain for the *current* word given sentence context.
-
-        For each candidate we build:
-            context_tokens  +  candidate_tokens  +  WORD_SEP
-        and sum the log-probabilities of the candidate tokens (and their SEP)
-        conditioned on the context.  Higher is better.
-
-        Args:
-            context_chains: encoded chains for words already chosen (left).
-            candidates:     encoded chains to rank for the current word.
-            right_chains:   encoded chains for future words (right context).
-                            If provided, they are appended after the candidate
-                            so the model has bidirectional context during scoring.
-                            (This requires the right context to already be committed,
-                            e.g. in a re-ranking pass.)
-        Returns:
-            List of log-prob scores, one per candidate.
-        """
         self.model.eval()
 
-        # Build the fixed prefix: BOS + raw left-context tokens.
-        # Using _chain_tokens (not build_sentence_sequence) avoids a double BOS
-        # when we concatenate ctx + cand + right fragments below.
-        ctx_s, ctx_c     = _chain_tokens(context_chains) if context_chains else ([], [])
-        right_s, right_c = _chain_tokens(right_chains)   if right_chains   else ([], [])
+        if context_chains:
+            ctx_s, ctx_c, ctx_g, ctx_ct, ctx_m, ctx_wp, ctx_wf = _chain_tokens(context_chains)
+        else:
+            ctx_s, ctx_c, ctx_g, ctx_ct, ctx_m, ctx_wp, ctx_wf = ([], [], [], [], [], [], [])
+        if right_chains:
+            right_s, right_c, right_g, right_ct, right_m, right_wp, right_wf = _chain_tokens(right_chains)
+        else:
+            right_s, right_c, right_g, right_ct, right_m, right_wp, right_wf = ([], [], [], [], [], [], [])
 
-        prefix_s = [SPECIAL_BOS]       + ctx_s
-        prefix_c = [CATEGORY_SPECIAL]  + ctx_c
+        prefix_s  = [SPECIAL_BOS]      + ctx_s
+        prefix_c  = [CATEGORY_SPECIAL] + ctx_c
+        prefix_g  = [SPECIAL_FEATURE_ID] + ctx_g
+        prefix_ct = [SPECIAL_FEATURE_ID] + ctx_ct
+        prefix_m  = [SPECIAL_FEATURE_ID] + ctx_m
+        prefix_wp = [SPECIAL_FEATURE_ID] + ctx_wp
+        prefix_wf = [WORD_FINAL_NO] + ctx_wf
         prefix_len = len(prefix_s)
 
         scores: List[float] = []
         with torch.no_grad():
             for chain in candidates:
-                # Raw candidate tokens (no BOS): chain + WORD_SEP.
-                # Bare root → cand = [WORD_SEP], cand_len == 1 (still scorable).
-                cand_s, cand_c = _chain_tokens([chain])
-                cand_len = len(cand_s)
+                cand_s, cand_c, cand_g, cand_ct, cand_m, cand_wp, cand_wf = _chain_tokens([chain])
+                num_cand_toks = len(cand_s) - 1
+                if num_cand_toks <= 0:
+                    scores.append(float(config.bare_root_prior_logprob))
+                    continue
 
-                full_s = prefix_s + cand_s + right_s
-                full_c = prefix_c + cand_c + right_c
+                full_s  = prefix_s  + cand_s  + right_s
+                full_c  = prefix_c  + cand_c  + right_c
+                full_g  = prefix_g  + cand_g  + right_g
+                full_ct = prefix_ct + cand_ct + right_ct
+                full_m  = prefix_m  + cand_m  + right_m
+                full_wp = prefix_wp + cand_wp + right_wp
+                full_wf = prefix_wf + cand_wf + right_wf
+                L = len(full_s)
 
-                s_t, c_t = self._to_tensor(full_s, full_c)
-                lp = self.model.log_probs(s_t, c_t)   # (1, L-1)
+                base_s  = torch.tensor(full_s, dtype=torch.long, device=self.device)
+                base_c  = torch.tensor(full_c, dtype=torch.long, device=self.device)
+                base_g  = torch.tensor(full_g, dtype=torch.long, device=self.device)
+                base_ct = torch.tensor(full_ct, dtype=torch.long, device=self.device)
+                base_m  = torch.tensor(full_m, dtype=torch.long, device=self.device)
+                base_wp = torch.tensor(full_wp, dtype=torch.long, device=self.device)
+                base_wf = torch.tensor(full_wf, dtype=torch.long, device=self.device)
 
-                # lp[0, i] = log P(full_s[i+1] | full_s[0..i]).
-                # Candidate tokens occupy positions prefix_len .. prefix_len+cand_len-1
-                # in full_s, so they are predicted by lp[0, prefix_len-1 : prefix_len-1+cand_len].
-                # Because BOS is always present, prefix_len >= 1, so start >= 0 with no clamping.
-                start = prefix_len - 1
-                end   = start + cand_len
-                scores.append(lp[0, start:end].sum().item())
+                batched_s  = base_s.unsqueeze(0).expand(num_cand_toks, L).clone()
+                batched_c  = base_c.unsqueeze(0).expand(num_cand_toks, L).clone()
+                batched_g  = base_g.unsqueeze(0).expand(num_cand_toks, L).clone()
+                batched_ct = base_ct.unsqueeze(0).expand(num_cand_toks, L).clone()
+                batched_m  = base_m.unsqueeze(0).expand(num_cand_toks, L).clone()
+                batched_wp = base_wp.unsqueeze(0).expand(num_cand_toks, L).clone()
+                batched_wf = base_wf.unsqueeze(0).expand(num_cand_toks, L).clone()
+
+                positions = torch.arange(num_cand_toks, device=self.device) + prefix_len
+                rows      = torch.arange(num_cand_toks, device=self.device)
+                batched_s[rows, positions] = SPECIAL_MASK
+
+                logits = self.model(
+                    batched_s, batched_c, batched_g, batched_ct, batched_m, batched_wp, batched_wf
+                )
+                slot   = logits[rows, positions]                         
+                log_p  = F.log_softmax(slot, dim=-1)
+                true_toks = base_s[positions]                            
+                per_tok   = log_p.gather(1, true_toks.unsqueeze(-1)).squeeze(-1)
+                scores.append(per_tok.sum().item())
 
         return scores
 
-    def fast_batch_predict(
-        self,
-        all_candidates: List[List[List[Tuple[int, int]]]],
-        batch_size: int = 512
-    ) -> List[int]:
-        """
-        Evaluates a large list of words, each having multiple candidate chains,
-        using padded GPU batches to maximize throughput.
-        Returns a list of best_indices (one per word).
-        """
+    def score_sentence_chains(self, word_chains: List[List[EncodedToken]]) -> float:
         self.model.eval()
-
-        # Flatten into one list of jobs: (word_idx, cand_idx, suffix_seq, cat_seq).
-        # build_sentence_sequence prepends BOS, so every seq is length >= 2.
-        flat_jobs = []
-        for w_idx, candidates in enumerate(all_candidates):
-            for c_idx, chain in enumerate(candidates):
-                cand_s, cand_c = build_sentence_sequence([chain])
-                flat_jobs.append((w_idx, c_idx, cand_s, cand_c))
-
-        if not flat_jobs:
-            return []
-
-        # w_idx -> list of scores (same order as candidates)
-        scores_map = {w_idx: [] for w_idx in range(len(all_candidates))}
-
+        full_s, full_c, full_g, full_ct, full_m, full_wp, full_wf = build_sentence_sequence(word_chains)
+        bare_root_count = sum(1 for chain in word_chains if not chain)
+        prior = bare_root_count * float(config.bare_root_prior_logprob)
+        if len(full_s) < 2:
+            return prior
         with torch.no_grad():
-            for i in range(0, len(flat_jobs), batch_size):
-                batch = flat_jobs[i:i + batch_size]
-                max_len = max(len(job[2]) for job in batch)
-                bsz = len(batch)
-                
-                # Allocate tensors
-                s_t = torch.full((bsz, max_len), SPECIAL_PAD, dtype=torch.long, device=self.device)
-                c_t = torch.full((bsz, max_len), CATEGORY_SPECIAL, dtype=torch.long, device=self.device)
-                p_mask = torch.ones((bsz, max_len), dtype=torch.bool, device=self.device) # True = pad
-
-                for b_idx, (_, _, seq_s, seq_c) in enumerate(batch):
-                    seq_len = len(seq_s)
-                    s_t[b_idx, :seq_len] = torch.tensor(seq_s, dtype=torch.long, device=self.device)
-                    c_t[b_idx, :seq_len] = torch.tensor(seq_c, dtype=torch.long, device=self.device)
-                    p_mask[b_idx, :seq_len] = False
-
-                lp = self.model.log_probs(s_t, c_t, pad_mask=p_mask) # (bsz, max_len - 1)
-
-                # Sum the log probabilities for each sequence
-                sums = lp.sum(dim=1).tolist()
-
-                for b_idx, job in enumerate(batch):
-                    scores_map[job[0]].append(sums[b_idx])
-
-        # Pick best index per word
-        best_indices = []
-        for w_idx in range(len(all_candidates)):
-            c_scores = scores_map[w_idx]
-            if not c_scores:
-                best_indices.append(0)
-            else:
-                best_indices.append(self._get_best_index(c_scores))
-
-        return best_indices
+            tensors = self._to_tensor(full_s, full_c, full_g, full_ct, full_m, full_wp, full_wf)
+            lp = self.model.log_probs(*tensors)
+            return lp.sum().item() + prior
 
     def predict(
         self,
-        candidates: List[List[Tuple[int, int]]],
-        context_chains: Optional[List[List[Tuple[int, int]]]] = None,
+        candidates: List[List[EncodedToken]],
+        context_chains: Optional[List[List[EncodedToken]]] = None,
     ) -> Tuple[int, List[float]]:
-        """
-        Pick the best candidate for a single word (with optional left context).
-
-        Returns: (best_index, all_scores)
-        """
         ctx = context_chains or []
         scores = self.score_candidates(ctx, candidates)
         best = self._get_best_index(scores)
@@ -1021,14 +938,8 @@ class Trainer:
 
     def batch_predict(
         self,
-        batch_candidates: List[List[List[Tuple[int, int]]]],
+        batch_candidates: List[List[List[EncodedToken]]],
     ) -> List[Tuple[int, List[float]]]:
-        """
-        Score candidates for multiple words independently (no cross-word context).
-        Used for initial ranking before the user has made any choices.
-
-        For context-aware sentence-level ranking, use sentence_predict() instead.
-        """
         results = []
         for candidates in batch_candidates:
             best_idx, scores = self.predict(candidates)
@@ -1037,17 +948,9 @@ class Trainer:
 
     def sentence_predict(
         self,
-        all_candidates: List[List[List[Tuple[int, int]]]],
+        all_candidates: List[List[List[EncodedToken]]],
     ) -> List[Tuple[int, List[float]]]:
-        """
-        Greedy left-to-right sentence-level disambiguation.
-
-        For each word in order, score its candidates given all previously
-        committed choices as left context, then commit the winner.
-
-        Returns: list of (best_idx, scores) per word.
-        """
-        committed: List[List[Tuple[int, int]]] = []
+        committed: List[List[EncodedToken]] = []
         results: List[Tuple[int, List[float]]] = []
 
         for candidates in all_candidates:
@@ -1057,10 +960,6 @@ class Trainer:
             committed.append(candidates[best])
 
         return results
-
-    # ------------------------------------------------------------------
-    # Checkpointing
-    # ------------------------------------------------------------------
 
     def save_checkpoint(self):
         torch.save({
@@ -1077,12 +976,73 @@ class Trainer:
 
     def load_checkpoint(self, path: str):
         ckpt = torch.load(path, map_location=self.device)
-        self.model.load_state_dict(ckpt['model_state'])
-        self.optimizer.load_state_dict(ckpt['optimizer_state'])
-        self.scheduler.load_state_dict(ckpt['scheduler_state'])
+        model_state = ckpt['model_state']
+        current_state = self.model.state_dict()
+        compatible_state = {
+            k: v for k, v in model_state.items()
+            if k in current_state and current_state[k].shape == v.shape
+        }
+        self.model.load_state_dict(compatible_state, strict=False)
+        try:
+            self.optimizer.load_state_dict(ckpt['optimizer_state'])
+            self.scheduler.load_state_dict(ckpt['scheduler_state'])
+        except Exception:
+            pass
         self.train_history  = ckpt.get('train_history',  [])
         self.val_history    = ckpt.get('val_history',    [])
         self.best_val_loss  = ckpt.get('best_val_loss',  float('inf'))
         self.global_step    = ckpt.get('global_step',    0)
-        self.replay_buffer  = ckpt.get('replay_buffer',  [])
+        raw_replay = ckpt.get('replay_buffer', [])
+        upgraded_replay = []
+        for entry in raw_replay:
+            upgraded = self._upgrade_replay_entry(entry)
+            if upgraded is not None:
+                upgraded_replay.append(upgraded)
+        self.replay_buffer = upgraded_replay
         print(f"Loaded from {path} (step {self.global_step}, {len(self.replay_buffer)} replay entries)")
+
+    def _upgrade_replay_entry(self, entry) -> Optional[FlatSequence]:
+        if not isinstance(entry, (list, tuple)):
+            return None
+        if len(entry) == 7:
+            return tuple(entry)
+        if len(entry) != 2:
+            return None
+
+        suffix_ids, category_ids = entry
+        if len(suffix_ids) != len(category_ids):
+            return None
+
+        group_ids = [SPECIAL_FEATURE_ID] * len(suffix_ids)
+        comes_to_ids = [SPECIAL_FEATURE_ID] * len(suffix_ids)
+        makes_ids = [SPECIAL_FEATURE_ID] * len(suffix_ids)
+        word_pos_ids = [SPECIAL_FEATURE_ID] * len(suffix_ids)
+        word_final = [WORD_FINAL_NO] * len(suffix_ids)
+
+        current_word_positions: List[int] = []
+        current_word_tokens: List[int] = []
+        for idx, tok_id in enumerate(suffix_ids):
+            if tok_id in (SPECIAL_BOS, SPECIAL_WORD_SEP):
+                if current_word_tokens:
+                    last_idx = current_word_tokens[-1]
+                    word_final[last_idx] = WORD_FINAL_YES
+                    current_word_positions.clear()
+                    current_word_tokens.clear()
+                continue
+
+            current_word_tokens.append(idx)
+            current_word_positions.append(len(current_word_positions) + 1)
+            word_pos_ids[idx] = current_word_positions[-1]
+
+        if current_word_tokens:
+            word_final[current_word_tokens[-1]] = WORD_FINAL_YES
+
+        return (
+            list(suffix_ids),
+            list(category_ids),
+            group_ids,
+            comes_to_ids,
+            makes_ids,
+            word_pos_ids,
+            word_final,
+        )

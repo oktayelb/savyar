@@ -27,6 +27,11 @@ from util.suffix import  Type
 from util.words.closed_class import CLOSED_CLASS_LOOKUP
 from util.word_methods import tr_lower
 import util.word_methods as wrd
+from data.treebank_vnoun import (
+    AMBIGUOUS_VNOUN,
+    has_unexpected_nounifier_is,
+    resolve_ambiguous_vnoun_suffixes,
+)
 
 # Name → suffix object lookup for building treebank-forced entries
 SUFFIX_BY_NAME = {s.name: s for s in ALL_SUFFIXES}
@@ -102,7 +107,7 @@ V2N_GERUND_FEATURES = {
     "While":                "when_ken",          # -ken (while/when)
     "AsLongAs":             "adverbial_dikçe",   # -dikçe/-dıkça
     "SinceDoingSo":         "adverbial_dikçe",   # approximate
-    "WithoutHavingDoneSo":  "adverbial_meden",   # -meden/-madan
+    "WithoutHavingDoneSo":  "nondoing_meden",    # -meden/-madan
     "InBetween":            "adverbial_ip",      # -ip (in-between actions)
 }
 
@@ -118,7 +123,7 @@ PARTICIPLE_XPOS = {
 
 # ── V2N infinitive features (from XPOS) ──
 INFINITIVE_XPOS = {
-    "NInf": None,  # Could be infinitive_me, infinitive_mek, or nounifier_iş — resolved by decomposer
+    "NInf": None,  # Could be infinitive_me, infinitive_mek, or nounifier_iş — resolved from surface
     "Inf2": "infinitive_me",
     "Inf3": "nounifier_iş",
 }
@@ -444,9 +449,8 @@ def features_to_suffix_names(token):
             if INFINITIVE_XPOS[xpos]:
                 suffix_names.append(INFINITIVE_XPOS[xpos])
             elif xpos == "NInf":
-                # NInf is ambiguous: could be -me, -mek, or -iş
-                # We'll try all three during matching; for now emit infinitive_me as most common
-                suffix_names.append("infinitive_me")
+                # NInf is ambiguous: resolve it later from the actual surface.
+                suffix_names.append(AMBIGUOUS_VNOUN)
 
         # ── Process each feature ──
         able_seen = False
@@ -637,6 +641,12 @@ def features_to_suffix_names(token):
             if feat not in {"A3e"}:  # rare/malformed
                 unmapped.append(feat)
 
+    suffix_names = resolve_ambiguous_vnoun_suffixes(
+        token["surface"],
+        token["lemma"],
+        suffix_names,
+        SUFFIX_BY_NAME,
+    )
     return suffix_names, unmapped, has_unmappable
 
 
@@ -813,7 +823,6 @@ def _try_add_verb_lemma_to_dict(lemma: str, treebank_says_verb: bool = False) ->
     for inf in (lemma_lower + "mek", lemma_lower + "mak"):
         if inf in wrd.WORDS_SET:
             wrd.WORDS_SET.add(lemma_lower)
-            wrd.WORDS_LIST.append(lemma_lower)
             decompose.cache_clear()
             return True
 
@@ -823,7 +832,6 @@ def _try_add_verb_lemma_to_dict(lemma: str, treebank_says_verb: bool = False) ->
         harmony = major_harmony(lemma_lower)
         inf = lemma_lower + ("mak" if harmony == MajorHarmony.BACK else "mek")
         wrd.WORDS_SET.add(inf)
-        wrd.WORDS_LIST.append(inf)
         decompose.cache_clear()
         return True
 
@@ -914,8 +922,6 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
     # Known suffix ambiguities: treebank may say X, decomposer may produce Y
     SUFFIX_ALTERNATIVES = {
         "active_dir":        ["active_it", "active_ir", "active_er"],
-        "infinitive_me":     ["infinitive_mek", "nounifier_iş"],
-        "infinitive_mek":    ["infinitive_me", "nounifier_iş"],
         "passive_il":        ["reflexive_in"],
         "reflexive_in":      ["passive_il"],
         "adverbial_erek":    ["adverbial_ip"],
@@ -1050,6 +1056,8 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
     best_score = (False, -1, float("-inf"), float("-inf"))
     for root, start_pos, chain, final_pos in candidates:
         chain_names = get_chain_names(chain)
+        if has_unexpected_nounifier_is(root, lemma_lower, chain_names, expected_filtered):
+            continue
         is_lemma = (root == lemma_lower)
         for exp_variant in all_expected_variants:
             tier = _match_tier(chain_names, exp_variant)

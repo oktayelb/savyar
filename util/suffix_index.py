@@ -87,6 +87,12 @@ class SuffixIndex:
         'tü_tail': 'öptü',
         'se_tail': 'gelse',
         'sa_tail': 'baksa',
+        'poss_3sg_i_tail': 'evi',
+        'poss_3sg_ı_tail': 'kapısı',
+        'poss_3sg_u_tail': 'kolu',
+        'poss_3sg_ü_tail': 'gülü',
+        'poss_3pl_i_tail': 'evleri',
+        'poss_3pl_ı_tail': 'kapıları',
     }
 
     def __init__(self, suffix_transitions: dict = None):

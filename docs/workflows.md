@@ -82,6 +82,64 @@ Bulk metrics are ranking metrics:
 - `margin`: gold score minus best negative score
 - `loss`: cross-entropy over each candidate set
 
+## Curriculum
+
+`train_curriculum()` performs dynamic hard-negative training from the same logged/user/treebank entries used by `relearn`.
+
+The important difference is when negatives are chosen:
+
+- `relearn` chooses negatives from decomposer candidates before training and then trains on that static set.
+- `curriculum` periodically asks the current model to score a wider negative pool and rebuilds the next training set from the wrong analyses the model currently finds confusing.
+
+### High-Level Flow
+
+1. Load all valid gold entries with `DataManager.get_valid_decomps()`.
+2. Load the external validation set, or create a deterministic train/validation split.
+3. Run a static warm-up phase with `_entries_to_sequences()` when `curriculum_warmup_epochs` is greater than zero.
+4. For each curriculum generation:
+   - call `_entries_to_dynamic_sequences()`
+   - convert each entry into gold chains and decomposer candidate lists
+   - create a wide negative pool with `_single_substitution_negatives(..., limit=config.dynamic_negative_pool_size)`
+   - score the pool with `trainer.score_flat_sequences()`
+   - select hard/medium/easy negatives with `_select_dynamic_negatives()`
+   - train the mined sets with `trainer.train_bulk(..., epochs=config.curriculum_mining_epochs)`
+   - save `ml/model.pt`
+
+### What Counts as a Hard Negative
+
+A hard negative is an incorrect candidate that receives a high score from the current model. For example, if the gold chain contains a locative suffix but the model strongly prefers a similar ablative analysis, that ablative candidate becomes a high-value training example.
+
+The model is therefore tested against its current weaknesses before each curriculum generation. The next training batch is not a fixed worksheet; it adapts to the model's latest mistakes.
+
+### Difficulty Mix
+
+Curriculum mining intentionally mixes difficulty levels:
+
+- hard negatives: highest-scoring wrong analyses
+- medium negatives: sampled from the middle of the ranked wrong list
+- easy negatives: low-scoring wrong analyses
+
+This prevents the model from seeing only difficult edge cases. Easy negatives keep basic distinctions anchored, while hard negatives push the decision boundary.
+
+The defaults are in `ml/config.py`:
+
+- `max_negative_candidates = 10`
+- `hard_negative_count = 6`
+- `medium_negative_count = 2`
+- `easy_negative_count = 2`
+- `dynamic_negative_pool_size = 100`
+- `curriculum_generations = 3`
+- `curriculum_warmup_epochs = 5`
+- `curriculum_mining_epochs = 4`
+
+### Commands
+
+```text
+curriculum
+```
+
+Curriculum mode updates the model checkpoint. It does not currently write the mined hard examples to a separate report file.
+
 ## Evaluation and Sampling
 
 `evaluate_word()` ranks candidates for one word and returns the top view model.

@@ -10,6 +10,8 @@ def tr_lower(s: str) -> str:
     return s.translate(_TR_LOWER_TABLE).lower()
 
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "words.txt"
+VERB_DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "verbs.txt"
+
 
 ## Vowel Classes
 BACK_FLAT   = ['a','ı']
@@ -45,9 +47,10 @@ def _load_dictionary():
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             WORDS_SET = {line.strip() for line in f if line.strip()}
-            VERB_SET = {w[:-3] for w in WORDS_SET if w.endswith("mak") or w.endswith("mek")}
+        with open(VERB_DATA_FILE, "r", encoding="utf-8") as f:
+            VERB_SET = {line.strip() for line in f if line.strip()}
     except FileNotFoundError:
-        print(f"Warning: {DATA_FILE} not found")
+        print(f"Warning: {DATA_FILE} or {VERB_DATA_FILE} not found")
         WORDS_SET = set()
         VERB_SET = set()
 
@@ -247,7 +250,11 @@ def get_root_candidates(surface_root: str) -> List[str]:
     # Consonant gemination reversal: hiss→his, hakk→hak, redd→ret
     # Common in Arabic/Persian loanwords where the final consonant doubles
     # before vowel-initial suffixes (hak→hakkı, his→hissi, ret→reddi)
-    if len(surface_root) >= 3 and surface_root[-1] == surface_root[-2]:
+    if (
+        len(surface_root) >= 3
+        and surface_root[-1] == surface_root[-2]
+        and surface_root[-1] not in VOWELS
+    ):
         degeminated = surface_root[:-1]
         if (can_be_noun(degeminated) or can_be_verb(degeminated)) and degeminated not in candidates:
             candidates.append(degeminated)

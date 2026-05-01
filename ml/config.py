@@ -15,7 +15,7 @@ class MLConfig:
     
     # --- Model Architecture ---
     # Vocab size is dynamic (passed at runtime), others are static
-    embed_dim: int = 256        # Main suffix identity dimension
+    embed_dim: int = 384        # Main suffix identity dimension (Increased from 256)
     num_layers: int = 4         
     num_heads: int = 8          
     dropout: float = 0.3        
@@ -40,16 +40,23 @@ class MLConfig:
     focal_gamma: float = 0.0
 
     # --- Ranking Objective ---
-    max_negative_candidates: int = 16
+    max_negative_candidates: int = 10
     max_candidate_sequences_per_batch: int = 128
     use_torch_compile: bool = False
+    hard_negative_count: int = 6
+    medium_negative_count: int = 2
+    easy_negative_count: int = 2
+    dynamic_negative_pool_size: int = 100
+    curriculum_generations: int = 3
+    curriculum_warmup_epochs: int = 5
+    curriculum_mining_epochs: int = 4
     
     # Dual Objective Weights
     ranking_temperature: float = 0.1
     mlm_weight: float = 0.2
 
     # --- Bulk-training defaults ---
-    bulk_epochs: int = 120  
+    bulk_epochs: int = 10  
     bulk_batch_size: int = 128
 
     # --- LR Schedule ---

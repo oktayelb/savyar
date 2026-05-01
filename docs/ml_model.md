@@ -80,6 +80,60 @@ This creates many useful training comparisons from one confirmed sentence withou
 
 If a logged chain cannot be matched because the decomposer changed, the code falls back to direct suffix-name encoding for the gold chain and skips negatives for that item.
 
+### Curriculum Training
+
+`curriculum` is dynamic hard-negative training. It is designed to continue from an existing checkpoint, not to replace ordinary warm-up training from scratch.
+
+The static `relearn` path creates candidate sets from decomposer alternatives and trains against those sets repeatedly. This is useful, but after several epochs the model may learn the fixed negative set well enough that additional epochs provide less new signal. Curriculum training changes the negative set between training rounds by using the current model as the miner.
+
+The loop is:
+
+1. Load the current `ml/model.pt` checkpoint.
+2. Optionally run a static warm-up phase using the same candidate sets as `relearn`.
+3. For each curriculum generation:
+   - reload logged/user/treebank gold entries
+   - run the decomposer for each logged word
+   - match the logged gold chain to the generated candidates
+   - build a wide pool of single-substitution wrong analyses
+   - score those wrong analyses with the current model using `score_flat_sequences()`
+   - select the wrong analyses the current model finds most tempting
+   - train for a short number of epochs on the newly mined candidate sets
+   - save the updated checkpoint
+
+Each mined candidate set still has the same shape:
+
+```
+[gold sentence analysis, mined wrong analysis 1, mined wrong analysis 2, ...]
+```
+
+Candidate `0` is always the gold analysis. The mined negatives are wrong analyses that the current model scored highly or that were sampled as medium/easy controls.
+
+#### Hard, Medium, and Easy Negatives
+
+The miner does not keep only the absolute hardest negatives. Keeping only the hardest cases can over-focus training on confusing edge cases and make the model forget easier distinctions.
+
+The default mix is configured in `ml/config.py`:
+
+- `hard_negative_count = 6`: highest-scoring wrong analyses
+- `medium_negative_count = 2`: randomly selected middle-ranked wrong analyses
+- `easy_negative_count = 2`: low-scoring wrong analyses
+- `max_negative_candidates = 10`: total negatives per candidate set
+- `dynamic_negative_pool_size = 100`: maximum wrong single-substitution analyses scored before selection
+
+This means a typical curriculum candidate set contains one gold analysis and up to ten wrong analyses. The wrong analyses are mostly hard negatives, with a small safety mix of medium and easy negatives.
+
+#### Why Single-Substitution Negatives
+
+For a sentence, the full Cartesian product of every word candidate can become very large. SAV-YAR avoids that explosion by keeping the gold sentence fixed and replacing one word at a time with a wrong candidate. This produces plausible, targeted sentence-level negatives while keeping GPU memory bounded.
+
+#### How to Run
+
+```text
+curriculum
+```
+
+The output is an updated checkpoint, not a printed hard-example report. Use validation `RankAcc`, `margin`, and `rank_loss` to decide whether the curriculum is improving the model.
+
 ## Loss and Metrics
 
 For each candidate set, candidate `0` is gold:

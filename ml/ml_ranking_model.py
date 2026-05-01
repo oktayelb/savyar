@@ -564,10 +564,10 @@ class Trainer:
     def _sequence_from_chains(self, word_chains: List[List[EncodedToken]]) -> FlatSequence:
         return build_sentence_sequence(word_chains)
 
-    def _ranking_step(self, candidate_sets: List[List[FlatSequence]]) -> float:
+    def _ranking_step(self, candidate_sets: List[List[FlatSequence]]) -> Tuple[float, float]:
         candidate_sets = [cands for cands in candidate_sets if len(cands) >= 2]
         if not candidate_sets:
-            return 0.0
+            return 0.0, 0.0
 
         flat: List[FlatSequence] = []
         sizes: List[int] = []
@@ -622,6 +622,7 @@ class Trainer:
                 total_loss = rank_loss + (mlm_weight * mlm_loss)
 
             final_loss = total_loss.item()
+            final_rank = rank_loss.item()
             self.scaler.scale(total_loss).backward()
             self.scaler.unscale_(self.optimizer)
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -629,7 +630,7 @@ class Trainer:
             self.scaler.update()
             self.scheduler.step()
             self.global_step += 1
-            return final_loss
+            return final_loss, final_rank
             
         except torch.cuda.OutOfMemoryError:
             self.optimizer.zero_grad(set_to_none=True)
@@ -638,9 +639,9 @@ class Trainer:
             if len(candidate_sets) <= 1:
                 raise
             mid = len(candidate_sets) // 2
-            left_loss = self._ranking_step(candidate_sets[:mid])
-            right_loss = self._ranking_step(candidate_sets[mid:])
-            return (left_loss + right_loss) / 2.0
+            left_loss, left_rank = self._ranking_step(candidate_sets[:mid])
+            right_loss, right_rank = self._ranking_step(candidate_sets[mid:])
+            return (left_loss + right_loss) / 2.0, (left_rank + right_rank) / 2.0
 
     @staticmethod
     def _candidate_batch_count(candidate_sets: List[List[FlatSequence]], batch_size: int) -> int:
@@ -711,7 +712,7 @@ class Trainer:
         print(f"   Ranking gold against {len(candidate_set) - 1} negatives...", end="", flush=True)
         final_loss = 0.0
         for _ in range(config.steps_per_update):
-            final_loss = self._ranking_step([candidate_set])
+            final_loss, _ = self._ranking_step([candidate_set])
         print(f" loss={final_loss:.4f}")
 
         self.train_history.append(final_loss)
@@ -768,16 +769,18 @@ class Trainer:
         for epoch in range(epochs):
             random.shuffle(data)
             epoch_loss = 0.0
+            epoch_rank_loss = 0.0
             n_batches = 0
             correct = 0
             total = 0
             margins: List[float] = []
 
             for batch_sets in self._candidate_batches(data, batch_size):
-                loss_value = self._ranking_step(batch_sets)
-                if loss_value == 0.0:
+                loss_value, rank_loss_value = self._ranking_step(batch_sets)
+                if loss_value == 0.0 and rank_loss_value == 0.0:
                     continue
                 epoch_loss += loss_value
+                epoch_rank_loss += rank_loss_value
                 n_batches += 1
 
                 with torch.no_grad():
@@ -793,11 +796,12 @@ class Trainer:
 
             if n_batches:
                 avg = epoch_loss / n_batches
+                avg_rank = epoch_rank_loss / n_batches
                 final_loss = avg
                 acc = correct / total if total else 0.0
                 mean_margin = sum(margins) / len(margins) if margins else 0.0
                 print(
-                    f"   Bulk epoch {epoch+1}/{epochs}: loss={avg:.4f} | "
+                    f"   Bulk epoch {epoch+1}/{epochs}: loss={avg:.4f} | rank_loss={avg_rank:.4f} | "
                     f"RankAcc={acc:.4f} | margin={mean_margin:.4f} "
                     f"({n_batches} batches, {total} candidate sets)"
                 )
@@ -808,7 +812,7 @@ class Trainer:
                 if val_stats['loss'] < self.best_val_loss:
                     self.best_val_loss = val_stats['loss']
                 val_header = (
-                    f"   Validation   : loss={val_stats['loss']:.4f} | "
+                    f"   Validation   : rank_loss={val_stats['loss']:.4f} | "
                     f"RankAcc={val_stats['rank_acc']:.4f} | "
                     f"margin={val_stats['margin']:.4f} "
                     f"(best={self.best_val_loss:.4f})"

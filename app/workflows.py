@@ -307,8 +307,11 @@ class WorkflowEngine:
         gold_chains: List[List],
         candidate_lists: List[List[List]],
         gold_indices: List[int],
+        limit: Optional[int] = None,
     ) -> List[List[List]]:
         """Generate compact hard negatives by changing one word at a time."""
+        if limit is None:
+            limit = config.max_negative_candidates
         negatives: List[List[List]] = []
         seen = set()
         for word_idx, candidates in enumerate(candidate_lists):
@@ -323,14 +326,12 @@ class WorkflowEngine:
                     continue
                 seen.add(signature)
                 negatives.append(neg)
-                if len(negatives) >= config.max_negative_candidates:
+                if len(negatives) >= limit:
                     return negatives
         return negatives
 
-    def _candidate_set_from_word_entries(self, word_entries: List[Dict]) -> Optional[Tuple[List, int]]:
-        """Build one ranking set: gold sequence first, followed by decomposer negatives."""
-        from ml.ml_ranking_model import build_sentence_sequence
-
+    def _candidate_parts_from_word_entries(self, word_entries: List[Dict]) -> Optional[Tuple[List, List, List, int]]:
+        """Return gold chains and decomposer candidates for one logged word/sentence."""
         gold_chains = []
         candidate_lists = []
         gold_indices = []
@@ -366,11 +367,96 @@ class WorkflowEngine:
 
         if not gold_chains:
             return None
+        return gold_chains, candidate_lists, gold_indices, len(gold_chains)
+
+    def _select_dynamic_negatives(
+        self,
+        scored_negatives: List[Tuple[float, Any]],
+        rng: random.Random,
+    ) -> List[Any]:
+        """Mix hard, medium, and easy negatives from model-scored failures."""
+        if not scored_negatives:
+            return []
+
+        ranked = [item for _, item in sorted(scored_negatives, key=lambda x: x[0], reverse=True)]
+        max_neg = max(0, int(config.max_negative_candidates))
+        hard_count = min(int(config.hard_negative_count), max_neg, len(ranked))
+        selected = ranked[:hard_count]
+        selected_ids = {id(item) for item in selected}
+
+        remaining_slots = max_neg - len(selected)
+        easy_count = min(int(config.easy_negative_count), remaining_slots, max(0, len(ranked) - len(selected)))
+        if easy_count:
+            easy_pool = [item for item in reversed(ranked) if id(item) not in selected_ids]
+            easy = easy_pool[:easy_count]
+            selected.extend(easy)
+            selected_ids.update(id(item) for item in easy)
+            remaining_slots = max_neg - len(selected)
+
+        medium_count = min(int(config.medium_negative_count), remaining_slots)
+        if medium_count:
+            medium_pool = [item for item in ranked[hard_count:] if id(item) not in selected_ids]
+            if len(medium_pool) > medium_count:
+                medium = rng.sample(medium_pool, medium_count)
+            else:
+                medium = medium_pool
+            selected.extend(medium)
+            selected_ids.update(id(item) for item in medium)
+
+        if len(selected) < max_neg:
+            for item in ranked:
+                if id(item) in selected_ids:
+                    continue
+                selected.append(item)
+                selected_ids.add(id(item))
+                if len(selected) >= max_neg:
+                    break
+
+        return selected
+
+    def _dynamic_candidate_set_from_word_entries(
+        self,
+        word_entries: List[Dict],
+        rng: random.Random,
+    ) -> Optional[Tuple[List, int]]:
+        """Build one candidate set using current model scores to mine hard negatives."""
+        from ml.ml_ranking_model import build_sentence_sequence
+
+        parts = self._candidate_parts_from_word_entries(word_entries)
+        if parts is None:
+            return None
+
+        gold_chains, candidate_lists, gold_indices, word_count = parts
+        gold_seq = build_sentence_sequence(gold_chains)
+        negatives = self._single_substitution_negatives(
+            gold_chains,
+            candidate_lists,
+            gold_indices,
+            limit=config.dynamic_negative_pool_size,
+        )
+        if not negatives:
+            return None
+
+        negative_seqs = [build_sentence_sequence(neg) for neg in negatives]
+        scores = self.trainer.score_flat_sequences(negative_seqs)
+        selected = self._select_dynamic_negatives(list(zip(scores, negative_seqs)), rng)
+        if not selected:
+            return None
+        return [gold_seq] + selected, word_count
+
+    def _candidate_set_from_word_entries(self, word_entries: List[Dict]) -> Optional[Tuple[List, int]]:
+        """Build one ranking set: gold sequence first, followed by decomposer negatives."""
+        from ml.ml_ranking_model import build_sentence_sequence
+
+        parts = self._candidate_parts_from_word_entries(word_entries)
+        if parts is None:
+            return None
+        gold_chains, candidate_lists, gold_indices, word_count = parts
 
         gold_seq = build_sentence_sequence(gold_chains)
         negatives = self._single_substitution_negatives(gold_chains, candidate_lists, gold_indices)
         candidate_set = [gold_seq] + [build_sentence_sequence(neg) for neg in negatives]
-        return candidate_set, len(gold_chains)
+        return candidate_set, word_count
 
     def _entries_to_sequences(self, entries: List[Dict]) -> Tuple[List[List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]]], int, int]:
         """Convert logged/treebank-adapted entries into gold-plus-negative ranking sets."""
@@ -384,6 +470,36 @@ class WorkflowEngine:
                     result = self._candidate_set_from_word_entries(entry.get('words', []))
                 else:
                     result = self._candidate_set_from_word_entries([entry])
+                if result is None:
+                    skipped += 1
+                    continue
+                candidate_set, word_count = result
+                if len(candidate_set) >= 2:
+                    all_seqs.append(candidate_set)
+                    total_words += word_count
+                else:
+                    skipped += 1
+            except Exception:
+                skipped += 1
+
+        return all_seqs, total_words, skipped
+
+    def _entries_to_dynamic_sequences(
+        self,
+        entries: List[Dict],
+        rng: random.Random,
+    ) -> Tuple[List[List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]]], int, int]:
+        """Mine model-confusing candidate sets from the current checkpoint state."""
+        all_seqs: List[List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]]] = []
+        skipped = 0
+        total_words = 0
+
+        for entry in entries:
+            try:
+                if entry.get('type') == 'sentence':
+                    result = self._dynamic_candidate_set_from_word_entries(entry.get('words', []), rng)
+                else:
+                    result = self._dynamic_candidate_set_from_word_entries([entry], rng)
                 if result is None:
                     skipped += 1
                     continue
@@ -451,6 +567,82 @@ class WorkflowEngine:
         self.training_count += total_words
         self.save()
         return total_words, skipped
+
+    def train_curriculum(
+        self,
+        generations: Optional[int] = None,
+        warmup_epochs: Optional[int] = None,
+        mining_epochs: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Alternate between training and dynamic hard-negative mining."""
+        if generations is None:
+            generations = config.curriculum_generations
+        if warmup_epochs is None:
+            warmup_epochs = config.curriculum_warmup_epochs
+        if mining_epochs is None:
+            mining_epochs = config.curriculum_mining_epochs
+
+        entries = self.data_manager.get_valid_decomps()
+        if not entries:
+            return {'trained_words': 0, 'skipped': 0, 'generations': 0}
+
+        val_seqs = self._load_validation_sequences()
+        train_entries = list(entries)
+        if not val_seqs and len(entries) >= 10 and config.validation_split > 0.0:
+            shuffled = list(entries)
+            random.Random(config.validation_seed).shuffle(shuffled)
+            val_count = max(1, int(round(len(shuffled) * config.validation_split)))
+            if val_count >= len(shuffled):
+                val_count = len(shuffled) - 1
+            val_entries = shuffled[:val_count]
+            train_entries = shuffled[val_count:]
+            val_seqs, _, _ = self._entries_to_sequences(val_entries)
+            print(
+                f"   Validation split created from training data: "
+                f"{len(train_entries)} train entries / {len(val_entries)} val entries"
+            )
+
+        total_trained_words = 0
+        total_skipped = 0
+
+        if warmup_epochs > 0:
+            warmup_seqs, warmup_words, skipped = self._entries_to_sequences(train_entries)
+            total_skipped += skipped
+            if warmup_seqs:
+                print(
+                    f"   Curriculum warm-up: {len(warmup_seqs)} static candidate sets "
+                    f"({warmup_words} words), {warmup_epochs} epochs"
+                )
+                self.trainer.train_bulk(warmup_seqs, epochs=warmup_epochs, validation_seqs=val_seqs)
+                total_trained_words += warmup_words
+                self.training_count += warmup_words
+                self.save()
+
+        completed_generations = 0
+        for generation in range(1, generations + 1):
+            rng = random.Random(config.validation_seed + generation + self.trainer.global_step)
+            mined_seqs, mined_words, skipped = self._entries_to_dynamic_sequences(train_entries, rng)
+            total_skipped += skipped
+            if not mined_seqs:
+                print(f"   Curriculum generation {generation}: no mineable negatives.")
+                continue
+
+            print(
+                f"   Curriculum generation {generation}/{generations}: "
+                f"mined {len(mined_seqs)} candidate sets ({mined_words} words), "
+                f"{mining_epochs} epochs"
+            )
+            self.trainer.train_bulk(mined_seqs, epochs=mining_epochs, validation_seqs=val_seqs)
+            total_trained_words += mined_words
+            self.training_count += mined_words
+            self.save()
+            completed_generations += 1
+
+        return {
+            'trained_words': total_trained_words,
+            'skipped': total_skipped,
+            'generations': completed_generations,
+        }
 
     def run_kfold_cv(self, k: int = 10, seed: int = 42) -> Optional[Dict[str, Any]]:
         """K-fold cross-validation on the full confirmed-decomp dataset."""

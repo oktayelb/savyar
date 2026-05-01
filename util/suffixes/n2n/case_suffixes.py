@@ -1,3 +1,4 @@
+import util.word_methods as wrd
 from util.suffix import Suffix, Type, SuffixGroup
 ## COMPLETE
 class CaseSuffix(Suffix):
@@ -31,32 +32,62 @@ class CaseSuffix(Suffix):
         )
 
     @staticmethod
-    
-    def _default_form(word, suffix_obj):
-        """
-        Overridden default form handler specifically for Case Suffixes.
-        Consolidates 'n' and 'y' buffer logic for Turkish nominal inflection.
-        
-        """
-        
+    def _harmonized_base(word, suffix_obj):
         base = suffix_obj.suffix
-        candidates = []
-        # Apply standard harmonies using the parent class's static methods
         base = Suffix._apply_major_harmony(word, base, suffix_obj.has_major_harmony)
         base = Suffix._apply_minor_harmony(word, base, suffix_obj.has_minor_harmony)
-        base = Suffix._apply_consonant_hardening(word, base)
+        return Suffix._apply_consonant_hardening(word, base)
 
-        candidates.append(base)  # Always include the base form (e.g. kapı+dan, kalma+da)
+    @staticmethod
+    def _looks_like_possessive_3_surface(word):
+        if not word:
+            return False
 
-        # Buffer consonants only apply when the stem ends in a vowel.
-        # 'n' covers post-possessive chains (evi-n-den); 'y' covers vowel+vowel (kapı-y-ı).
-        if word and word[-1] in ["a","e","ı","i","o","ö","u","ü"]:
-            candidates.append('n' + base)
+        candidates = []
+        if len(word) > 1 and word[-1] in ["ı", "i", "u", "ü"]:
+            candidates.append(word[:-1])
+        if len(word) > 2 and word[-2] == "s" and word[-1] in ["ı", "i", "u", "ü"]:
+            candidates.append(word[:-2])
 
+        for stem in candidates:
+            if wrd.can_be_noun(stem):
+                return True
+            if stem.endswith(("lar", "ler")) and wrd.can_be_noun(stem[:-3]):
+                return True
+
+        return False
+
+    @staticmethod
+    def _default_form(word, suffix_obj):
+        """
+        Direct case forms for bare nominal stems.
+
+        Vowel-initial cases cannot attach raw to vowel-final stems: başka+a and
+        başka+na are not direct dative forms; başka+ya is. The pronominal n is
+        emitted only when the current accumulated surface already looks like a
+        third-person possessive form: evi-n-e, kapısı-n-dan, evleri-n-e.
+        """
+        base = CaseSuffix._harmonized_base(word, suffix_obj)
+        has_possessive_n = CaseSuffix._looks_like_possessive_3_surface(word)
+
+        if word and base and word[-1] in wrd.VOWELS and base[0] in wrd.VOWELS:
+            candidates = []
             if suffix_obj.needs_y_buffer:
-                candidates.append('y' + base)
+                candidates.append("y" + base)
+            else:
+                candidates.append("n" + base)
 
-        return candidates
+            if has_possessive_n:
+                n_form = "n" + base
+                if n_form not in candidates:
+                    candidates.append(n_form)
+
+            return candidates
+
+        if word and base and word[-1] in wrd.VOWELS and has_possessive_n:
+            return [base, "n" + base]
+
+        return [base]
 
 
 noun_compound = CaseSuffix("noun_compound"  , "in") # köy ağzında needs_y_buffer doğru

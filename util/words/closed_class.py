@@ -173,9 +173,9 @@ DEMONSTRATIVE_PRONOUNS = [
 # ]
 
 # --- Reflexive pronoun (Dönüşlü zamir) ---
-# REFLEXIVE_PRONOUNS = [
-#     Pronoun("kendi", "reflexive"),        # self
-# ]
+REFLEXIVE_PRONOUNS = [
+     Pronoun("kendi", "reflexive"),        # self
+ ]
 
 # --- Indefinite pronouns (Belgisiz zamirler) ---
 # INDEFINITE_PRONOUNS = [

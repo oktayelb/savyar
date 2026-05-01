@@ -11,7 +11,7 @@ import app.analyzer as analyzer
 from app.sequence_matcher import find_matching_combinations, get_top_sentence_predictions
 from ml.ml_ranking_model import SentenceDisambiguator, Trainer
 from ml.config import config
-from util.words.closed_class import ALL_CLOSED_CLASS_WORDS
+from util.words.closed_class import CLOSED_CLASS_TOKEN_SPECS
 
 
 class WorkflowEngine:
@@ -31,7 +31,7 @@ class WorkflowEngine:
         self.data_manager = DataManager()
         self.model = SentenceDisambiguator(
             suffix_vocab_size=len(sfx.ALL_SUFFIXES),
-            closed_class_vocab_size=len(ALL_CLOSED_CLASS_WORDS),
+            closed_class_vocab_size=len(CLOSED_CLASS_TOKEN_SPECS),
         )
         self.trainer = Trainer(model=self.model)
         self.training_count = self.data_manager.load_training_count()
@@ -408,7 +408,7 @@ class WorkflowEngine:
             fold_path = os.path.join(tmp_dir, f"fold_{fold_idx}.pt")
             model = SentenceDisambiguator(
                 suffix_vocab_size=len(sfx.ALL_SUFFIXES),
-                closed_class_vocab_size=len(ALL_CLOSED_CLASS_WORDS),
+                closed_class_vocab_size=len(CLOSED_CLASS_TOKEN_SPECS),
             )
             trainer = Trainer(model=model, path=fold_path)
 

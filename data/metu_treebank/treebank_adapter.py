@@ -107,7 +107,7 @@ V2N_GERUND_FEATURES = {
     "While":                "when_ken",          # -ken (while/when)
     "AsLongAs":             "adverbial_dikçe",   # -dikçe/-dıkça
     "SinceDoingSo":         "adverbial_dikçe",   # approximate
-    "WithoutHavingDoneSo":  "nondoing_meden",    # -meden/-madan
+    "WithoutHavingDoneSo":  ["infinitive_me", "ablative_den"],  # -meden/-madan
     "InBetween":            "adverbial_ip",      # -ip (in-between actions)
 }
 
@@ -520,7 +520,11 @@ def features_to_suffix_names(token):
 
             # ── Gerunds/adverbials ──
             if feat in V2N_GERUND_FEATURES:
-                suffix_names.append(V2N_GERUND_FEATURES[feat])
+                mapped = V2N_GERUND_FEATURES[feat]
+                if isinstance(mapped, list):
+                    suffix_names.extend(mapped)
+                else:
+                    suffix_names.append(mapped)
                 continue
 
             # ── Plural (A3pl on nouns = plural_ler) ──
@@ -1128,21 +1132,6 @@ def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
     surface_lower = tr_lower(surface)
     root = tr_lower(lemma)
 
-    # Try to get root from decomposer candidates (it may go deeper than lemma)
-    try:
-        candidates = decompose(surface_lower)
-    except Exception:
-        candidates = []
-
-    # If decomposer found candidates, use the root from the best one
-    # (prefer one matching lemma, else first available)
-    if candidates:
-        lemma_roots = [c for c in candidates if c[0] == root]
-        if lemma_roots:
-            root = lemma_roots[0][0]
-        # Don't override root with decomposer's deeper root here —
-        # the treebank says this is the lemma, we trust it.
-
     suffixes = []
     current_stem = root
     for sname in expected_suffix_names:
@@ -1151,7 +1140,14 @@ def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
             makes_str = "VERB" if sobj.makes == Type.VERB else "NOUN"
             try:
                 forms = sobj.form(current_stem)
-                form_str = forms[0] if forms else sobj.suffix
+                form_str = ""
+                rest = surface_lower[len(current_stem):]
+                for form in forms:
+                    if form and rest.startswith(form):
+                        form_str = form
+                        break
+                if not form_str:
+                    form_str = forms[0] if forms else sobj.suffix
             except Exception:
                 form_str = sobj.suffix
             suffixes.append({
@@ -1174,7 +1170,7 @@ def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
         "morphology_string": " ".join(morphology_parts),
         "root": root,
         "suffixes": suffixes,
-        "final_pos": "noun",
+        "final_pos": "verb" if suffixes and suffixes[-1]["makes"] == "VERB" else "noun",
     }
 
 
@@ -1210,7 +1206,7 @@ def _build_cc_entry(surface_lower, cc_category):
         "word": surface_lower,
         "morphology_string": surface_lower,
         "root": surface_lower,
-        "suffixes": [{"name": suffix_name, "form": "", "makes": ""}],
+        "suffixes": [{"name": suffix_name, "form": "", "makes": "", "cc_surface": surface_lower}],
         "final_pos": suffix_name,
     }
 
@@ -1219,7 +1215,7 @@ def _build_cc_entry(surface_lower, cc_category):
 # MAIN ADAPTER
 # =============================================================================
 
-def adapt_treebank(treebank_path, output_path, stats_path=None):
+def adapt_treebank(treebank_path, output_path, stats_path=None, sentence_diagnostics_path=None):
     """Main entry point: convert treebank to JSONL training data."""
 
     print(f"Parsing treebank: {treebank_path}")
@@ -1240,6 +1236,7 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
 
     output_entries = []
     unmatched_log = []
+    sentence_diagnostics = []
 
     skip_upos = {"Num", "Ques"}   # truly non-morphological; CC words handled below
 
@@ -1254,6 +1251,10 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
         word_entries = []
         sentence_all_matched = True
         sentence_has_any = False
+        sentence_unmappable = []
+        bare_root_words = []
+        skipped_words = []
+        trainable_words_in_sentence = 0
 
         for tok in sentence:
             surface = tok["surface"]
@@ -1275,6 +1276,8 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
             first_xpos = first_step["xpos"]
 
             if first_upos in skip_upos:
+                skipped_words.append(surface_lower)
+                bare_root_words.append(surface_lower)
                 word_entries.append({
                     "word": surface_lower,
                     "morphology_string": surface_lower,
@@ -1296,8 +1299,10 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
                     word_entries.append(entry)
                     matched_words += 1
                     sentence_has_any = True
+                    trainable_words_in_sentence += 1
                 else:
                     # CC word not in CLOSED_CLASS_LOOKUP — store as bare root
+                    bare_root_words.append(surface_lower)
                     word_entries.append({
                         "word": surface_lower,
                         "morphology_string": surface_lower,
@@ -1314,6 +1319,12 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
             if has_unmappable:
                 unmappable_words += 1
                 sentence_all_matched = False
+                sentence_unmappable.append({
+                    "surface": surface_lower,
+                    "lemma": lemma,
+                    "features": [s["features"] for s in tok["feature_chain"]],
+                    "unmapped": list(unmapped_feats),
+                })
                 unmatched_log.append({
                     "surface": surface_lower,
                     "lemma": lemma,
@@ -1328,11 +1339,13 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
                     "suffixes": [],
                     "final_pos": "noun",
                 })
+                bare_root_words.append(surface_lower)
                 continue
 
             if not expected_suffixes:
                 # Bare root — no suffixes to learn
                 no_suffix_words += 1
+                bare_root_words.append(surface_lower)
                 word_entries.append({
                     "word": surface_lower,
                     "morphology_string": surface_lower,
@@ -1342,53 +1355,11 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
                 })
                 continue
 
-            # Proper nouns aren't in words.txt — force the decomposer to treat
-            # every prefix as a valid root so suffix matching can still pin
-            # down the right decomposition.
-            is_proper = bool(lemma) and lemma[0].isupper()
-            # Treebank asserts this is a verb if any step in the chain is Verb.
-            tb_verb = any(
-                step["upos"] == "Verb" for step in tok["feature_chain"]
-            )
-
-            # Try to match against decomposer
-            match = match_against_decomposer(
-                surface_lower, lemma, expected_suffixes,
-                force=is_proper, treebank_says_verb=tb_verb)
-
-            # Fallback: retry with force=True so every prefix can be a root.
-            # Needed when the lemma isn't in words.txt (e.g. proper-noun-like
-            # tokens, numeric-date surfaces) or when the decomposer's regular
-            # path couldn't reach a matching chain.
-            if match is None and not is_proper:
-                match = match_against_decomposer(
-                    surface_lower, lemma, expected_suffixes,
-                    force=True, treebank_says_verb=tb_verb)
-
-            if match:
-                entry = build_word_entry(surface_lower, match)
-                word_entries.append(entry)
-                matched_words += 1
-                sentence_has_any = True
-            else:
-                # Treebank is ground truth — force its decomposition even when
-                # the decomposer doesn't produce a matching candidate.
-                forced_entry = build_treebank_forced_entry(
-                    surface_lower, lemma, expected_suffixes)
-                word_entries.append(forced_entry)
-                forced_words += 1
-                sentence_has_any = True
-                # Still log for diagnostics — use the same force flag the
-                # matcher used, and let diagnose see any verb lemma we just
-                # injected on the matcher's second attempt.
-                diag = diagnose_mismatch(
-                    surface_lower, lemma, expected_suffixes, force=is_proper)
-                unmatched_log.append({
-                    "surface": surface_lower,
-                    "lemma": lemma,
-                    "features": [s["features"] for s in tok["feature_chain"]],
-                    **diag,
-                })
+            entry = build_treebank_forced_entry(surface_lower, lemma, expected_suffixes)
+            word_entries.append(entry)
+            matched_words += 1
+            sentence_has_any = True
+            trainable_words_in_sentence += 1
 
         # Build sentence entry
         if word_entries:
@@ -1408,8 +1379,39 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
                 matched_sentences += 1
             elif sentence_has_any:
                 partial_sentences += 1
+                sentence_diagnostics.append({
+                    "sentence_index": sent_idx,
+                    "original_sentence": original_sentence,
+                    "diagnostic_type": "partially_trainable_sentence",
+                    "why": "At least one token was trainable, but one or more tokens had unmappable features or had to remain bare roots.",
+                    "how_to_fix": "Inspect the unmappable token list first. If it is empty, this sentence is only partially trainable because some tokens are bare roots or skipped POS.",
+                    "trainable_word_count": trainable_words_in_sentence,
+                    "bare_root_words": bare_root_words,
+                    "skipped_words": skipped_words,
+                    "unmappable_tokens": sentence_unmappable,
+                })
             else:
                 failed_sentences += 1
+                diagnostic_type = "non_trainable_sentence"
+                why = "No token in the sentence produced a trainable suffix sequence."
+                how_to_fix = (
+                    "Usually not an adapter bug. These are often suffixless fragments, titles, numeric snippets, or unmappable tokens."
+                )
+                if sentence_unmappable:
+                    diagnostic_type = "non_trainable_due_to_unmappable_tokens"
+                    why = "No token was trainable and at least one token has unmappable treebank features."
+                    how_to_fix = "Add the missing treebank→Savyar mapping for the listed unmappable tokens."
+                sentence_diagnostics.append({
+                    "sentence_index": sent_idx,
+                    "original_sentence": original_sentence,
+                    "diagnostic_type": diagnostic_type,
+                    "why": why,
+                    "how_to_fix": how_to_fix,
+                    "trainable_word_count": trainable_words_in_sentence,
+                    "bare_root_words": bare_root_words,
+                    "skipped_words": skipped_words,
+                    "unmappable_tokens": sentence_unmappable,
+                })
 
     # Write output
     print(f"\nWriting {len(output_entries)} sentences to {output_path}")
@@ -1423,20 +1425,27 @@ def adapt_treebank(treebank_path, output_path, stats_path=None):
         for entry in unmatched_log:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
+    if sentence_diagnostics_path is None:
+        sentence_diagnostics_path = output_path.replace(".jsonl", "_sentence_diagnostics.jsonl")
+    with open(sentence_diagnostics_path, "w", encoding="utf-8") as f:
+        for entry in sentence_diagnostics:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
     # Stats
     trainable_words = matched_words + forced_words
     stats = {
         "total_sentences": len(sentences),
         "total_words": total_words,
-        "matched_words (decomposer-confirmed)": matched_words,
-        "forced_words (treebank-trusted)": forced_words,
+        "translated_words (treebank-authoritative)": matched_words,
+        "compat_words (legacy-forced)": forced_words,
         "trainable_words (total)": trainable_words,
         "unmappable_words": unmappable_words,
         "no_suffix_words": no_suffix_words,
         "trainable_rate": f"{trainable_words / max(total_words - no_suffix_words, 1) * 100:.1f}%",
-        "fully_matched_sentences": matched_sentences,
-        "partially_matched_sentences": partial_sentences,
-        "failed_sentences": failed_sentences,
+        "fully_trainable_sentences": matched_sentences,
+        "partially_trainable_sentences": partial_sentences,
+        "non_trainable_sentences": failed_sentences,
+        "sentence_diagnostics_count": len(sentence_diagnostics),
     }
 
     print("\n=== ADAPTATION STATS ===")
@@ -1559,5 +1568,6 @@ if __name__ == "__main__":
     treebank_path = os.path.join(base_dir, "METUSABANCI_treebank_v-1.conll")
     output_path = os.path.join(base_dir, "treebank_adapted.jsonl")
     stats_path = os.path.join(base_dir, "treebank_adaptation_stats.json")
+    sentence_diagnostics_path = os.path.join(base_dir, "treebank_adapted_sentence_diagnostics.jsonl")
 
-    adapt_treebank(treebank_path, output_path, stats_path)
+    adapt_treebank(treebank_path, output_path, stats_path, sentence_diagnostics_path)

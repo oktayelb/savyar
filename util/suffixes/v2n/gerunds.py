@@ -43,7 +43,7 @@ adverbial_ip      = Gerund("adverbial_ip", "ip")
 adverbial_e       = Gerund("adverbial_e", "e")
 adverbial_dikçe   = Gerund("adverbial_dikçe", "dikçe")
 since_eli         = Gerund("since_eli", "eli", has_minor_harmony=False)
-nondoing_meden    = Gerund("nondoing_meden", "meden", has_minor_harmony=False)
+#nondoing_meden    = Gerund("nondoing_meden", "meden", has_minor_harmony=False)
 
 ##esiye eklenmeli mi?
 GERUNDS = [

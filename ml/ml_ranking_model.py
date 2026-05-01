@@ -202,11 +202,9 @@ class SentenceDisambiguator(nn.Module):
             self.pos_embed(pos),
         ], dim=-1)
 
-        x = self.input_proj(x)              
-
+        x = self.input_proj(x)
         x = self.transformer(x, src_key_padding_mask=pad_mask)
-
-        return self.lm_head(x)              
+        return self.lm_head(x)
 
     def log_probs(
         self,
@@ -971,11 +969,15 @@ class Trainer:
             'best_val_loss':   self.best_val_loss,
             'global_step':     self.global_step,
             'replay_buffer':   self.replay_buffer,
+            'suffix_inventory': [s.name for s in _get_all_suffixes()],
         }, self.path)
         print(f"Saved to {self.path}")
 
     def load_checkpoint(self, path: str):
         ckpt = torch.load(path, map_location=self.device)
+        current_suffix_inventory = [s.name for s in _get_all_suffixes()]
+        saved_suffix_inventory = ckpt.get('suffix_inventory')
+        suffix_inventory_matches = saved_suffix_inventory == current_suffix_inventory
         model_state = ckpt['model_state']
         current_state = self.model.state_dict()
         compatible_state = {
@@ -983,22 +985,25 @@ class Trainer:
             if k in current_state and current_state[k].shape == v.shape
         }
         self.model.load_state_dict(compatible_state, strict=False)
-        try:
-            self.optimizer.load_state_dict(ckpt['optimizer_state'])
-            self.scheduler.load_state_dict(ckpt['scheduler_state'])
-        except Exception:
-            pass
+        if suffix_inventory_matches:
+            try:
+                self.optimizer.load_state_dict(ckpt['optimizer_state'])
+                self.scheduler.load_state_dict(ckpt['scheduler_state'])
+            except Exception:
+                pass
         self.train_history  = ckpt.get('train_history',  [])
         self.val_history    = ckpt.get('val_history',    [])
         self.best_val_loss  = ckpt.get('best_val_loss',  float('inf'))
         self.global_step    = ckpt.get('global_step',    0)
-        raw_replay = ckpt.get('replay_buffer', [])
+        raw_replay = ckpt.get('replay_buffer', []) if suffix_inventory_matches else []
         upgraded_replay = []
         for entry in raw_replay:
             upgraded = self._upgrade_replay_entry(entry)
             if upgraded is not None:
                 upgraded_replay.append(upgraded)
         self.replay_buffer = upgraded_replay
+        if not suffix_inventory_matches:
+            print("Checkpoint suffix inventory changed; replay buffer and optimizer state were discarded.")
         print(f"Loaded from {path} (step {self.global_step}, {len(self.replay_buffer)} replay entries)")
 
     def _upgrade_replay_entry(self, entry) -> Optional[FlatSequence]:

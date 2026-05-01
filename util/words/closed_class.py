@@ -150,57 +150,55 @@ PERSONAL_PRONOUNS = [
 ]
 
 # --- Demonstrative pronouns (İşaret zamirleri) ---
-DEMONSTRATIVE_PRONOUNS = [
-    Pronoun("bu", "demonstrative"),       # this
-    Pronoun("şu", "demonstrative"),       # that (nearby)
-    Pronoun("o", "demonstrative"),        # that (far)
-    Pronoun("bunlar", "demonstrative"),   # these
-    Pronoun("şunlar", "demonstrative"),   # those (nearby)
-    Pronoun("onlar", "demonstrative"),    # those (far)
-    Pronoun("burası", "demonstrative"),   # this place
-    Pronoun("şurası", "demonstrative"),   # that place (nearby)
-    Pronoun("orası", "demonstrative"),    # that place (far)
+DEMONSTRATIVE_PRONOUNS = [ 
+    # Pronoun("bu", "demonstrative"),       # this
+    # Pronoun("şu", "demonstrative"),       # that (nearby)
+    # Pronoun("o", "demonstrative"),        # that (far)
+    # Pronoun("bunlar", "demonstrative"),   # these
+    # Pronoun("şunlar", "demonstrative"),   # those (nearby)
+    # Pronoun("onlar", "demonstrative"),    # those (far)
+    # Pronoun("burası", "demonstrative"),   # this place
+    # Pronoun("şurası", "demonstrative"),   # that place (nearby)
+    # Pronoun("orası", "demonstrative"),    # that place (far)
 ]
+
 
 # --- Interrogative pronouns (Soru zamirleri) ---
-INTERROGATIVE_PRONOUNS = [
-    Pronoun("kim", "interrogative"),      # who
-    Pronoun("ne", "interrogative"),       # what
-    Pronoun("nere", "interrogative"),     # where (stem, inflects as nereden, nereye...)
-    Pronoun("hangisi", "interrogative"),  # which one
-    Pronoun("kaçı", "interrogative"),     # how many (of them)
-]
+# INTERROGATIVE_PRONOUNS = [
+#     Pronoun("kim", "interrogative"),      # who
+#     Pronoun("ne", "interrogative"),       # what
+#     Pronoun("nere", "interrogative"),     # where (stem, inflects as nereden, nereye...)
+#     Pronoun("hangisi", "interrogative"),  # which one
+#     Pronoun("kaçı", "interrogative"),     # how many (of them)
+# ]
 
 # --- Reflexive pronoun (Dönüşlü zamir) ---
-REFLEXIVE_PRONOUNS = [
-    Pronoun("kendi", "reflexive"),        # self
-]
+# REFLEXIVE_PRONOUNS = [
+#     Pronoun("kendi", "reflexive"),        # self
+# ]
 
 # --- Indefinite pronouns (Belgisiz zamirler) ---
-INDEFINITE_PRONOUNS = [
-    Pronoun("herkes", "indefinite"),      # everyone
-    Pronoun("hepsi", "indefinite"),       # all of them
-    Pronoun("birisi", "indefinite"),      # someone
-    Pronoun("hiçbiri", "indefinite"),     # none of them
-    Pronoun("bazısı", "indefinite"),      # some of them
-    Pronoun("birçoğu", "indefinite"),     # most of them
-    Pronoun("kimse", "indefinite"),       # anyone / no one
-    Pronoun("hep", "indefinite"),         # always/all
-    Pronoun("biri", "indefinite"),        # one (of them)
-    Pronoun("öteki", "indefinite"),       # the other
-    Pronoun("öbürü", "indefinite"),       # the other one
-    Pronoun("tümü", "indefinite"),        # all of it
-    Pronoun("cümlesi", "indefinite"),     # all (literary)
-    Pronoun("her biri", "indefinite"),    # each one
-]
+# INDEFINITE_PRONOUNS = [
+#     Pronoun("herkes", "indefinite"),      # everyone
+#     Pronoun("hepsi", "indefinite"),       # all of them
+#     Pronoun("birisi", "indefinite"),      # someone
+#     Pronoun("hiçbiri", "indefinite"),     # none of them
+#     Pronoun("bazısı", "indefinite"),      # some of them
+#     Pronoun("birçoğu", "indefinite"),     # most of them
+#     Pronoun("kimse", "indefinite"),       # anyone / no one
+#     Pronoun("hep", "indefinite"),         # always/all
+#     Pronoun("biri", "indefinite"),        # one (of them)
+#     Pronoun("öteki", "indefinite"),       # the other
+#     Pronoun("öbürü", "indefinite"),       # the other one
+#     Pronoun("tümü", "indefinite"),        # all of it
+#     Pronoun("cümlesi", "indefinite"),     # all (literary)
+#     Pronoun("her biri", "indefinite"),    # each one
+# ]
 
-ALL_PRONOUNS = (
-    PERSONAL_PRONOUNS
-    + DEMONSTRATIVE_PRONOUNS
-    + INTERROGATIVE_PRONOUNS
-    + REFLEXIVE_PRONOUNS
-    + INDEFINITE_PRONOUNS
-)
+ALL_PRONOUNS = (PERSONAL_PRONOUNS + DEMONSTRATIVE_PRONOUNS)
+# + INTERROGATIVE_PRONOUNS
+# + REFLEXIVE_PRONOUNS
+# + INDEFINITE_PRONOUNS
 
 
 # ============================================================================
@@ -217,43 +215,43 @@ class Conjunction(ClosedClassWord):
 
 COORDINATING_CONJUNCTIONS = [
     Conjunction("ve", "coordinating"),         # and
-    Conjunction("ile", "coordinating"),        # with / and
-    Conjunction("ama", "coordinating"),        # but
-    Conjunction("fakat", "coordinating"),      # but
-    Conjunction("ancak", "coordinating"),      # however
-    Conjunction("lakin", "coordinating"),      # but (literary)
-    Conjunction("veya", "coordinating"),       # or
-    Conjunction("ya da", "coordinating"),      # or
-    Conjunction("yoksa", "coordinating"),      # or else
-    Conjunction("oysa", "coordinating"),       # whereas
-    Conjunction("oysaki", "coordinating"),     # whereas (emphatic)
-    Conjunction("halbuki", "coordinating"),    # whereas
-    Conjunction("meğer", "coordinating"),      # apparently
-    Conjunction("meğerki", "coordinating"),    # apparently (emphatic)
     Conjunction("hem", "coordinating"),        # both / also
     Conjunction("ne", "coordinating"),         # neither...nor (part of ne...ne)
     Conjunction("da", "coordinating"),         # also / too
     Conjunction("de", "coordinating"),         # also / too
+    # Conjunction("ile", "coordinating"),        # with / and
+    # Conjunction("ama", "coordinating"),        # but
+    # Conjunction("fakat", "coordinating"),      # but
+    # Conjunction("ancak", "coordinating"),      # however
+    # Conjunction("lakin", "coordinating"),      # but (literary)
+    # Conjunction("veya", "coordinating"),       # or
+    # Conjunction("ya da", "coordinating"),      # or
+    # Conjunction("yoksa", "coordinating"),      # or else
+    # Conjunction("oysa", "coordinating"),       # whereas
+    # Conjunction("oysaki", "coordinating"),     # whereas (emphatic)
+    # Conjunction("halbuki", "coordinating"),    # whereas
+    # Conjunction("meğer", "coordinating"),      # apparently
+    # Conjunction("meğerki", "coordinating"),    # apparently (emphatic)
 ]
 
 SUBORDINATING_CONJUNCTIONS = [
     Conjunction("çünkü", "subordinating"),     # because
     Conjunction("zira", "subordinating"),      # because (formal)
     Conjunction("ki", "subordinating"),        # that / because
-    Conjunction("eğer", "subordinating"),      # if
-    Conjunction("şayet", "subordinating"),     # if (formal)
-    Conjunction("madem", "subordinating"),     # since / given that
-    Conjunction("mademki", "subordinating"),   # since (emphatic)
-    Conjunction("gerçi", "subordinating"),     # although
-    Conjunction("her ne kadar", "subordinating"),  # although
-    Conjunction("rağmen", "subordinating"),    # despite
-    Conjunction("karşın", "subordinating"),    # despite
     Conjunction("iken", "subordinating"),      # while
     Conjunction("diye", "subordinating"),      # so that / saying
-    Conjunction("nitekim", "subordinating"),   # indeed / as a matter of fact
-    Conjunction("sanki", "subordinating"),     # as if
-    Conjunction("güya", "subordinating"),      # supposedly
-    Conjunction("yeter ki", "subordinating"),  # as long as
+    # Conjunction("eğer", "subordinating"),      # if
+    # Conjunction("şayet", "subordinating"),     # if (formal)
+    # Conjunction("madem", "subordinating"),     # since / given that
+    # Conjunction("mademki", "subordinating"),   # since (emphatic)
+    # Conjunction("gerçi", "subordinating"),     # although
+    # Conjunction("her ne kadar", "subordinating"),  # although
+    # Conjunction("rağmen", "subordinating"),    # despite
+    # Conjunction("karşın", "subordinating"),    # despite
+    # Conjunction("nitekim", "subordinating"),   # indeed / as a matter of fact
+    # Conjunction("sanki", "subordinating"),     # as if
+    # Conjunction("güya", "subordinating"),      # supposedly
+    # Conjunction("yeter ki", "subordinating"),  # as long as
 ]
 
 ALL_CONJUNCTIONS = COORDINATING_CONJUNCTIONS + SUBORDINATING_CONJUNCTIONS
@@ -324,48 +322,47 @@ ALL_ADVERBS = [
     Adverb("şimdi", "temporal"),          # now
     Adverb("sonra", "temporal"),          # later / after
     Adverb("önce", "temporal"),           # before / earlier
-    Adverb("bugün", "temporal"),          # today
-    Adverb("dün", "temporal"),            # yesterday
-    Adverb("yarın", "temporal"),          # tomorrow
+    #Adverb("bugün", "temporal"),          # today
+    #Adverb("dün", "temporal"),            # yesterday
+    #Adverb("yarın", "temporal"),          # tomorrow
     Adverb("hâlâ", "temporal"),           # still
     Adverb("henüz", "temporal"),          # yet / just
     Adverb("artık", "temporal"),          # anymore / from now on
     Adverb("hep", "temporal"),            # always
     Adverb("hiç", "temporal"),            # never / ever
-    Adverb("bazen", "temporal"),          # sometimes
-    Adverb("sık sık", "temporal"),        # often
-    Adverb("nadiren", "temporal"),        # rarely
-    Adverb("derhal", "temporal"),         # immediately
+    #Adverb("bazen", "temporal"),          # sometimes
+    #Adverb("sık sık", "temporal"),        # often
+    #Adverb("nadiren", "temporal"),        # rarely
+    #Adverb("derhal", "temporal"),         # immediately
     Adverb("hemen", "temporal"),          # immediately / right away
     Adverb("demin", "temporal"),          # just now
-    Adverb("geçen", "temporal"),          # the other (day or week or year etc)
-
+    #Adverb("geçen", "temporal"),          # the other (day or week or year etc)
     # Manner
-    Adverb("böyle", "manner"),            # like this
-    Adverb("şöyle", "manner"),            # like that
-    Adverb("öyle", "manner"),             # like that (far)
-    Adverb("nasıl", "manner"),            # how
+    #Adverb("böyle", "manner"),            # like this
+    #Adverb("şöyle", "manner"),            # like that
+    #Adverb("öyle", "manner"),             # like that (far)
+    #Adverb("nasıl", "manner"),            # how
     # Degree
-    Adverb("çok", "degree"),              # very / much
-    Adverb("az", "degree"),               # little / few
-    Adverb("pek", "degree"),              # quite / very
-    Adverb("en", "degree"),               # most (superlative)
-    Adverb("daha", "degree"),             # more (comparative)
-    Adverb("gayet", "degree"),            # quite
-    Adverb("oldukça", "degree"),          # rather / quite
-    Adverb("epey", "degree"),             # fairly / considerably
+    #Adverb("çok", "degree"),              # very / much
+    #Adverb("az", "degree"),               # little / few
+    #Adverb("pek", "degree"),              # quite / very
+    #Adverb("en", "degree"),               # most (superlative)
+    #Adverb("daha", "degree"),             # more (comparative)
+    #Adverb("gayet", "degree"),            # quite
+    #Adverb("oldukça", "degree"),          # rather / quite
+    #Adverb("epey", "degree"),             # fairly / considerably
 
     # Place
-    Adverb("burada", "place"),            # here
-    Adverb("şurada", "place"),            # there (nearby)
-    Adverb("orada", "place"),             # there (far)
-    Adverb("nerede", "place"),            # where
-    Adverb("içeri", "place"),             # inside
-    Adverb("dışarı", "place"),            # outside
-    Adverb("ileri", "place"),             # forward
-    Adverb("geri", "place"),              # back
-    Adverb("yukarı", "place"),            # up
-    Adverb("aşağı", "place"),             # down
+    #Adverb("burada", "place"),            # here
+    #Adverb("şurada", "place"),            # there (nearby)
+    #Adverb("orada", "place"),             # there (far)
+    #Adverb("nerede", "place"),            # where
+    #Adverb("içeri", "place"),             # inside
+    #Adverb("dışarı", "place"),            # outside
+    #Adverb("ileri", "place"),             # forward
+    #Adverb("geri", "place"),              # back
+    #Adverb("yukarı", "place"),            # up
+    #Adverb("aşağı", "place"),             # down
 ]
 
 
@@ -382,25 +379,26 @@ class Determiner(ClosedClassWord):
 
 
 ALL_DETERMINERS = [
-    Determiner("bir", "indefinite"),          # a / one
-    Determiner("bu", "demonstrative"),        # this
-    Determiner("şu", "demonstrative"),        # that (nearby)
-    Determiner("o", "demonstrative"),         # that (far)
-    Determiner("her", "universal"),           # every
-    Determiner("bazı", "indefinite"),         # some
-    Determiner("birçok", "indefinite"),       # many / several
-    Determiner("hiçbir", "negative"),         # no / none
-    Determiner("birkaç", "indefinite"),       # a few
-    Determiner("tüm", "universal"),           # all
-    Determiner("bütün", "universal"),         # all / whole
-    Determiner("hangi", "interrogative"),     # which
-    Determiner("kaç", "interrogative"),       # how many
-    Determiner("öbür", "demonstrative"),      # the other
-    Determiner("öteki", "demonstrative"),     # the other
-    Determiner("böyle", "demonstrative"),     # such (this kind)
-    Determiner("şöyle", "demonstrative"),     # such (that kind)
-    Determiner("öyle", "demonstrative"),      # such (that kind, far)
+    # Determiner("bir", "indefinite"),          # a / one
+    # Determiner("bu", "demonstrative"),        # this
+    # Determiner("şu", "demonstrative"),        # that (nearby)
+    # Determiner("o", "demonstrative"),         # that (far)
+    # Determiner("her", "universal"),           # every
+    # Determiner("bazı", "indefinite"),         # some
+    # Determiner("birçok", "indefinite"),       # many / several
+    # Determiner("hiçbir", "negative"),         # no / none
+    # Determiner("birkaç", "indefinite"),       # a few
+    # Determiner("tüm", "universal"),           # all
+    # Determiner("bütün", "universal"),         # all / whole
+    # Determiner("hangi", "interrogative"),     # which
+    # Determiner("kaç", "interrogative"),       # how many
+    # Determiner("öbür", "demonstrative"),      # the other
+    # Determiner("öteki", "demonstrative"),     # the other
+    # Determiner("böyle", "demonstrative"),     # such (this kind)
+    # Determiner("şöyle", "demonstrative"),     # such (that kind)
+    # Determiner("öyle", "demonstrative"),      # such (that kind, far)
 ]
+
 
 
 # ============================================================================
@@ -415,25 +413,25 @@ class Interjection(ClosedClassWord):
 
 
 ALL_INTERJECTIONS = [
-    Interjection("evet"),         # yes
-    Interjection("hayır"),        # no
-    Interjection("yok"),          # no / there isn't
-    Interjection("var"),          # there is
-    Interjection("eyvah"),        # alas
-    Interjection("aman"),         # oh no
-    Interjection("hey"),          # hey
-    Interjection("of"),           # ugh
-    Interjection("ah"),           # ah
-    Interjection("oh"),           # oh
-    Interjection("vay"),          # wow
-    Interjection("bravo"),        # bravo
-    Interjection("yazık"),        # pity
-    Interjection("maşallah"),     # wonderful (protective)
-    Interjection("inşallah"),     # God willing
-    Interjection("lütfen"),       # please
-    Interjection("tamam"),        # okay
-    Interjection("haydi"),        # come on
-    Interjection("hadi"),         # come on
+    # Interjection("evet"),         # yes
+    # Interjection("hayır"),        # no
+    # Interjection("yok"),          # no / there isn't
+    # Interjection("var"),          # there is
+    # Interjection("eyvah"),        # alas
+    # Interjection("aman"),         # oh no
+    # Interjection("hey"),          # hey
+    # Interjection("of"),           # ugh
+    # Interjection("ah"),           # ah
+    # Interjection("oh"),           # oh
+    # Interjection("vay"),          # wow
+    # Interjection("bravo"),        # bravo
+    # Interjection("yazık"),        # pity
+    # Interjection("maşallah"),     # wonderful (protective)
+    # Interjection("inşallah"),     # God willing
+    # Interjection("lütfen"),       # please
+    # Interjection("tamam"),        # okay
+    # Interjection("haydi"),        # come on
+    # Interjection("hadi"),         # come on
 ]
 
 
@@ -454,17 +452,17 @@ ALL_PARTICLES = [
     Particle("mi", "question"),       # question particle (front vowel)
     Particle("mu", "question"),       # question particle (back round)
     Particle("mü", "question"),       # question particle (front round)
-    Particle("bile", "focus"),        # even
-    Particle("sadece", "focus"),      # only
-    Particle("yalnız", "focus"),      # only / just
-    Particle("işte", "discourse"),    # here it is / that's it
-    Particle("acaba", "discourse"),   # I wonder
-    Particle("belki", "discourse"),   # maybe
-    Particle("keşke", "discourse"),   # I wish
-    Particle("zaten", "discourse"),   # already / anyway
-    Particle("yine", "discourse"),    # again / still
-    Particle("gene", "discourse"),    # again (colloquial)
-    Particle("bile bile", "discourse"),  # knowingly
+    # Particle("bile", "focus"),        # even
+    # Particle("sadece", "focus"),      # only
+    # Particle("yalnız", "focus"),      # only / just
+    # Particle("işte", "discourse"),    # here it is / that's it
+    # Particle("acaba", "discourse"),   # I wonder
+    # Particle("belki", "discourse"),   # maybe
+    # Particle("keşke", "discourse"),   # I wish
+    # Particle("zaten", "discourse"),   # already / anyway
+    # Particle("yine", "discourse"),    # again / still
+    # Particle("gene", "discourse"),    # again (colloquial)
+    # Particle("bile bile", "discourse"),  # knowingly
 ]
 
 
@@ -485,9 +483,10 @@ class ClosedClassMarker:
         (surface_form, "cc_<category>", [ClosedClassMarker(cc_obj)], "cc_<category>")
     """
 
-    def __init__(self, cc_word: "ClosedClassWord"):
+    def __init__(self, cc_word: "ClosedClassWord", surface_form: Optional[str] = None):
         self.cc_word = cc_word
         self.name    = f"cc_{cc_word.category}"
+        self.surface_form = surface_form or cc_word.word
         self.makes   = None      # CC words don't have a suffix-style POS output
         self.is_unique = False
 
@@ -496,7 +495,7 @@ class ClosedClassMarker:
         return []
 
     def __repr__(self):
-        return f"ClosedClassMarker({self.cc_word.word!r}, cat={self.cc_word.category!r})"
+        return f"ClosedClassMarker({self.surface_form!r}, cat={self.cc_word.category!r})"
 
 
 # ============================================================================
@@ -525,3 +524,29 @@ for _w in ALL_CLOSED_CLASS_WORDS:
         for _form in _w.all_surface_forms():
             if _form != _w.word:
                 CLOSED_CLASS_LOOKUP.setdefault(_form, []).append(_w)
+
+
+def _build_closed_class_token_specs() -> List[tuple[str, str]]:
+    specs: List[tuple[str, str]] = []
+    seen = set()
+    for cc_word in ALL_CLOSED_CLASS_WORDS:
+        surfaces = [cc_word.word]
+        if isinstance(cc_word, Pronoun):
+            surfaces = cc_word.all_surface_forms()
+        for surface in surfaces:
+            key = (cc_word.category, surface)
+            if key in seen:
+                continue
+            seen.add(key)
+            specs.append(key)
+    return specs
+
+
+CLOSED_CLASS_TOKEN_SPECS: List[tuple[str, str]] = _build_closed_class_token_specs()
+ALL_PRONOUN_SURFACES = {
+    surface
+    for cc_word in ALL_PRONOUNS
+    for surface in cc_word.all_surface_forms()
+}
+BEN_PRONOUN_SURFACES = set(_PERSONAL_FORMS["ben"].values())
+NON_BEN_PRONOUN_SURFACES = ALL_PRONOUN_SURFACES - BEN_PRONOUN_SURFACES

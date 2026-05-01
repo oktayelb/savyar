@@ -11,22 +11,40 @@ from ml.ml_ranking_model import (
     WORD_FINAL_YES,
 )
 from util.suffix import Suffix, Type
-from util.words.closed_class import ClosedClassMarker, ALL_CLOSED_CLASS_WORDS
+from util.words.closed_class import ClosedClassMarker, CLOSED_CLASS_TOKEN_SPECS
 
 # --- Module-level ID lookup caches (built once, reused for all encode calls) ---
 def _build_caches():
     suffix_to_id = {s.name: idx + SUFFIX_OFFSET for idx, s in enumerate(sfx.ALL_SUFFIXES)}
     suffix_by_name = {s.name: s for s in sfx.ALL_SUFFIXES}
     cc_offset = SUFFIX_OFFSET + len(sfx.ALL_SUFFIXES)
-    cc_to_id = {id(cc): cc_offset + idx for idx, cc in enumerate(ALL_CLOSED_CLASS_WORDS)}
-    cc_name_to_id = {}
-    for idx, cc in enumerate(ALL_CLOSED_CLASS_WORDS):
-        name = f"cc_{cc.category}"
-        if name not in cc_name_to_id:
-            cc_name_to_id[name] = cc_offset + idx
-    return suffix_to_id, suffix_by_name, cc_to_id, cc_name_to_id, cc_offset
+    cc_surface_to_id = {
+        (category, surface): cc_offset + idx
+        for idx, (category, surface) in enumerate(CLOSED_CLASS_TOKEN_SPECS)
+    }
+    cc_name_to_default_id = {}
+    for idx, (category, _surface) in enumerate(CLOSED_CLASS_TOKEN_SPECS):
+        name = f"cc_{category}"
+        if name not in cc_name_to_default_id:
+            cc_name_to_default_id[name] = cc_offset + idx
+    return suffix_to_id, suffix_by_name, cc_surface_to_id, cc_name_to_default_id, cc_offset
 
-_SUFFIX_TO_ID, _SUFFIX_BY_NAME, _CC_TO_ID, _CC_NAME_TO_ID, _CC_OFFSET = _build_caches()
+_SUFFIX_TO_ID, _SUFFIX_BY_NAME, _CC_SURFACE_TO_ID, _CC_NAME_TO_DEFAULT_ID, _CC_OFFSET = _build_caches()
+
+
+def _expand_legacy_suffix_dicts(suffix_dicts: List[Dict]) -> List[Dict]:
+    expanded = []
+    for sd in suffix_dicts:
+        if sd.get('name') == 'nondoing_meden':
+            expanded.append({'name': 'infinitive_me', 'makes': 'NOUN'})
+            expanded.append({'name': 'ablative_den', 'makes': 'NOUN'})
+            continue
+        expanded.append(sd)
+    return expanded
+
+
+def _normalize_entry_suffix_names(suffix_dicts: List[Dict]) -> List[str]:
+    return [sd['name'] for sd in _expand_legacy_suffix_dicts(suffix_dicts)]
 
 
 ## translatxions between representations
@@ -35,7 +53,7 @@ def match_decompositions(entries: List[Dict], decompositions: List[Tuple]) -> Li
     indices = []
     for entry in entries:
         entry_root     = entry['root']
-        entry_suffixes = [s['name'] for s in entry.get('suffixes', [])]
+        entry_suffixes = _normalize_entry_suffix_names(entry.get('suffixes', []))
         for idx, (root, _, chain, _) in enumerate(decompositions):
             if root != entry_root:
                 continue
@@ -54,12 +72,18 @@ def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, i
         'BOTH': Type.BOTH, 'both': Type.BOTH, 'Both': Type.BOTH,
     }
     encoded = []
+    suffix_dicts = _expand_legacy_suffix_dicts(suffix_dicts)
     last_idx = len(suffix_dicts) - 1
     for idx, sd in enumerate(suffix_dicts):
         name = sd['name']
         makes = sd.get('makes', 'NOUN')
         if name.startswith('cc_'):
-            token_id = _CC_NAME_TO_ID.get(name, _CC_OFFSET)
+            category = name[3:]
+            surface = sd.get('cc_surface') or sd.get('root') or ""
+            token_id = _CC_SURFACE_TO_ID.get(
+                (category, surface),
+                _CC_NAME_TO_DEFAULT_ID.get(name, _CC_OFFSET),
+            )
             encoded.append((
                 token_id, CATEGORY_CLOSED_CLASS, SPECIAL_FEATURE_ID,
                 SPECIAL_FEATURE_ID, SPECIAL_FEATURE_ID, idx + 1,
@@ -87,7 +111,10 @@ def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int, int, in
     last_idx = len(suffix_chain) - 1
     for idx, s in enumerate(suffix_chain):
         if isinstance(s, ClosedClassMarker):
-            token_id = _CC_TO_ID.get(id(s.cc_word), _CC_OFFSET)
+            token_id = _CC_SURFACE_TO_ID.get(
+                (s.cc_word.category, getattr(s, 'surface_form', s.cc_word.word)),
+                _CC_NAME_TO_DEFAULT_ID.get(s.name, _CC_OFFSET),
+            )
             encoded.append((
                 token_id, CATEGORY_CLOSED_CLASS, SPECIAL_FEATURE_ID,
                 SPECIAL_FEATURE_ID, SPECIAL_FEATURE_ID, idx + 1,

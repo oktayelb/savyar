@@ -333,7 +333,7 @@ def decompose_with_cc(word: str) -> List[Tuple]:
             continue
         seen_categories.add(cat_key)
         pos_tag = f"cc_{cc_obj.category}"
-        analyses.append((word, pos_tag, [ClosedClassMarker(cc_obj)], pos_tag))
+        analyses.append((word, pos_tag, [ClosedClassMarker(cc_obj, surface_form=word)], pos_tag))
 
     return analyses
 
@@ -352,6 +352,9 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
     suffix chains for the same remaining text + POS + last_group context.\n
     The lru_cache rapidly short-circuits re-evaluations across entire files.
     """
+
+    if (not force) and wrd.is_non_ben_pronoun_surface(word):
+        return []
 
     # Shared across all append_analysis calls in this decompose invocation
     shared_cache = {}

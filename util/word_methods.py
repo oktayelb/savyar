@@ -80,6 +80,10 @@ def get_closed_class_categories(word: str) -> List[str]:
     entries = CLOSED_CLASS_LOOKUP.get(word, [])
     return list({e.category for e in entries})
 
+def is_non_ben_pronoun_surface(word: str) -> bool:
+    from util.words.closed_class import NON_BEN_PRONOUN_SURFACES
+    return word in NON_BEN_PRONOUN_SURFACES
+
 def can_be_noun(word: str) -> bool:
     if not word:
         return False

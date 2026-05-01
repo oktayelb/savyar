@@ -4,7 +4,7 @@ from util.suffix import Suffix, Type, SuffixGroup
 VOWELS = ['a', 'e', 'ı', 'i', 'o', 'ö', 'u', 'ü']
 
 
-def form_for_approximative_si(word, suffix_obj):
+def form_for_approximative_si(word, suffix_obj, current_chain=None):
     base1 = "imsi"
 
     base1 = Suffix._apply_major_harmony(word, base1, suffix_obj.has_major_harmony)
@@ -19,11 +19,11 @@ def form_for_approximative_si(word, suffix_obj):
 
     return [base1, base2]
 
-def form_for_abstractifier_iyat(word, suffix_obj):
+def form_for_abstractifier_iyat(word, suffix_obj, current_chain=None):
     result_list = ["iye","iyet","iyat","at","et"]
     return result_list
 
-def form_for_counting_er(word, suffix_obj):
+def form_for_counting_er(word, suffix_obj, current_chain=None):
 
     base = "er"
     base = Suffix._apply_major_harmony(word, base, suffix_obj.has_major_harmony)
@@ -35,7 +35,7 @@ def form_for_counting_er(word, suffix_obj):
     
     return [base]
 
-def form_for_dimunitive_cik(word, suffix_obj):  
+def form_for_dimunitive_cik(word, suffix_obj, current_chain=None):  
     base = "cik"
     base = Suffix._apply_major_harmony(word, base, suffix_obj.has_major_harmony)
     base = Suffix._apply_minor_harmony(word, base, suffix_obj.has_minor_harmony)

@@ -76,11 +76,11 @@ class Suffix:
         self.group = group
         self.is_unique = is_unique
     
-    def form(self, word):
-        return self.form_function(word, self)
+    def form(self, word, current_chain=None):
+        return self.form_function(word, self, current_chain=current_chain)
     
     @staticmethod
-    def _default_form(word, suffix_obj):
+    def _default_form(word, suffix_obj, current_chain=None):
         # 1. Baz formu al
         base = suffix_obj.suffix    
         

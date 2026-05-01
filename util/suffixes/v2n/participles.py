@@ -40,7 +40,7 @@ class Participle(Suffix):
         )
 
 
-def form_for_factative_ir(word, suffix_obj):
+def form_for_factative_ir(word, suffix_obj, current_chain=None):
     """
     Form function for factative_ir suffix (Geniş Zaman Sıfat-Fiil)
     - Default forms: er, ir, z (negative)

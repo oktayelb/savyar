@@ -35,7 +35,7 @@ class Copula(Suffix):
 
     @staticmethod
     
-    def _default_form(word, suffix_obj):
+    def _default_form(word, suffix_obj, current_chain=None):
         """
         Overridden default form handler specifically for Case Suffixes.
         Consolidates 'n' and 'y' buffer logic for Turkish nominal inflection.

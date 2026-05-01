@@ -1084,9 +1084,10 @@ def build_word_entry(surface, decomposition):
     suffixes = []
     current_stem = root
     surface_lower = tr_lower(surface)
+    accepted_chain = []
     for s in chain:
         # Compute form using the stem accumulated so far (vowel harmony depends on last vowel)
-        forms = s.form(current_stem)
+        forms = s.form(current_stem, current_chain=accepted_chain)
         # Find which form actually appears in the surface string
         form_used = ""
         rest = surface_lower[len(current_stem):]
@@ -1109,6 +1110,7 @@ def build_word_entry(surface, decomposition):
             "makes": "VERB" if str(s.makes).upper().endswith("VERB") else "NOUN",
         })
         current_stem = current_stem + form_used
+        accepted_chain.append(s)
 
     return {
         "word": surface,
@@ -1134,12 +1136,13 @@ def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
 
     suffixes = []
     current_stem = root
+    accepted_chain = []
     for sname in expected_suffix_names:
         sobj = SUFFIX_BY_NAME.get(sname)
         if sobj:
             makes_str = "VERB" if sobj.makes == Type.VERB else "NOUN"
             try:
-                forms = sobj.form(current_stem)
+                forms = sobj.form(current_stem, current_chain=accepted_chain)
                 form_str = ""
                 rest = surface_lower[len(current_stem):]
                 for form in forms:
@@ -1155,6 +1158,7 @@ def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
                 "form": form_str,
                 "makes": makes_str,
             })
+            accepted_chain.append(sobj)
         else:
             suffixes.append({
                 "name": sname,

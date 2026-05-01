@@ -13,9 +13,10 @@ class Word:
         self.suffix_list: List[Suffix] = []
 
     def add_suffix(self, suffix: Suffix) -> None:
-        self.suffix_list.append(suffix)
+        current_chain = list(self.suffix_list)
+        candidate_forms = suffix.form(self.word, current_chain=current_chain)
 
-        candidate_forms = suffix.form(self.word)
+        self.suffix_list.append(suffix)
 
         if candidate_forms:
             selected_form = candidate_forms[0]

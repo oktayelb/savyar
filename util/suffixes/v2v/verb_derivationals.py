@@ -37,7 +37,7 @@ class VerbDerivationalSuffix(Suffix):
         )
 
 """
-def form_for_passive_il(word, suffix_obj):
+def form_for_passive_il(word, suffix_obj, current_chain=None):
 
     result_list = []
     
@@ -56,7 +56,7 @@ def form_for_passive_il(word, suffix_obj):
 
     return result_list
 """
-def form_for_active_it(word, suffix_obj):
+def form_for_active_it(word, suffix_obj, current_chain=None):
     """
     Form function for active_it suffix (Active Sıfat-Fiil)
     - Default forms: it, dir

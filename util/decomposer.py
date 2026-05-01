@@ -17,27 +17,6 @@ ALL_SUFFIXES = NOUN2NOUN + NOUN2VERB + VERB2NOUN + VERB2VERB
 IYOR_VARIATIONS = ('iyor', 'ıyor', 'uyor', 'üyor')
 
 # ============================================================================
-# OPTIONAL ACCELERATION INDEX
-# ============================================================================
-# Set to a SuffixIndex instance to enable first-char dispatch speedup.
-# Set to None to use the original brute-force iteration (always correct).
-# Toggle at runtime: decomposer.enable_index() / decomposer.disable_index()
-_SUFFIX_INDEX = None
-
-def enable_index():
-    """Build and activate the suffix first-char dispatch index."""
-    global _SUFFIX_INDEX
-    from util.suffix_index import SuffixIndex
-    _SUFFIX_INDEX = SuffixIndex(SUFFIX_TRANSITIONS)
-    decompose.cache_clear()
-
-def disable_index():
-    """Deactivate the index; revert to brute-force suffix iteration."""
-    global _SUFFIX_INDEX
-    _SUFFIX_INDEX = None
-    decompose.cache_clear()
-
-# ============================================================================
 # SUFFIX TYPES
 # ============================================================================
 SUFFIX_TRANSITIONS = {
@@ -182,25 +161,11 @@ def get_pekistirme_analyses(word: str) -> List[Tuple]:
 
     return analyses
 
-def _bruteforce_suffix_iter(start_pos, root):
-    """Original iteration: try every suffix, compute forms on the fly."""
+def _suffix_iter(start_pos, root, current_chain):
+    """Try every suffix and compute forms with the current suffix chain."""
     for target_pos, candidate_suffixes in SUFFIX_TRANSITIONS[start_pos].items():
         for suffix_obj in candidate_suffixes:
-            yield target_pos, suffix_obj, suffix_obj.form(root)
-
-
-def _indexed_suffix_iter(start_pos, rest, root):
-    """
-    Indexed iteration: use first-char dispatch to skip irrelevant suffixes.
-    Still computes exact forms (index is only used for filtering).
-    """
-    seen = set()
-    for target_pos, suffix_obj, _hint_form in _SUFFIX_INDEX.get_candidates(start_pos, rest, root):
-        key = (target_pos, suffix_obj.name)
-        if key in seen:
-            continue
-        seen.add(key)
-        yield target_pos, suffix_obj, suffix_obj.form(root)
+            yield target_pos, suffix_obj, suffix_obj.form(root, current_chain=current_chain)
 
 
 def find_suffix_chain(word: str, start_pos: str, root: str,
@@ -208,8 +173,8 @@ def find_suffix_chain(word: str, start_pos: str, root: str,
                       shared_cache: dict = None) -> List:
     """
     Recursive suffix chain finder with optional shared cross-root cache.
-    Cache key: (remaining_text, start_pos, last_suffix_group)
-    This is safe because is_valid_transition only depends on last_suffix.group.
+    Cache key includes the current surface and suffix-chain signature because
+    suffix form functions can depend on both.
     """
 
     if current_chain is None: current_chain = []
@@ -218,7 +183,7 @@ def find_suffix_chain(word: str, start_pos: str, root: str,
 
     # --- Per-call memoization (prevents revisiting within one call tree) ---
     chain_signature = tuple(s.name for s in current_chain)
-    state_key = (len(root), start_pos, chain_signature)
+    state_key = (root, start_pos, chain_signature)
     if state_key in visited: return []
     visited.add(state_key)
 
@@ -233,21 +198,15 @@ def find_suffix_chain(word: str, start_pos: str, root: str,
         return []
 
     # --- Shared cross-root cache ---
-    # Key: what text remains, what POS we're at, what was the last suffix group
-    # (None group means we're at the root, no hierarchy constraint yet)
-    last_group = current_chain[-1].group if current_chain else None
-    cache_key = (rest, start_pos, last_group)
+    # Key includes the suffix chain because form functions can depend on it.
+    cache_key = (root, rest, start_pos, chain_signature)
 
     if cache_key in shared_cache:
         return shared_cache[cache_key]
 
     results = []
 
-    # --- Choose iteration strategy: indexed or brute-force ---
-    if _SUFFIX_INDEX is not None:
-        _iter = _indexed_suffix_iter(start_pos, rest, root)
-    else:
-        _iter = _bruteforce_suffix_iter(start_pos, root)
+    _iter = _suffix_iter(start_pos, root, current_chain)
 
     for target_pos, suffix_obj, suffix_forms in _iter:
 

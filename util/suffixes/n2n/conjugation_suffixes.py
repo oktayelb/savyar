@@ -5,7 +5,7 @@ VOWELS = ["a","e","ı","i","o","ö","u","ü"]
 
         
 
-def form_for_conjugation_1sg(word, suffix_obj):
+def form_for_conjugation_1sg(word, suffix_obj, current_chain=None):
     """
     1. Tekil Şahıs (-m, -im)
     - Gel-di-m (Sadece m)
@@ -35,7 +35,7 @@ def form_for_conjugation_1sg(word, suffix_obj):
     return return_list
 
 
-def form_for_conjugation_2sg(word, suffix_obj):
+def form_for_conjugation_2sg(word, suffix_obj, current_chain=None):
     """
     2. Tekil Şahıs (-n, -sin)
     - Gel-di-n (Sadece n)
@@ -66,7 +66,7 @@ def form_for_conjugation_2sg(word, suffix_obj):
     return return_list 
 
 
-def form_for_conjugation_3sg(word, suffix_obj):
+def form_for_conjugation_3sg(word, suffix_obj, current_chain=None):
     """
     3. Tekil Şahıs (Genelde boştur, emir kipinde -sin)
     """
@@ -92,7 +92,7 @@ def form_for_conjugation_3sg(word, suffix_obj):
     return [""]
 
 
-def form_for_conjugation_1pl(word, suffix_obj):
+def form_for_conjugation_1pl(word, suffix_obj, current_chain=None):
     """
     1. Çoğul Şahıs (-k, -iz)
     - Gel-di-k (k)
@@ -128,7 +128,7 @@ def form_for_conjugation_1pl(word, suffix_obj):
     return return_list 
  
 
-def form_for_conjugation_2pl(word, suffix_obj):
+def form_for_conjugation_2pl(word, suffix_obj, current_chain=None):
     """
     2. Çoğul Şahıs (-niz, -siniz)
     - Gel-di-niz (niz)
@@ -164,7 +164,7 @@ def form_for_conjugation_2pl(word, suffix_obj):
     return return_list 
 
 
-def form_for_conjugation_3pl(word, suffix_obj):
+def form_for_conjugation_3pl(word, suffix_obj, current_chain=None):
     result_list  = []
     # Standart: -ler (Gel-ir-ler, Ev-ler)
     base = "ler"

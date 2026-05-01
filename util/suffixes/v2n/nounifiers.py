@@ -41,7 +41,7 @@ class Nounifier(Suffix):
         )
 
 
-def form_for_nounifier_inti(word, suffix_obj):
+def form_for_nounifier_inti(word, suffix_obj, current_chain=None):
     result_list = []
     base = suffix_obj.suffix
     base = Suffix._apply_major_harmony(word, base, suffix_obj.has_major_harmony)
@@ -65,7 +65,7 @@ def form_for_nounifier_inti(word, suffix_obj):
     
     return result_list
 
-def form_for_toolifier_geç(word, suffix_obj):
+def form_for_toolifier_geç(word, suffix_obj, current_chain=None):
     """
     Form for toolifier_geç (Süz-geç -> Süz-gec-i)
     Includes softening (ç -> c).

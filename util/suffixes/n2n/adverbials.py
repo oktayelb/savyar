@@ -3,7 +3,7 @@ from util.suffix import Suffix, Type, SuffixGroup
 VOWELS = ["a", "e", "ı", "i", "o", "ö", "u", "ü"]
 
 
-def form_for_when_ken(word, suffix_obj):
+def form_for_when_ken(word, suffix_obj, current_chain=None):
     base = "ken"
     if word and word[-1] in VOWELS:
         base = "y" + base

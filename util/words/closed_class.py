@@ -490,7 +490,7 @@ class ClosedClassMarker:
         self.makes   = None      # CC words don't have a suffix-style POS output
         self.is_unique = False
 
-    def form(self, root: str) -> List[str]:
+    def form(self, root: str, current_chain=None) -> List[str]:
         """CC markers produce no surface suffix — the word is already complete."""
         return []
 

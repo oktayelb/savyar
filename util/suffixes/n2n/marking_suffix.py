@@ -25,7 +25,7 @@ class MarkingKi(Suffix):
         )
     @staticmethod
     
-    def _default_form(word, suffix_obj):
+    def _default_form(word, suffix_obj, current_chain=None):
 
         if word[-2:] in ["de", "da", "te", "ta","in","ın"]:
             return ["ki"]

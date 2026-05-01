@@ -27,7 +27,7 @@ class PosessiveSuffix(Suffix):
             is_unique=is_unique
         )
 
-def form_for_posessive_3sg(word, suffix_obj):
+def form_for_posessive_3sg(word, suffix_obj, current_chain=None):
     base = "i"
     base = Suffix._apply_major_harmony(word, base, suffix_obj.has_major_harmony)
     base = Suffix._apply_minor_harmony(word, base, suffix_obj.has_minor_harmony)

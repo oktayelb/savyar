@@ -58,7 +58,7 @@ class CaseSuffix(Suffix):
         return False
 
     @staticmethod
-    def _default_form(word, suffix_obj):
+    def _default_form(word, suffix_obj, current_chain=None):
         """
         Direct case forms for bare nominal stems.
 

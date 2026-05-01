@@ -1,12 +1,11 @@
 # util/ — Rule-Based Morphological Engine
 
-This folder is the core of SAVYAR's generate-then-rank pipeline. It contains the rule-based decomposer that enumerates every legal root + suffix chain for a Turkish word, the suffix definitions that encode Turkish morphology, the dictionary and phonological utilities, and an optional acceleration index.
+This folder is the core of SAVYAR's generate-then-rank pipeline. It contains the rule-based decomposer that enumerates every legal root + suffix chain for a Turkish word, the suffix definitions that encode Turkish morphology, and the dictionary and phonological utilities.
 
 ```
 util/
 ├── decomposer.py        # Main entry point: decompose() and find_suffix_chain()
 ├── suffix.py            # Suffix base class, SuffixGroup hierarchy, vowel harmony
-├── suffix_index.py      # Optional first-char dispatch index for speedup
 ├── word_methods.py      # Dictionary, harmony functions, root candidate generation
 ├── suffixes/            # All suffix definitions, organized by POS transition
 │   ├── n2n/             # Noun → Noun (case, possessive, plural, derivational...)
@@ -38,7 +37,7 @@ Every Turkish suffix is an instance of `Suffix` (or a subclass). A suffix carrie
 | `group` | `SuffixGroup` enum value — controls ordering in the waterfall hierarchy |
 | `is_unique` | If True, this suffix can appear at most once per chain |
 
-**Form generation** — `suffix.form(word)` returns a list of possible surface forms for the suffix when attached to `word`. The default logic:
+**Form generation** — `suffix.form(word, current_chain=None)` returns a list of possible surface forms for the suffix when attached to `word`. During decomposition, `current_chain` is the suffix chain already accepted before the candidate suffix, so suffix files can make context-sensitive form decisions from previous suffixes. The default logic:
 
 1. Apply major harmony (2-way: front/back)
 2. Apply minor harmony (4-way: rounded/unrounded)
@@ -193,12 +192,12 @@ find_suffix_chain(word, start_pos, root, current_chain, visited, shared_cache)
 │
 ├─ Base case: no remaining text → return [([], start_pos)]
 │
-├─ Check shared_cache for (remaining_text, pos, last_group)
+├─ Check shared_cache for (current_surface, remaining_text, pos, current_chain_signature)
 │
-├─ For each candidate suffix (via brute-force or indexed iteration):
+├─ For each candidate suffix allowed by the current POS:
 │   ├─ Validate hierarchy: is_valid_transition(last_suffix, next_suffix)
 │   ├─ Check uniqueness: skip if is_unique and already in chain
-│   ├─ Generate forms: suffix.form(current_root)
+│   ├─ Generate forms: suffix.form(current_root, current_chain=current_chain)
 │   └─ For each form:
 │       ├─ MATCH TYPE 1: rest.startswith(form) → recurse
 │       └─ MATCH TYPE 2: Vowel narrowing before -iyor → recurse
@@ -254,81 +253,12 @@ The decomposer handles this: if a suffix form ends in 'a' or 'e', it tries a sho
 
 ---
 
-## suffix_index.py — Optional Acceleration Layer
-
-The `SuffixIndex` is a pre-computed lookup table that speeds up `find_suffix_chain()` by skipping suffixes that can't possibly match the remaining text.
-
-### Problem It Solves
-
-At each DFS step, the brute-force approach iterates ~50-60 candidate suffixes, computes forms for each (~2-4 forms), and checks `rest.startswith(form)`. Most of these checks fail — the remaining text starts with 'l' but we're checking suffixes starting with 'd', 's', 'n', etc.
-
-### How It Works
-
-**Build phase** (once at startup):
-
-1. Define 24 "representative stems" covering all combinations of:
-   - 8 vowel classes (a, e, ı, i, o, ö, u, ü)
-   - 3 ending types (consonant, hard consonant, vowel)
-
-2. For every suffix × every representative stem, pre-compute `suffix.form(stem)`.
-
-3. Index results by `(start_pos, target_pos, first_character_of_form)`.
-
-**Query phase** (per DFS step):
-
-Given `rest = "lerden..."`, look up first char `'l'` in the dispatch table. Only suffixes that can produce a form starting with 'l' are returned. This eliminates ~70% of candidates.
-
-The index is a **filter, not a replacement** — the decomposer always recomputes the exact form via `suffix.form(root)` for the actual root. The index only determines *which* suffixes to try.
-
-### Architecture
-
-```
-SuffixIndex
-├── _dispatch[start_pos][target_pos][first_char]
-│   = [(suffix_obj, hint_form), ...]
-│
-├── _form_cache[(suffix_name, vowel_class_key)]
-│   = [form_strings]
-│
-├── get_candidates(start_pos, rest, root)
-│   → [(target_pos, suffix_obj, hint_form), ...]
-│
-└── form_for(suffix_obj, root)
-    → [form_strings]  (cached by vowel class)
-```
-
-### Toggling On/Off
-
-```python
-import util.decomposer as sfx
-
-# Enable (builds index, clears LRU cache)
-sfx.enable_index()
-
-# Decompose as usual — automatically uses the index
-results = sfx.decompose("evlerden")
-
-# Disable (reverts to brute-force, clears LRU cache)
-sfx.disable_index()
-```
-
-The index is **completely optional**. The decomposer produces identical results with or without it. The index only affects performance:
-
-- ~3-4x faster on typical words (first pass, no LRU cache)
-- No difference on LRU cache hits (already O(1))
-- Build time: ~50ms at startup
-
----
-
 ## Usage Guide
 
 ### Basic Decomposition
 
 ```python
 import util.decomposer as sfx
-
-# Activate the speed index (do this once at startup)
-sfx.enable_index()
 
 # Decompose a word
 for root, pos, chain, final_pos in sfx.decompose("geleceğimizi"):
@@ -360,13 +290,15 @@ for root, pos, chain, final_pos in sfx.decompose_with_cc("ile"):
 word = "evlerinden"
 for root, pos, chain, final_pos in sfx.decompose(word):
     current = root
+    accepted_chain = []
     for suffix in chain:
-        forms = suffix.form(current)
+        forms = suffix.form(current, current_chain=accepted_chain)
         # Find which form was actually used
         rest = word[len(current):]
         used = next((f for f in forms if rest.startswith(f)), forms[0])
         print(f"  {current} + {suffix.name}({used}) → ", end="")
         current += used
+        accepted_chain.append(suffix)
     print(current)
 ```
 
@@ -380,5 +312,4 @@ sfx.decompose("ev")       # cache hit
 # Clear after dictionary changes
 sfx.decompose.cache_clear()
 
-# enable_index() and disable_index() automatically clear the cache
 ```

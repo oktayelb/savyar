@@ -179,7 +179,7 @@ def reconstruct_morphology(word: str, decomposition: Tuple) -> Dict[str, Any]:
     if start_idx == 0:
         if not word.startswith(root) and chain:
             first_suffix = chain[0]
-            possible_forms = first_suffix.form(root)
+            possible_forms = first_suffix.form(root, current_chain=[])
             match_found = False
             for offset in range(3):
                 test_cursor = len(root) - offset
@@ -196,7 +196,7 @@ def reconstruct_morphology(word: str, decomposition: Tuple) -> Dict[str, Any]:
 
     for i in range(start_idx, len(chain)):
         suffix_obj     = chain[i]
-        possible_forms = suffix_obj.form(current_stem)
+        possible_forms = suffix_obj.form(current_stem, current_chain=chain[:i])
         found_form     = None 
         
         for form in possible_forms:
@@ -257,8 +257,9 @@ def format_detailed_decomp(decomp: Tuple) -> str:
         
     parts = [root]
     current = root
+    accepted_chain = []
     for suffix in chain:
-        forms = suffix.form(current)
+        forms = suffix.form(current, current_chain=accepted_chain)
         used_form = forms[0] if forms else suffix.suffix
         
         if used_form:
@@ -267,5 +268,6 @@ def format_detailed_decomp(decomp: Tuple) -> str:
             parts.append(suffix.name)
             
         current += used_form
+        accepted_chain.append(suffix)
         
     return "+".join(parts)

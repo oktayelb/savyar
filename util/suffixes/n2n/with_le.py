@@ -3,7 +3,7 @@ from util.suffix import Suffix, Type, SuffixGroup
 VOWELS = ["a", "e", "ı", "i", "o", "ö", "u", "ü"]
 
 
-def form_for_confactuous_le(word, suffix_obj):
+def form_for_confactuous_le(word, suffix_obj, current_chain=None):
     base = "le"
     base = Suffix._apply_major_harmony(word, base, suffix_obj.has_major_harmony)
     base = Suffix._apply_minor_harmony(word, base, suffix_obj.has_minor_harmony)

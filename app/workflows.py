@@ -27,7 +27,6 @@ class WorkflowEngine:
     """
 
     def __init__(self):
-        sfx.enable_index()
         self.data_manager = DataManager()
         self.model = SentenceDisambiguator(
             suffix_vocab_size=len(sfx.ALL_SUFFIXES),
@@ -160,8 +159,9 @@ class WorkflowEngine:
             suffix_info: List[Dict[str, Any]] = []
             if chain and not isinstance(chain[0], _CCMarker):
                 current = root
+                accepted_chain = []
                 for suffix in chain:
-                    forms = suffix.form(current)
+                    forms = suffix.form(current, current_chain=accepted_chain)
                     rest = word_lower[len(current):]
                     used_form = ""
                     for f in forms:
@@ -176,6 +176,7 @@ class WorkflowEngine:
                         'makes': suffix.makes.name if suffix.makes else None,
                     })
                     current += used_form
+                    accepted_chain.append(suffix)
             log_entries.append({
                 'word': word,
                 'root': root,
@@ -241,8 +242,9 @@ class WorkflowEngine:
             word_lower = tr_lower(word)
             if chain and not isinstance(chain[0], _CCMarker):
                 current = root
+                accepted_chain = []
                 for suffix in chain:
-                    forms = suffix.form(current)
+                    forms = suffix.form(current, current_chain=accepted_chain)
                     rest = word_lower[len(current):]
                     used_form = ""
                     for f in forms:
@@ -257,6 +259,7 @@ class WorkflowEngine:
                         'makes': suffix.makes.name if suffix.makes else None,
                     })
                     current += used_form
+                    accepted_chain.append(suffix)
             log_entries.append({
                 'word': word,
                 'morphology_string': typing_str,

@@ -2328,7 +2328,6 @@ başkaldırı
 Başkale
 başkan
 başkarakter
-başkası
 başkatip
 başkemancı
 başkent
@@ -26669,5 +26668,4 @@ zürafa
 zürefa
 zürra
 zürriyet
-zürriyetsizli
 züyuf

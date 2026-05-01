@@ -48,8 +48,10 @@ def form_for_factative_ir(word, suffix_obj, current_chain=None):
     """
     result_list = []
     
+    last_suffix = current_chain[-1] if current_chain else None
+
     # Geniş zamanın olumsuzu (maz/mez) kökü için 'z'
-    if len(word) > 2 and word[-2:] in ["ma","me"]:
+    if last_suffix and last_suffix.name in {"negative_me", "negative_able"}:
         z_base = "z"
         result_list.append(z_base)
 

@@ -200,8 +200,14 @@ class WorkflowEngine:
                 self.decomp_cache.pop(infinitive_form, None)
 
         loss = 0.0
+        correct_signatures = {tuple(tok[0] for tok in encoded) for encoded in correct_encoded}
         for encoded in correct_encoded:
-            loss = self.trainer.train_sentence([encoded])
+            negatives = [
+                [candidate]
+                for candidate in analysis['encoded_chains']
+                if tuple(tok[0] for tok in candidate) not in correct_signatures
+            ][:config.max_negative_candidates]
+            loss = self.trainer.train_sentence([encoded], negative_word_chains=negatives)
 
         self.training_count += 1
         if self.training_count % self.trainer.checkpoint_frequency == 0:
@@ -260,7 +266,13 @@ class WorkflowEngine:
             })
 
         self.data_manager.log_sentence_decompositions(log_entries, sentence)
-        loss = self.trainer.train_sentence(confirmed_chains)
+        candidate_lists = [wd['encoded_chains'] for wd in word_data]
+        negatives = self._single_substitution_negatives(
+            confirmed_chains,
+            candidate_lists,
+            correct_combo,
+        )
+        loss = self.trainer.train_sentence(confirmed_chains, negative_word_chains=negatives)
 
         self.training_count += len(confirmed_chains)
         if self.training_count % self.trainer.checkpoint_frequency == 0:
@@ -290,38 +302,97 @@ class WorkflowEngine:
         """Legacy wrapper used by sample_sentences — split a raw sentence."""
         return self.analyze_sentence(sentence.strip().split())
 
-    def _entries_to_sequences(self, entries: List[Dict]) -> Tuple[List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]], int, int]:
-        """Convert logged/treebank-adapted entries into flat training sequences."""
+    def _single_substitution_negatives(
+        self,
+        gold_chains: List[List],
+        candidate_lists: List[List[List]],
+        gold_indices: List[int],
+    ) -> List[List[List]]:
+        """Generate compact hard negatives by changing one word at a time."""
+        negatives: List[List[List]] = []
+        seen = set()
+        for word_idx, candidates in enumerate(candidate_lists):
+            gold_idx = gold_indices[word_idx]
+            for cand_idx, candidate in enumerate(candidates):
+                if cand_idx == gold_idx:
+                    continue
+                neg = list(gold_chains)
+                neg[word_idx] = candidate
+                signature = tuple(tuple(tok[0] for tok in chain) for chain in neg)
+                if signature in seen:
+                    continue
+                seen.add(signature)
+                negatives.append(neg)
+                if len(negatives) >= config.max_negative_candidates:
+                    return negatives
+        return negatives
+
+    def _candidate_set_from_word_entries(self, word_entries: List[Dict]) -> Optional[Tuple[List, int]]:
+        """Build one ranking set: gold sequence first, followed by decomposer negatives."""
         from ml.ml_ranking_model import build_sentence_sequence
 
-        all_seqs: List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]] = []
+        gold_chains = []
+        candidate_lists = []
+        gold_indices = []
+
+        for word_entry in word_entries:
+            sfx_dicts = word_entry.get('suffixes', [])
+            if not sfx_dicts:
+                continue
+
+            encoded_gold = morph.encode_suffix_names(sfx_dicts)
+            if not encoded_gold:
+                continue
+
+            try:
+                word_analysis = analyzer.analyze_word(word_entry['word'], include_closed_class=True)
+                matched = morph.match_decompositions([word_entry], word_analysis['decomps'])
+            except Exception:
+                matched = []
+                word_analysis = None
+
+            if matched and word_analysis is not None:
+                gold_idx = matched[0]
+                gold_chain = word_analysis['encoded_chains'][gold_idx]
+                candidates = word_analysis['encoded_chains']
+            else:
+                gold_idx = 0
+                gold_chain = encoded_gold
+                candidates = [encoded_gold]
+
+            gold_chains.append(gold_chain)
+            candidate_lists.append(candidates)
+            gold_indices.append(gold_idx)
+
+        if not gold_chains:
+            return None
+
+        gold_seq = build_sentence_sequence(gold_chains)
+        negatives = self._single_substitution_negatives(gold_chains, candidate_lists, gold_indices)
+        candidate_set = [gold_seq] + [build_sentence_sequence(neg) for neg in negatives]
+        return candidate_set, len(gold_chains)
+
+    def _entries_to_sequences(self, entries: List[Dict]) -> Tuple[List[List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]]], int, int]:
+        """Convert logged/treebank-adapted entries into gold-plus-negative ranking sets."""
+        all_seqs: List[List[Tuple[List[int], List[int], List[int], List[int], List[int], List[int], List[int]]]] = []
         skipped = 0
         total_words = 0
 
         for entry in entries:
             try:
                 if entry.get('type') == 'sentence':
-                    chains = []
-                    for word_entry in entry.get('words', []):
-                        sfx_dicts = word_entry.get('suffixes', [])
-                        if sfx_dicts:
-                            chains.append(morph.encode_suffix_names(sfx_dicts))
-                    if chains:
-                        sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final = build_sentence_sequence(chains)
-                        if len(sids) >= 2:
-                            all_seqs.append((sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final))
-                            total_words += len(chains)
+                    result = self._candidate_set_from_word_entries(entry.get('words', []))
                 else:
-                    sfx_dicts = entry.get('suffixes', [])
-                    if sfx_dicts:
-                        encoded = morph.encode_suffix_names(sfx_dicts)
-                        if encoded:
-                            sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final = build_sentence_sequence([encoded])
-                            if len(sids) >= 2:
-                                all_seqs.append((sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final))
-                                total_words += 1
-                    else:
-                        skipped += 1
+                    result = self._candidate_set_from_word_entries([entry])
+                if result is None:
+                    skipped += 1
+                    continue
+                candidate_set, word_count = result
+                if len(candidate_set) >= 2:
+                    all_seqs.append(candidate_set)
+                    total_words += word_count
+                else:
+                    skipped += 1
             except Exception:
                 skipped += 1
 

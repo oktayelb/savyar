@@ -18,7 +18,7 @@ class MLConfig:
     embed_dim: int = 256        # Main suffix identity dimension
     num_layers: int = 4         
     num_heads: int = 8          
-    dropout: float = 0.2        
+    dropout: float = 0.3        
 
     # Feature embedding dimensions scaled by cardinality to prevent overfitting
     category_embed_dim: int = 4
@@ -29,21 +29,24 @@ class MLConfig:
 
     # --- Training Hyperparameters ---
     learning_rate: float = 3e-4
-    weight_decay: float = 0.02  
+    weight_decay: float = 0.05  
 
+    use_class_weights: bool = True
 
-    use_class_weights: bool = False
-
-    # --- MLM Objective ---
-    mlm_mask_prob: float = 0.20 
+    # --- MLM Objective (Reintroduced for Regularization) ---
+    mlm_mask_prob: float = 0.20
     mlm_use_bert_mix: bool = True
     mlm_ensure_one_mask: bool = True
+    focal_gamma: float = 0.0
 
-    # --- Loss ---
-    # Focal loss focusing parameter. Set to 0.0 for stable MLM pre-training.
-    # MLM supervision is already sparse; focal gamma > 0 shrinks the gradients
-    # too aggressively during the bulk learning phase.
-    focal_gamma: float = 0.0    
+    # --- Ranking Objective ---
+    max_negative_candidates: int = 16
+    max_candidate_sequences_per_batch: int = 128
+    use_torch_compile: bool = False
+    
+    # Dual Objective Weights
+    ranking_temperature: float = 0.1
+    mlm_weight: float = 0.2
 
     # --- Bulk-training defaults ---
     bulk_epochs: int = 120  

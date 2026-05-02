@@ -75,7 +75,7 @@ def form_for_active_it(word, suffix_obj, current_chain=None):
 
     return result_list
 
-reflexive_ik    = VerbDerivationalSuffix("reflexive_ik"    , "ik" )
+#reflexive_ik    = VerbDerivationalSuffix("reflexive_ik"    , "ik" )
 reflexive_is    = VerbDerivationalSuffix("reflexive_is"    , "iş" )
 active_it       = VerbDerivationalSuffix("active_it"       , "it", form_function=form_for_active_it )
 active_dir      = VerbDerivationalSuffix("active_dir"      , "dir")

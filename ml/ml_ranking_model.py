@@ -1,5 +1,28 @@
 import math
 import random
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"Detected call of `lr_scheduler\.step\(\)` before `optimizer\.step\(\)`.*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"Failed to initialize NumPy: No module named 'numpy'.*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"enable_nested_tensor is True, but self\.use_nested_tensor is False because encoder_layer\.norm_first was True.*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"You are using `torch\.load` with `weights_only=False`.*",
+    category=FutureWarning,
+)
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -626,9 +649,11 @@ class Trainer:
             self.scaler.scale(total_loss).backward()
             self.scaler.unscale_(self.optimizer)
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            scaler_scale = self.scaler.get_scale()
             self.scaler.step(self.optimizer)
             self.scaler.update()
-            self.scheduler.step()
+            if not use_amp or self.scaler.get_scale() >= scaler_scale:
+                self.scheduler.step()
             self.global_step += 1
             return final_loss, final_rank
             
@@ -1008,7 +1033,10 @@ class Trainer:
         print(f"Saved to {self.path}")
 
     def load_checkpoint(self, path: str):
-        ckpt = torch.load(path, map_location=self.device)
+        try:
+            ckpt = torch.load(path, map_location=self.device, weights_only=True)
+        except TypeError:
+            ckpt = torch.load(path, map_location=self.device)
         current_suffix_inventory = [s.name for s in _get_all_suffixes()]
         saved_suffix_inventory = ckpt.get('suffix_inventory')
         suffix_inventory_matches = saved_suffix_inventory == current_suffix_inventory

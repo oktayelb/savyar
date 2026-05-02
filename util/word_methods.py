@@ -59,16 +59,43 @@ _load_dictionary()
 
 def delete_word(word: str) -> bool:
     """Removes a word from the in-memory dictionary state."""
-    if word not in WORDS_SET:
-        return False
-    WORDS_SET.discard(word)
-    if word.endswith("mak") or word.endswith("mek"):
-        VERB_SET.discard(word[:-3])
-    return True
+    word = tr_lower(word.strip())
+    removed = False
+
+    if word in WORDS_SET:
+        WORDS_SET.discard(word)
+        removed = True
+
+    if word in VERB_SET:
+        VERB_SET.discard(word)
+        removed = True
+
+    if removed:
+        _DERIVED_CACHE.clear()
+        return True
+
+    return False
 
 def get_all_words() -> List[str]:
     """Returns the current list of dictionary words."""
-    return list(WORDS_SET)
+    return sorted(WORDS_SET)
+
+def get_all_verbs() -> List[str]:
+    """Returns the current list of dictionary verb roots."""
+    return sorted(VERB_SET)
+
+def infinitive_form(root: str) -> Optional[str]:
+    """Build the -mAk infinitive for a verb root using the actual suffix object."""
+    root = tr_lower(root.strip())
+    if not root:
+        return None
+
+    from util.suffixes.v2n.infinitives import infinitive_mek
+
+    forms = infinitive_mek.form(root)
+    if not forms:
+        return None
+    return root + forms[0]
 
 def get_random_word() -> Optional[str]:
     """Returns a random word from the dictionary."""

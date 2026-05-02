@@ -194,8 +194,8 @@ class WorkflowEngine:
                 deleted_messages.append(f"Deleted '{word}' (root '{root}' exists)")
                 sfx.decompose.cache_clear()
                 self.decomp_cache.pop(word_lower, None)
-            infinitive_form = wrd.infinitive(word_lower)
-            if self.data_manager.delete(infinitive_form):
+            infinitive_form = wrd.infinitive_form(root)
+            if infinitive_form and self.data_manager.delete(infinitive_form):
                 deleted_messages.append(f"Deleted infinitive '{infinitive_form}'")
                 sfx.decompose.cache_clear()
                 self.decomp_cache.pop(infinitive_form, None)

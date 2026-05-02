@@ -90,6 +90,7 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
 
 pekistirme_suffix = Suffix("pekistirme", "pekistirme", Type.NOUN, Type.NOUN, is_unique=True)
 
+## TODO hatalı
 def get_pekistirme_analyses(word: str) -> List[Tuple]:
 
 

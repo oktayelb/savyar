@@ -139,24 +139,24 @@ N2N_CASE_FEATURES = {
 
 # ── N2N possessive features ──
 N2N_POSSESSIVE_FEATURES = {
-    "P1sg":  "posessive_1sg",
-    "P2sg":  "posessive_2sg",
-    "P3sg":  "posessive_3sg",
-    "P1pl":  "posessive_1pl",
-    "P2pl":  "posessive_2pl",
-    "P3pl":  "posessive_3pl",
+    "P1sg":  "possessive_1sg",
+    "P2sg":  "possessive_2sg",
+    "P3sg":  "possessive_3sg",
+    "P1pl":  "possessive_1pl",
+    "P2pl":  "possessive_2pl",
+    "P3pl":  "possessive_3pl",
 }
 
 # ── N2N derivational features ──
 N2N_DERIVATIONAL_FEATURES = {
     "Ness":    "suitative_lik",    # -lik/-lık/-luk/-lük
-    "With":    "composessive_li",  # -li/-lı/-lu/-lü
+    "With":    "compositive_li",  # -li/-lı/-lu/-lü
     "Without": "privative_siz",    # -siz/-sız/-suz/-süz
     "Agt":     "actor_ci",         # -ci/-cı/-cu/-cü/-çi/-çı/-çu/-çü
     "Rel":     "marking_ki",       # -ki
     "Ly":      "relative_ce",      # -ce/-ca
     "FitFor":  "suitative_lik",    # -lik (approximate)
-    "Related": "composessive_li",  # -li or -sel (approximate)
+    "Related": "compositive_li",  # -li or -sel (approximate)
 }
 
 # ── Agreement/conjugation features ──
@@ -178,9 +178,9 @@ COPULA_FEATURES = {
     "Pres":  None,               # present copula is zero (skip)
 }
 
-# ── Neces: -malı/-meli = infinitive_me + composessive_li ──
+# ── Neces: -malı/-meli = infinitive_me + compositive_li ──
 # başlamalı = başla + me + lı (must start)
-NECES_SUFFIXES = ["infinitive_me", "composessive_li"]
+NECES_SUFFIXES = ["infinitive_me", "compositive_li"]
 
 # ── Cond: -se/-sa = if_se (copula in copula.py) ──
 # gelse = gel + se (if he/she comes)
@@ -191,13 +191,13 @@ COND_SUFFIX = "if_se"
 # arasan = ara + sa(wish_suffix) + n(conjugation_2sg)
 DESR_SUFFIX = "wish_suffix"
 
-# ── Acquire: -lan verbification = aplicative_le + reflexive_in ──
-# heyecanlan = heyecan + la(aplicative_le) + n(reflexive_in)
-ACQUIRE_SUFFIXES = ["aplicative_le", "reflexive_in"]
+# ── Acquire: -lan verbification = applicative_le + reflexive_in ──
+# heyecanlan = heyecan + la(applicative_le) + n(reflexive_in)
+ACQUIRE_SUFFIXES = ["applicative_le", "reflexive_in"]
 
-# ── Become: -leş mutual verbification = aplicative_le + reflexive_is ──
-# demokratikleş = demokratik + le(aplicative_le) + ş(reflexive_is)
-BECOME_SUFFIXES = ["aplicative_le", "reflexive_is"]
+# ── Become: -leş mutual verbification = applicative_le + reflexive_is ──
+# demokratikleş = demokratik + le(applicative_le) + ş(reflexive_is)
+BECOME_SUFFIXES = ["applicative_le", "reflexive_is"]
 
 # ── As: -ce = relative_ce (equative/as-if) ──
 # güzelce = güzel + ce
@@ -231,7 +231,7 @@ PROG2_SUFFIXES = ["infinitive_mek", "locative_de"]
 # When a decomposer chain contains the LHS sequence, it is treated as the RHS
 # for the purpose of matching against treebank expected suffixes.
 EQUIVALENT_SEQUENCES = [
-    (["aplicative_le", "factative_ir"], ["plural_ler"]),
+    (["applicative_le", "factative_ir"], ["plural_ler"]),
 ]
 
 OPTATIVE_SUFFIXES = ["adverbial_e"]
@@ -563,8 +563,8 @@ def features_to_suffix_names(token):
                     suffix_names.append(mapped)
                 continue
 
-            # ── Neces: -malı/-meli = infinitive_me + composessive_li ──
-            # başlamalı = başla + me + lı → V2N (infinitive) then N2N (composessive)
+            # ── Neces: -malı/-meli = infinitive_me + compositive_li ──
+            # başlamalı = başla + me + lı → V2N (infinitive) then N2N (compositive)
             if feat == "Neces":
                 suffix_names.extend(NECES_SUFFIXES)
                 continue
@@ -581,7 +581,7 @@ def features_to_suffix_names(token):
                 suffix_names.append(DESR_SUFFIX)
                 continue
 
-            # ── Acquire: -lan = aplicative_le + reflexive_in ──
+            # ── Acquire: -lan = applicative_le + reflexive_in ──
             # heyecanlan = heyecan + la + n
             if feat == "Acquire":
                 suffix_names.extend(ACQUIRE_SUFFIXES)
@@ -591,7 +591,7 @@ def features_to_suffix_names(token):
                 suffix_names.extend(OPTATIVE_SUFFIXES)
                 continue
 
-            # ── Become: -leş = aplicative_le + reflexive_is ──
+            # ── Become: -leş = applicative_le + reflexive_is ──
             # demokratikleş = demokratik + le + ş
             if feat == "Become":
                 suffix_names.extend(BECOME_SUFFIXES)
@@ -877,16 +877,16 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
     # ── Normalization helpers for known Turkish ambiguities ──
 
     def normalize_ler_poss(names):
-        """plural_ler+posessive_3sg ↔ posessive_3pl (surface-identical -ları/-leri)."""
+        """plural_ler+possessive_3sg ↔ possessive_3pl (surface-identical -ları/-leri)."""
         result = []
         i = 0
         while i < len(names):
             if (i + 1 < len(names)
                 and names[i] == "plural_ler"
-                and names[i+1] in ("posessive_3sg", "posessive_3pl")):
+                and names[i+1] in ("possessive_3sg", "possessive_3pl")):
                 result.append("_PLURAL_P3_")
                 i += 2
-            elif names[i] == "posessive_3pl":
+            elif names[i] == "possessive_3pl":
                 result.append("_PLURAL_P3_")
                 i += 1
             else:
@@ -899,7 +899,7 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
         return ["_PLURAL_OR_3PL_" if n in ("plural_ler", "conjugation_3pl") else n for n in names]
 
     def apply_equiv(names):
-        """Replace known equivalent subsequences (e.g. aplicative_le+factative_ir ↔ plural_ler)."""
+        """Replace known equivalent subsequences (e.g. applicative_le+factative_ir ↔ plural_ler)."""
         result = list(names)
         for decomp_seq, tb_equiv in EQUIVALENT_SEQUENCES:
             n = len(decomp_seq)
@@ -918,7 +918,7 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
     def normalize_full(names):
         """Apply all normalizations.
         Order matters: ler_poss must run before plural_conj so that
-        plural_ler+posessive_3pl collapses before plural_ler is renamed."""
+        plural_ler+possessive_3pl collapses before plural_ler is renamed."""
         return normalize_plural_conj(normalize_ler_poss(apply_equiv(names)))
 
     # Known suffix ambiguities: treebank may say X, decomposer may produce Y
@@ -930,8 +930,8 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
         "adverbial_ip":      ["adverbial_erek"],
         "copula_mis":        ["pastfactative_miş"],
         "pastfactative_miş": ["copula_mis"],
-        "composessive_li":   ["relative_sel"],
-        "relative_sel":      ["composessive_li"],
+        "compositive_li":   ["relative_sel"],
+        "relative_sel":      ["compositive_li"],
         "actor_ci":          ["factative_ir"],
         # -ti after -miş is surface-identical to pasttense_noundi (Savyar's
         # nominal past-tense variant). The treebank labels both as Past.

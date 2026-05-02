@@ -35,7 +35,7 @@ def form_for_counting_er(word, suffix_obj, current_chain=None):
     
     return [base]
 
-def form_for_dimunitive_cik(word, suffix_obj, current_chain=None):  
+def form_for_diminutive_cik(word, suffix_obj, current_chain=None):  
     base = "cik"
     base = Suffix._apply_major_harmony(word, base, suffix_obj.has_major_harmony)
     base = Suffix._apply_minor_harmony(word, base, suffix_obj.has_minor_harmony)
@@ -57,7 +57,7 @@ def form_for_dimunitive_cik(word, suffix_obj, current_chain=None):
 
 actor_ci            = Suffix("actor_ci", "ci", Type.NOUN, Type.NOUN, has_major_harmony=True, has_minor_harmony=True, group=SuffixGroup.N2N_DERIVATIONAL)
 privative_siz       = Suffix("privative_siz", "siz", Type.NOUN, Type.NOUN, has_major_harmony=True, has_minor_harmony=True, group=SuffixGroup.N2N_DERIVATIONAL)
-composessive_li     = Suffix("composessive_li", "li", Type.NOUN, Type.NOUN, has_major_harmony=True, has_minor_harmony=True, group=SuffixGroup.N2N_DERIVATIONAL)
+compositive_li     = Suffix("compositive_li", "li", Type.NOUN, Type.NOUN, has_major_harmony=True, has_minor_harmony=True, group=SuffixGroup.N2N_DERIVATIONAL)
 suitative_lik       = Suffix("suitative_lik", "lik", Type.NOUN, Type.NOUN, has_major_harmony=True, has_minor_harmony=True, group=SuffixGroup.N2N_DERIVATIONAL)
 
 
@@ -65,7 +65,7 @@ counting_er          = Suffix("counting_er", "er", Type.NOUN, Type.NOUN, form_fu
 cooperative_deş      = Suffix("cooperative_deş", "deş", Type.NOUN, Type.NOUN, has_major_harmony=True, has_minor_harmony=False, group=SuffixGroup.N2N_DERIVATIONAL)
 relative_ce          = Suffix("relative_ce", "ce", Type.NOUN, Type.NOUN, has_major_harmony=True, has_minor_harmony=False, group=SuffixGroup.N2N_DERIVATIONAL)
 relative_sel         = Suffix("relative_sel", "sel", Type.NOUN, Type.NOUN, has_major_harmony=True, has_minor_harmony=False, group=SuffixGroup.N2N_DERIVATIONAL)
-dimunitive_cik       = Suffix("dimunitive_cik", "cik", Type.NOUN, Type.NOUN,  form_function= form_for_dimunitive_cik,has_major_harmony=True, has_minor_harmony=True, group=SuffixGroup.N2N_DERIVATIONAL)
+diminutive_cik       = Suffix("diminutive_cik", "cik", Type.NOUN, Type.NOUN,  form_function= form_for_diminutive_cik,has_major_harmony=True, has_minor_harmony=True, group=SuffixGroup.N2N_DERIVATIONAL)
 
 philicative_cil      = Suffix("philicative_cil", "cil", Type.NOUN, Type.NOUN, has_major_harmony=True, has_minor_harmony=True, group=SuffixGroup.N2N_DERIVATIONAL)
 abstractifier_iyat   = Suffix("abstractifier_iyat", "iyat", Type.NOUN, Type.NOUN,form_function= form_for_abstractifier_iyat, has_major_harmony=False, has_minor_harmony=False, group=SuffixGroup.N2N_DERIVATIONAL)

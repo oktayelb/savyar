@@ -86,7 +86,7 @@ def _strip_quotes(s):
 # treebank and comparison to the METU adapter's feature table.
 DERIVATION_MAP = {
     # verb-to-verb (voice / ability / compound)
-    "Make":      "aplicative_le",        # -le/-la (noun → verb)
+    "Make":      "applicative_le",        # -le/-la (noun → verb)
     "Cau":       "active_dir",           # -dir/-t (causative)
     "Pass":      "passive_il",           # -il/-in/-n
     "Rcp":       "reflexive_is",         # -iş (reciprocal)
@@ -115,7 +115,7 @@ DERIVATION_MAP = {
     "As":        "adverbial_dikçe",      # -dikçe/-dıkça (as-long-as)
     "Since":     "since_eli",            # -eli
     # N2N derivational
-    "With":      "composessive_li",      # -li/-lı/-lu/-lü
+    "With":      "compositive_li",      # -li/-lı/-lu/-lü
     "Wout":      "privative_siz",        # -siz/-sız
     "Ness":      "suitative_lik",        # -lik/-lık
     "Rel":       "marking_ki",           # -ki
@@ -125,7 +125,7 @@ DERIVATION_MAP = {
     "Lang":      "relative_ce",          # -ce (language)
     "Act":       "relative_ce",          # -ce (manner, güzelce)
     "Rtd":       "relative_sel",         # -sel
-    "Dim":       "dimunitive_cik",       # -cik/-cık
+    "Dim":       "diminutive_cik",       # -cik/-cık
     "Fam":       "familative_gil",       # -giller
     "Sim":       "approximative_si",     # -si
     "Aff":       "philicative_cil",      # -cil/-cül
@@ -133,8 +133,8 @@ DERIVATION_MAP = {
     # ── User-directed routings (semantic differences intentionally ignored) ──
     # Inh (-ıcı habitual doer) → if_se per directive.
     "Inh":       "actor_ci",
-    # From (-li from-origin) → composessive_li (shares surface -li/-lı).
-    "From":      "composessive_li",
+    # From (-li from-origin) → compositive_li (shares surface -li/-lı).
+    "From":      "compositive_li",
     # Everything else previously unmapped routes to suitative_lik (-lık):
     # For (-lık for), Foll (-ist), By (-ce by-means), Of (-lerce/-larca),
     # Snd (sound-related), Coll (-ce collective), Inter (inter/between),
@@ -157,8 +157,8 @@ DERIVATION_MAP = {
 # ── Derivation = multi-suffix expansions ──
 # Some UD Derivation values correspond to a FUSED pair of Savyar suffixes.
 DERIVATION_MULTI = {
-    "Bcm": ["aplicative_le", "reflexive_is"],  # -leş (become)
-    "Acq": ["aplicative_le", "reflexive_in"],  # -lan (acquire)
+    "Bcm": ["applicative_le", "reflexive_is"],  # -leş (become)
+    "Acq": ["applicative_le", "reflexive_in"],  # -lan (acquire)
 }
 
 # ── Derivation values the user must resolve manually ──
@@ -188,7 +188,7 @@ TAM_MAP = {
 
 # TAM values that expand into a pair of suffixes.
 TAM_MULTI = {
-    "Nec":   ["infinitive_me", "composessive_li"],  # -meli/-malı
+    "Nec":   ["infinitive_me", "compositive_li"],  # -meli/-malı
     "Prog2": ["infinitive_mek", "locative_de"],     # -mekte
 }
 
@@ -218,12 +218,12 @@ CASE_MAP = {
 # ── Possessive ──
 POSS_MAP = {
     "Pnon":  None,
-    "P1sg":  "posessive_1sg",
-    "P2sg":  "posessive_2sg",
-    "P3sg":  "posessive_3sg",
-    "P1pl":  "posessive_1pl",
-    "P2pl":  "posessive_2pl",
-    "P3pl":  "posessive_3pl",
+    "P1sg":  "possessive_1sg",
+    "P2sg":  "possessive_2sg",
+    "P3sg":  "possessive_3sg",
+    "P1pl":  "possessive_1pl",
+    "P2pl":  "possessive_2pl",
+    "P3pl":  "possessive_3pl",
 }
 
 # ── PersonNumber (noun side — A-values) ──
@@ -290,14 +290,14 @@ SUFFIX_ALTERNATIVES = {
     "adverbial_ip":      ["adverbial_erek"],
     "copula_mis":        ["pastfactative_miş"],
     "pastfactative_miş": ["copula_mis"],
-    "composessive_li":   ["relative_sel"],
-    "relative_sel":      ["composessive_li"],
+    "compositive_li":   ["relative_sel"],
+    "relative_sel":      ["compositive_li"],
     "actor_ci":          ["factative_ir"],
 }
 
 # Suffix-chain equivalences (from METU).
 EQUIVALENT_SEQUENCES = [
-    (["aplicative_le", "factative_ir"], ["plural_ler"]),
+    (["applicative_le", "factative_ir"], ["plural_ler"]),
 ]
 
 
@@ -684,16 +684,16 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
     lemma_lower = tr_lower(lemma)
 
     def normalize_ler_poss(names):
-        """plural_ler+posessive_3sg ↔ posessive_3pl."""
+        """plural_ler+possessive_3sg ↔ possessive_3pl."""
         result = []
         i = 0
         while i < len(names):
             if (i + 1 < len(names)
                     and names[i] == "plural_ler"
-                    and names[i + 1] in ("posessive_3sg", "posessive_3pl")):
+                    and names[i + 1] in ("possessive_3sg", "possessive_3pl")):
                 result.append("_PLURAL_P3_")
                 i += 2
-            elif names[i] == "posessive_3pl":
+            elif names[i] == "possessive_3pl":
                 result.append("_PLURAL_P3_")
                 i += 1
             else:

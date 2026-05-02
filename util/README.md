@@ -45,7 +45,7 @@ Every Turkish suffix is an instance of `Suffix` (or a subclass). A suffix carrie
 4. Handle vowel collision (drop first vowel, or insert y-buffer)
 5. Generate softened variants (k→ğ, ç→c for when the next suffix starts with a vowel)
 
-Subclasses (e.g. `CaseSuffix`, `PosessiveSuffix`, `Copula`) override form generation for special buffer logic (n-buffer for case after possessive, s-buffer for 3sg possessive, etc.).
+Subclasses (e.g. `CaseSuffix`, `PossessiveSuffix`, `Copula`) override form generation for special buffer logic (n-buffer for case after possessive, s-buffer for 3sg possessive, etc.).
 
 ### SuffixGroup — The Waterfall Hierarchy
 
@@ -74,7 +74,7 @@ The waterfall rule: `next_suffix.group >= last_suffix.group` (with exceptions fo
 
 **`n2n/`** — Noun-to-Noun suffixes:
 - `case_suffixes.py` — Genitive (-in), Accusative (-i), Dative (-e), Locative (-de), Ablative (-den)
-- `posessive_suffix.py` — 1sg (-im), 2sg (-in), 3sg (-i/-si), 1pl (-imiz), 2pl (-iniz), 3pl (-leri)
+- `possessive_suffix.py` — 1sg (-im), 2sg (-in), 3sg (-i/-si), 1pl (-imiz), 2pl (-iniz), 3pl (-leri)
 - `plural_suffix.py` — Plural (-ler)
 - `derivationals.py` — -cı, -lık, -lı, -siz, -ce, -cik, -sel, ordinal -inci, etc.
 - `conjugation_suffixes.py` — Person agreement: -im, -sin, -iz, -siniz, -ler (attaches to nouns, which includes nounified verbs)
@@ -268,8 +268,8 @@ for root, pos, chain, final_pos in sfx.decompose("geleceğimizi"):
 
 Output:
 ```
-  gel (verb) + [nounifier_ecek, posessive_1sg, accusative_i] → noun
-  gel (verb) + [nounifier_ecek, posessive_1pl, accusative_i] → noun
+  gel (verb) + [nounifier_ecek, possessive_1sg, accusative_i] → noun
+  gel (verb) + [nounifier_ecek, possessive_1pl, accusative_i] → noun
   ...
 ```
 

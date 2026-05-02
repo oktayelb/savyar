@@ -36,7 +36,7 @@ class VerbifierSuffix(Suffix):
 absentative_se = VerbifierSuffix("absentative_se", "se")
 #onomatopea_de  = VerbifierSuffix("onomatopea_de",  "de")
 #verbifier_e    = VerbifierSuffix("verbifier_e",    "e" )
-aplicative_le  = VerbifierSuffix("aplicative_le",  "le")
+applicative_le  = VerbifierSuffix("applicative_le",  "le")
 #verbifier_ik   = VerbifierSuffix("verbifier_ik",   "ik")
 
 

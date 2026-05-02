@@ -52,7 +52,7 @@ class CaseSuffix(Suffix):
         last_suffix = current_chain[-1] if current_chain else None
         has_pronominal_n = bool(
             last_suffix
-            and last_suffix.name in {"posessive_3sg", "posessive_3pl", "marking_ki"}
+            and last_suffix.name in {"possessive_3sg", "possessive_3pl", "marking_ki"}
         )
 
         if has_pronominal_n:

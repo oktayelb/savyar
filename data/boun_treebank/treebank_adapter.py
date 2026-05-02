@@ -87,12 +87,12 @@ CASE_MAP = {
 
 # ── Possessive (Person[psor] + Number[psor] → suffix) ──
 POSS_MAP = {
-    ("1", "Sing"): "posessive_1sg",
-    ("2", "Sing"): "posessive_2sg",
-    ("3", "Sing"): "posessive_3sg",
-    ("1", "Plur"): "posessive_1pl",
-    ("2", "Plur"): "posessive_2pl",
-    ("3", "Plur"): "posessive_3pl",
+    ("1", "Sing"): "possessive_1sg",
+    ("2", "Sing"): "possessive_2sg",
+    ("3", "Sing"): "possessive_3sg",
+    ("1", "Plur"): "possessive_1pl",
+    ("2", "Plur"): "possessive_2pl",
+    ("3", "Plur"): "possessive_3pl",
 }
 
 # ── V-person (verb conjugation on VERB/AUX) ──
@@ -124,13 +124,13 @@ MOOD_MAP = {
     "Rapid": "suddenative_ivermek",      # -iver
     "Dur":   "persistive_egelmek",       # -egel
     # Imp handled specially (imperative 2sg/2pl)
-    # Nec handled specially (-meli = infinitive_me + composessive_li)
+    # Nec handled specially (-meli = infinitive_me + compositive_li)
     # Iter: no direct Savyar equivalent — recorded as unmapped
 }
 
 # ── Mood expansions (multi-suffix) ──
 MOOD_MULTI = {
-    "Nec": ["infinitive_me", "composessive_li"],   # -meli/-malı
+    "Nec": ["infinitive_me", "compositive_li"],   # -meli/-malı
 }
 
 # ── AUX "i" (i-copula) feature pattern → ordered suffix list (sans person). ──
@@ -302,8 +302,8 @@ SUFFIX_ALTERNATIVES = {
     "adverbial_ip":      ["adverbial_erek"],
     "copula_mis":        ["pastfactative_miş"],
     "pastfactative_miş": ["copula_mis"],
-    "composessive_li":   ["relative_sel"],
-    "relative_sel":      ["composessive_li"],
+    "compositive_li":   ["relative_sel"],
+    "relative_sel":      ["compositive_li"],
     "actor_ci":          ["factative_ir"],
     # BOUN treats `-ti` after `-miş` as the same pasttense_di, but Savyar's
     # decomposer models it as pasttense_noundi (the nominal past-tense variant).
@@ -312,7 +312,7 @@ SUFFIX_ALTERNATIVES = {
 
 # Suffix-chain equivalences (copied from METU).
 EQUIVALENT_SEQUENCES = [
-    (["aplicative_le", "factative_ir"], ["plural_ler"]),
+    (["applicative_le", "factative_ir"], ["plural_ler"]),
 ]
 
 
@@ -748,10 +748,10 @@ def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
         while i < len(names):
             if (i + 1 < len(names)
                     and names[i] == "plural_ler"
-                    and names[i + 1] in ("posessive_3sg", "posessive_3pl")):
+                    and names[i + 1] in ("possessive_3sg", "possessive_3pl")):
                 result.append("_PLURAL_P3_")
                 i += 2
-            elif names[i] == "posessive_3pl":
+            elif names[i] == "possessive_3pl":
                 result.append("_PLURAL_P3_")
                 i += 1
             else:

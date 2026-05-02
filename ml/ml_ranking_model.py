@@ -67,28 +67,6 @@ FlatSequence = Tuple[List[int], List[int], List[int], List[int], List[int], List
 # HELPER: encode / decode sentence-level token sequences
 # ============================================================================
 
-def encode_chain(suffix_chain) -> List[EncodedToken]:
-    from ml.ml_ranking_model import SUFFIX_OFFSET, CATEGORY_SPECIAL  
-
-    suffix_to_id = {
-        suffix.name: idx + SUFFIX_OFFSET
-        for idx, suffix in enumerate(_get_all_suffixes())
-    }
-    category_to_id = {'Noun': 0, 'Verb': 1}
-
-    encoded = []
-    last_idx = len(suffix_chain) - 1
-    for idx, s in enumerate(suffix_chain):
-        sid  = suffix_to_id.get(s.name, SUFFIX_OFFSET)  
-        cid  = category_to_id.get(s.makes.name, 0)
-        gid  = GROUP_TO_ID.get(getattr(s, 'group', None), SPECIAL_FEATURE_ID)
-        comes_to_id = TYPE_TO_ID.get(getattr(s, 'comes_to', None), SPECIAL_FEATURE_ID)
-        makes_id    = TYPE_TO_ID.get(getattr(s, 'makes', None), SPECIAL_FEATURE_ID)
-        pos_in_word = idx + 1
-        is_final    = WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO
-        encoded.append((sid, cid, gid, comes_to_id, makes_id, pos_in_word, is_final))
-    return encoded
-
 
 def _get_all_suffixes():
     import util.decomposer as sfx
@@ -268,64 +246,6 @@ class SentenceDisambiguator(nn.Module):
             pooled = (x * valid).sum(dim=1) / valid.sum(dim=1).clamp_min(1.0)
         return self.rank_head(pooled).squeeze(-1)
 
-    def log_probs(
-        self,
-        suffix_ids:   torch.Tensor,   
-        category_ids: torch.Tensor,   
-        group_ids:    torch.Tensor,   
-        comes_to_ids: torch.Tensor,   
-        makes_ids:    torch.Tensor,   
-        word_pos_ids: torch.Tensor,   
-        word_final:   torch.Tensor,   
-        pad_mask:     Optional[torch.Tensor] = None,  
-    ) -> torch.Tensor:
-        B, L = suffix_ids.shape
-        device = suffix_ids.device
-        result = torch.zeros(B, L, dtype=torch.float, device=device)
-
-        is_special = (
-            (suffix_ids == SPECIAL_PAD)
-            | (suffix_ids == SPECIAL_WORD_SEP)
-            | (suffix_ids == SPECIAL_BOS)
-            | (suffix_ids == SPECIAL_MASK)
-        )
-        if pad_mask is not None:
-            is_special = is_special | pad_mask
-        eligible = ~is_special
-
-        flat_eligible = eligible.reshape(-1)
-        if not flat_eligible.any():
-            return result
-
-        flat_idx   = flat_eligible.nonzero(as_tuple=False).squeeze(-1)  
-        batch_ids  = flat_idx // L                                      
-        pos_ids    = flat_idx %  L                                      
-        K          = flat_idx.numel()
-
-        batched_s  = suffix_ids[batch_ids].clone()
-        batched_c  = category_ids[batch_ids].clone()
-        batched_g  = group_ids[batch_ids].clone()
-        batched_ct = comes_to_ids[batch_ids].clone()
-        batched_m  = makes_ids[batch_ids].clone()
-        batched_wp = word_pos_ids[batch_ids].clone()
-        batched_wf = word_final[batch_ids].clone()
-        row_range = torch.arange(K, device=device)
-        batched_s[row_range, pos_ids] = SPECIAL_MASK
-
-        batched_pad = pad_mask[batch_ids] if pad_mask is not None else None
-
-        logits = self.forward(
-            batched_s, batched_c, batched_g, batched_ct, batched_m, batched_wp, batched_wf,
-            pad_mask=batched_pad,
-        )
-        slot_logits = logits[row_range, pos_ids]                           
-        log_p       = F.log_softmax(slot_logits, dim=-1)                   
-        true_toks   = suffix_ids[batch_ids, pos_ids]                       
-        scores      = log_p.gather(1, true_toks.unsqueeze(-1)).squeeze(-1) 
-
-        result[batch_ids, pos_ids] = scores
-        return result
-
 
 # ============================================================================
 # TRAINER
@@ -397,21 +317,6 @@ class Trainer:
 
         return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
-    def _to_tensor(
-        self,
-        suffix_ids: List[int],
-        category_ids: List[int],
-        group_ids: List[int],
-        comes_to_ids: List[int],
-        makes_ids: List[int],
-        word_pos_ids: List[int],
-        word_final: List[int],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        tensors = [
-            torch.tensor(values, dtype=torch.long, device=self.device).unsqueeze(0)
-            for values in (suffix_ids, category_ids, group_ids, comes_to_ids, makes_ids, word_pos_ids, word_final)
-        ]
-        return tuple(tensors)
 
     def _get_best_index(self, scores: List[float]) -> int:
         return int(max(range(len(scores)), key=lambda i: scores[i]))
@@ -434,32 +339,6 @@ class Trainer:
             self.replay_buffer.pop(evict_idx)
         self._class_weight_cache = None
 
-    def _compute_class_weights(self) -> Optional[torch.Tensor]:
-        if not config.use_class_weights:
-            return None
-        if self._class_weight_cache is not None:
-            return self._class_weight_cache
-        if not self.replay_buffer:
-            return None
-
-        V = self.model.vocab_size
-        counts = torch.zeros(V, dtype=torch.float, device=self.device)
-        for sids, *_ in self.replay_buffer:
-            if not sids:
-                continue
-            ids = torch.as_tensor(sids, dtype=torch.long, device=self.device)
-            counts.scatter_add_(0, ids, torch.ones_like(ids, dtype=torch.float))
-
-        weights = torch.ones(V, dtype=torch.float, device=self.device)
-        present = counts > 0
-        if present.any():
-            inv_sqrt = 1.0 / torch.sqrt(counts[present])
-            inv_sqrt = inv_sqrt * (inv_sqrt.numel() / inv_sqrt.sum())
-            weights[present] = inv_sqrt
-
-        weights[SPECIAL_PAD] = 1.0  
-        self._class_weight_cache = weights
-        return weights
 
     def _build_padded_batch(
         self, seqs: List[FlatSequence]
@@ -901,20 +780,6 @@ class Trainer:
             'n_batches':   n_batches,
         }
 
-    def train_persistent(
-        self,
-        training_data: List[Tuple],
-        max_retries: int = None,
-    ) -> float:
-        confirmed_chains = []
-        for (_, candidates, correct_idx) in training_data:
-            if correct_idx < len(candidates):
-                confirmed_chains.append(candidates[correct_idx])
-            elif candidates:
-                confirmed_chains.append(candidates[0])
-            else:
-                confirmed_chains.append([])
-        return self.train_sentence(confirmed_chains)
 
     def score_candidates(
         self,
@@ -993,30 +858,6 @@ class Trainer:
         best = self._get_best_index(scores)
         return best, scores
 
-    def batch_predict(
-        self,
-        batch_candidates: List[List[List[EncodedToken]]],
-    ) -> List[Tuple[int, List[float]]]:
-        results = []
-        for candidates in batch_candidates:
-            best_idx, scores = self.predict(candidates)
-            results.append((best_idx, scores))
-        return results
-
-    def sentence_predict(
-        self,
-        all_candidates: List[List[List[EncodedToken]]],
-    ) -> List[Tuple[int, List[float]]]:
-        committed: List[List[EncodedToken]] = []
-        results: List[Tuple[int, List[float]]] = []
-
-        for candidates in all_candidates:
-            scores  = self.score_candidates(committed, candidates)
-            best    = self._get_best_index(scores)
-            results.append((best, scores))
-            committed.append(candidates[best])
-
-        return results
 
     def save_checkpoint(self):
         torch.save({

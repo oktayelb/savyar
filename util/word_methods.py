@@ -104,11 +104,6 @@ def get_random_word() -> Optional[str]:
 def exists(word: str) -> bool:
     return can_be_noun(word) or can_be_verb(word)
 
-def get_closed_class_categories(word: str) -> List[str]:
-    """Returns list of closed-class categories for a word, or empty list if open-class."""
-    from util.words.closed_class import CLOSED_CLASS_LOOKUP
-    entries = CLOSED_CLASS_LOOKUP.get(word, [])
-    return list({e.category for e in entries})
 
 def is_non_ben_pronoun_surface(word: str) -> bool:
     from util.words.closed_class import NON_BEN_PRONOUN_SURFACES

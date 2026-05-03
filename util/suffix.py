@@ -26,7 +26,7 @@ class SuffixGroup(IntEnum):
     V2N_DERIVATIONAL_NOUNIFIER = 50      # bu değer mantıklı mı?      
     
     # Zarf fiiller
-    DERIVATIONAL_LOCKING_VERB = 55 
+    VERB_TO_ADVERB = 55 
     
     # Çoğul eki  -ler
     PLURAL = 60                
@@ -44,7 +44,7 @@ class SuffixGroup(IntEnum):
     WITH_LE = 230                    
     
     # isimden Zarf yapan ekler; leyin, (in), cesine, ken
-    DERIVATIONAL_LOCKING_NOUN = 240  
+    NOUN_TO_ADVERB = 240  
     
     # Ek-fiil -dir -idi -imiş -ise
     PREDICATIVE = 250                

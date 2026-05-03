@@ -25,13 +25,13 @@ This file documents the suffix objects currently loaded by the project. The look
 | `N2V_DERIVATIONAL` | Project currently uses this group for several derivational suffix families, including many verb-to-noun items. |
 | `N2N_DERIVATIONAL` | Noun-to-noun derivation group defined in `SuffixGroup`; current loaded derivationals mostly use `N2V_DERIVATIONAL`. |
 | `V2N_DERIVATIONAL` | Verb-to-noun derivation group defined in `SuffixGroup`; current loaded verb-to-noun items mostly use `N2V_DERIVATIONAL`. |
-| `DERIVATIONAL_LOCKING_VERB` | Verbal adverb/gerund forms that mostly terminate further derivation. |
+| `VERB_TO_ADVERB` | Verbal adverb/gerund forms that mostly terminate further derivation. |
 | `PLURAL` | Plural suffix. |
 | `POSSESSIVE` | Possessive agreement suffixes. |
 | `CASE` | Noun case suffixes. |
 | `MARKING_KI` | The post-case `ki` marker. |
 | `WITH_LE` | Comitative/instrumental `ile/-le`. |
-| `DERIVATIONAL_LOCKING_NOUN` | Noun-to-adverb style endings that mostly terminate further derivation. |
+| `NOUN_TO_ADVERB` | Noun-to-adverb style endings that mostly terminate further derivation. |
 | `PREDICATIVE` | Copular/predicative and tense-like endings. |
 | `CONJUGATION` | Person agreement suffixes. |
 
@@ -59,13 +59,13 @@ The current group order is:
 | 35 | `VERB_NEGATING` |
 | 40 | `VERB_COMPOUND` |
 | 50 | `N2V_DERIVATIONAL`, `N2N_DERIVATIONAL`, `V2N_DERIVATIONAL`, `V2N_DERIVATIONAL_NOUNIFIER` |
-| 55 | `DERIVATIONAL_LOCKING_VERB` |
+| 55 | `VERB_TO_ADVERB` |
 | 60 | `PLURAL` |
 | 150 | `POSSESSIVE` |
 | 200 | `CASE` |
 | 225 | `MARKING_KI` |
 | 230 | `WITH_LE` |
-| 240 | `DERIVATIONAL_LOCKING_NOUN` |
+| 240 | `NOUN_TO_ADVERB` |
 | 250 | `PREDICATIVE` |
 | 300 | `CONJUGATION` |
 
@@ -131,7 +131,7 @@ This allows productive derivational stacking and some predicative stacking, whil
 ### Rule 6: Verb-Adverb Locking
 
 ```python
-if last_g is SuffixGroup.DERIVATIONAL_LOCKING_VERB and next_g != SuffixGroup.CONJUGATION:
+if last_g is SuffixGroup.VERB_TO_ADVERB and next_g != SuffixGroup.CONJUGATION:
     return False
 ```
 
@@ -208,9 +208,9 @@ If the transition passed all blocks and does not violate the waterfall, it is co
 | 39 | `if_se` | Conditional/copular `ise/-se`. | `se` | `NOUN` | `NOUN` | `PREDICATIVE` | `Copula` | yes | no | yes | no | `util.suffixes.n2n.copula` |
 | 40 | `copula_mis` | Evidential/copular `imiş/-miş`. | `miş` | `NOUN` | `NOUN` | `PREDICATIVE` | `Copula` | yes | yes | yes | no | `util.suffixes.n2n.copula` |
 | 41 | `marking_ki` | Post-case/relative `ki` marker. | `ki` | `NOUN` | `NOUN` | `MARKING_KI` | `MarkingKi` | no | n/a | no | yes | `util.suffixes.n2n.marking_suffix` |
-| 42 | `temporative_leyin` | Temporal adverbial noun suffix, `-leyin`. | `leyin` | `NOUN` | `NOUN` | `DERIVATIONAL_LOCKING_NOUN` | `Suffix` | no | no | no | no | `util.suffixes.n2n.adverbials` |
-| 43 | `adverbial_cesine` | Manner adverbial suffix, `-cesine/-casına`. | `cesine` | `NOUN` | `NOUN` | `DERIVATIONAL_LOCKING_NOUN` | `Suffix` | yes | no | no | no | `util.suffixes.n2n.adverbials` |
-| 44 | `when_ken` | Adverbial `-ken`, while/as. | `ken` | `NOUN` | `NOUN` | `DERIVATIONAL_LOCKING_NOUN` | `Suffix` | no | no | no | no | `util.suffixes.n2n.adverbials` |
+| 42 | `temporative_leyin` | Temporal adverbial noun suffix, `-leyin`. | `leyin` | `NOUN` | `NOUN` | `NOUN_TO_ADVERB` | `Suffix` | no | no | no | no | `util.suffixes.n2n.adverbials` |
+| 43 | `adverbial_cesine` | Manner adverbial suffix, `-cesine/-casına`. | `cesine` | `NOUN` | `NOUN` | `NOUN_TO_ADVERB` | `Suffix` | yes | no | no | no | `util.suffixes.n2n.adverbials` |
+| 44 | `when_ken` | Adverbial `-ken`, while/as. | `ken` | `NOUN` | `NOUN` | `NOUN_TO_ADVERB` | `Suffix` | no | no | no | no | `util.suffixes.n2n.adverbials` |
 | 45 | `confactuous_le` | Comitative/instrumental `-le/-la`, with/by. | `le` | `NOUN` | `NOUN` | `WITH_LE` | `Suffix` | yes | yes | no | yes | `util.suffixes.n2n.with_le` |
 | 46 | `absentative_se` | Noun-to-verb derivation with `-se/-sa`, wish/desire/be affected by X. | `se` | `NOUN` | `VERB` | `N2V_DERIVATIONAL` | `VerbifierSuffix` | yes | no | no | no | `util.suffixes.n2v.verbifiers` |
 | 47 | `applicative_le` | Noun-to-verb `-le/-la`, to apply/do with X. | `le` | `NOUN` | `VERB` | `N2V_DERIVATIONAL` | `VerbifierSuffix` | yes | no | no | no | `util.suffixes.n2v.verbifiers` |
@@ -223,13 +223,13 @@ If the transition passed all blocks and does not violate the waterfall, it is co
 | 54 | `infinitive_me` | Short verbal noun/infinitive `-me/-ma`. | `me` | `VERB` | `NOUN` | `V2N_DERIVATIONAL` | `Infinitive` | yes | yes | no | no | `util.suffixes.v2n.infinitives` |
 | 55 | `infinitive_mek` | Full infinitive `-mek/-mak`. | `mek` | `VERB` | `NOUN` | `V2N_DERIVATIONAL` | `Infinitive` | yes | yes | no | no | `util.suffixes.v2n.infinitives` |
 | 56 | `nounifier_iş` | Verbal noun/action nominalizer `-iş/-ış`. | `iş` | `VERB` | `NOUN` | `V2N_DERIVATIONAL` | `Infinitive` | yes | yes | yes | no | `util.suffixes.v2n.infinitives` |
-| 57 | `adverbial_erek` | Converb/adverbial `-erek/-arak`, by doing. | `erek` | `VERB` | `NOUN` | `DERIVATIONAL_LOCKING_VERB` | `Gerund` | yes | no | yes | no | `util.suffixes.v2n.gerunds` |
-| 58 | `adverbial_ince` | Converb `-ince/-ınca`, when/upon doing. | `ince` | `VERB` | `NOUN` | `DERIVATIONAL_LOCKING_VERB` | `Gerund` | yes | yes | yes | no | `util.suffixes.v2n.gerunds` |
-| 59 | `adverbial_ip` | Converb `-ip/-ıp`, and doing. | `ip` | `VERB` | `NOUN` | `DERIVATIONAL_LOCKING_VERB` | `Gerund` | yes | yes | yes | no | `util.suffixes.v2n.gerunds` |
-| 60 | `adverbial_e` | Converb `-e/-a`, often in serial/reduplicated verb patterns. | `e` | `VERB` | `NOUN` | `DERIVATIONAL_LOCKING_VERB` | `Gerund` | yes | no | yes | no | `util.suffixes.v2n.gerunds` |
-| 61 | `adverbial_dikçe` | Converb `-dikçe/-dıkça`, as long as/whenever. | `dikçe` | `VERB` | `NOUN` | `DERIVATIONAL_LOCKING_VERB` | `Gerund` | yes | yes | no | no | `util.suffixes.v2n.gerunds` |
-| 62 | `since_eli` | Converb `-eli/-alı`, since doing. | `eli` | `VERB` | `NOUN` | `DERIVATIONAL_LOCKING_VERB` | `Gerund` | yes | no | yes | no | `util.suffixes.v2n.gerunds` |
-| 63 | `undoing_meksizin` | Negative/without-doing converb `-meksizin/-maksızın`. | `meksizin` | `VERB` | `NOUN` | `DERIVATIONAL_LOCKING_VERB` | `Gerund` | yes | no | no | no | `util.suffixes.v2n.gerunds` |
+| 57 | `adverbial_erek` | Converb/adverbial `-erek/-arak`, by doing. | `erek` | `VERB` | `NOUN` | `VERB_TO_ADVERB` | `Gerund` | yes | no | yes | no | `util.suffixes.v2n.gerunds` |
+| 58 | `adverbial_ince` | Converb `-ince/-ınca`, when/upon doing. | `ince` | `VERB` | `NOUN` | `VERB_TO_ADVERB` | `Gerund` | yes | yes | yes | no | `util.suffixes.v2n.gerunds` |
+| 59 | `adverbial_ip` | Converb `-ip/-ıp`, and doing. | `ip` | `VERB` | `NOUN` | `VERB_TO_ADVERB` | `Gerund` | yes | yes | yes | no | `util.suffixes.v2n.gerunds` |
+| 60 | `adverbial_e` | Converb `-e/-a`, often in serial/reduplicated verb patterns. | `e` | `VERB` | `NOUN` | `VERB_TO_ADVERB` | `Gerund` | yes | no | yes | no | `util.suffixes.v2n.gerunds` |
+| 61 | `adverbial_dikçe` | Converb `-dikçe/-dıkça`, as long as/whenever. | `dikçe` | `VERB` | `NOUN` | `VERB_TO_ADVERB` | `Gerund` | yes | yes | no | no | `util.suffixes.v2n.gerunds` |
+| 62 | `since_eli` | Converb `-eli/-alı`, since doing. | `eli` | `VERB` | `NOUN` | `VERB_TO_ADVERB` | `Gerund` | yes | no | yes | no | `util.suffixes.v2n.gerunds` |
+| 63 | `undoing_meksizin` | Negative/without-doing converb `-meksizin/-maksızın`. | `meksizin` | `VERB` | `NOUN` | `VERB_TO_ADVERB` | `Gerund` | yes | no | no | no | `util.suffixes.v2n.gerunds` |
 | 64 | `toolative_ek` | Instrument/result nounifier from verbs. | `ek` | `VERB` | `NOUN` | `V2N_DERIVATIONAL_NOUNIFIER` | `Nounifier` | yes | no | yes | no | `util.suffixes.v2n.nounifiers` |
 | 65 | `constofactative_gen` | Verbal adjective/nounifier `-gen/-gan` style. | `gen` | `VERB` | `NOUN` | `V2N_DERIVATIONAL_NOUNIFIER` | `Nounifier` | yes | no | no | no | `util.suffixes.v2n.nounifiers` |
 | 66 | `constofactative_gin` | Verbal adjective/nounifier `-gin/-gın` style. | `gin` | `VERB` | `NOUN` | `V2N_DERIVATIONAL_NOUNIFIER` | `Nounifier` | yes | yes | no | no | `util.suffixes.v2n.nounifiers` |

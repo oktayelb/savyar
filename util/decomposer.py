@@ -76,8 +76,12 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     
     # zarf fiilden sonra bir şey gelmez. erekten örneği gözardı ediliyor.
     # Sadece  ol-a -lım  ol-a-yım ol-a-sın örnekleri için conjugation alabilir kabul edilecek
-    if last_g is SuffixGroup.DERIVATIONAL_LOCKING_VERB and next_g != SuffixGroup.CONJUGATION: 
+    if last_g is SuffixGroup.VERB_TO_ADVERB and next_g != SuffixGroup.CONJUGATION: 
         return False
+    
+    if last_g == SuffixGroup.CONJUGATION and next_g == SuffixGroup.PREDICATIVE:
+        if last_suffix.name == "conjugation_3pl":
+            return True
     ## şelale hallediyor diye silindi
     # isim tamlamasından sonra yalnızca ki gelebilir
     # if last_g == SuffixGroup.CASE and not next_g >= SuffixGroup.MARKING_KI:

@@ -7,7 +7,7 @@ class Gerund(Suffix):
                 has_major_harmony=True, 
                 has_minor_harmony=None,  # Set to None to detect if the user passed a value
                 needs_y_buffer=None, 
-                group=SuffixGroup.DERIVATIONAL_LOCKING_VERB, 
+                group=SuffixGroup.VERB_TO_ADVERB, 
                 is_unique=False):
         
         # Dynamic default assignment for minor harmony

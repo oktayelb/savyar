@@ -592,6 +592,30 @@ class Trainer:
             batches.append(current)
         return batches
 
+    @staticmethod
+    def _suffix_token_accuracy(gold: FlatSequence, pred: FlatSequence) -> float:
+        matches, gold_count, pred_count = Trainer._suffix_token_stats(gold, pred)
+        denom = max(gold_count, pred_count)
+        if denom == 0:
+            return 1.0
+        return matches / denom
+
+    @staticmethod
+    def _suffix_token_stats(gold: FlatSequence, pred: FlatSequence) -> Tuple[int, int, int]:
+        gold_tokens = [
+            tok for tok in gold[0]
+            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
+        ]
+        pred_tokens = [
+            tok for tok in pred[0]
+            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
+        ]
+        matches = sum(
+            1 for gold_tok, pred_tok in zip(gold_tokens, pred_tokens)
+            if gold_tok == pred_tok
+        )
+        return matches, len(gold_tokens), len(pred_tokens)
+
     def train_sentence(
         self,
         word_chains: List[List[EncodedToken]],
@@ -718,6 +742,10 @@ class Trainer:
                 val_header = (
                     f"   Validation   : rank_loss={val_stats['loss']:.4f} | "
                     f"RankAcc={val_stats['rank_acc']:.4f} | "
+                    f"SuffAcc={val_stats['suff_acc']:.4f} | "
+                    f"SuffPrecision={val_stats['suff_precision']:.4f} | "
+                    f"SuffRecall={val_stats['suff_recall']:.4f} | "
+                    f"SuffF1={val_stats['suff_f1']:.4f} | "
                     f"margin={val_stats['margin']:.4f} "
                     f"(best={self.best_val_loss:.4f})"
                 )
@@ -732,7 +760,14 @@ class Trainer:
         batch_size: int = 64,
     ) -> Dict[str, float]:
         empty = {
-            'loss': 0.0, 'rank_acc': 0.0, 'margin': 0.0, 'n_batches': 0,
+            'loss': 0.0,
+            'rank_acc': 0.0,
+            'suff_acc': 0.0,
+            'suff_precision': 0.0,
+            'suff_recall': 0.0,
+            'suff_f1': 0.0,
+            'margin': 0.0,
+            'n_batches': 0,
         }
         if not val_seqs:
             return empty
@@ -743,6 +778,10 @@ class Trainer:
         n_batches = 0
         correct = 0
         total = 0
+        suff_acc_total = 0.0
+        suff_matches = 0
+        suff_gold_total = 0
+        suff_pred_total = 0
         margins: List[float] = []
 
         with torch.no_grad():
@@ -754,15 +793,23 @@ class Trainer:
                     scores = self.score_flat_sequences(flat)
                     offset = 0
                     losses = []
-                    for size in sizes:
+                    for set_idx, size in enumerate(sizes):
                         group = scores[offset:offset + size]
                         # Must apply temperature during validation loss calc for parity with training
                         logits = (torch.tensor(group, dtype=torch.float, device=self.device) / config.ranking_temperature).unsqueeze(0)
                         target = torch.zeros(1, dtype=torch.long, device=self.device)
                         losses.append(F.cross_entropy(logits, target).item())
                         total += 1
-                        if max(range(len(group)), key=lambda i: group[i]) == 0:
+                        best_idx = max(range(len(group)), key=lambda i: group[i])
+                        if best_idx == 0:
                             correct += 1
+                        gold_seq = batch_sets[set_idx][0]
+                        pred_seq = batch_sets[set_idx][best_idx]
+                        suff_acc_total += self._suffix_token_accuracy(gold_seq, pred_seq)
+                        matches, gold_count, pred_count = self._suffix_token_stats(gold_seq, pred_seq)
+                        suff_matches += matches
+                        suff_gold_total += gold_count
+                        suff_pred_total += pred_count
                         margins.append(group[0] - max(group[1:]))
                         offset += size
                     total_loss += sum(losses) / len(losses)
@@ -772,10 +819,21 @@ class Trainer:
             return empty
 
         avg_loss = total_loss / n_batches
+        suff_precision = suff_matches / suff_pred_total if suff_pred_total else 0.0
+        suff_recall = suff_matches / suff_gold_total if suff_gold_total else 0.0
+        suff_f1 = (
+            2 * suff_precision * suff_recall / (suff_precision + suff_recall)
+            if (suff_precision + suff_recall) > 0.0
+            else 0.0
+        )
 
         return {
             'loss':        avg_loss,
             'rank_acc':    correct / total if total else 0.0,
+            'suff_acc':    suff_acc_total / total if total else 0.0,
+            'suff_precision': suff_precision,
+            'suff_recall': suff_recall,
+            'suff_f1':     suff_f1,
             'margin':      sum(margins) / len(margins) if margins else 0.0,
             'n_batches':   n_batches,
         }

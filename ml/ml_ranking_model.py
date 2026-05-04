@@ -1,9 +1,32 @@
 import math
 import random
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"Detected call of `lr_scheduler\.step\(\)` before `optimizer\.step\(\)`.*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"Failed to initialize NumPy: No module named 'numpy'.*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"enable_nested_tensor is True, but self\.use_nested_tensor is False because encoder_layer\.norm_first was True.*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"You are using `torch\.load` with `weights_only=False`.*",
+    category=FutureWarning,
+)
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Optional, Tuple, Dict
 from .config import config  
 from util.suffix import SuffixGroup, Type
 
@@ -43,28 +66,6 @@ FlatSequence = Tuple[List[int], List[int], List[int], List[int], List[int], List
 # ============================================================================
 # HELPER: encode / decode sentence-level token sequences
 # ============================================================================
-
-def encode_chain(suffix_chain) -> List[EncodedToken]:
-    from ml.ml_ranking_model import SUFFIX_OFFSET, CATEGORY_SPECIAL  
-
-    suffix_to_id = {
-        suffix.name: idx + SUFFIX_OFFSET
-        for idx, suffix in enumerate(_get_all_suffixes())
-    }
-    category_to_id = {'Noun': 0, 'Verb': 1}
-
-    encoded = []
-    last_idx = len(suffix_chain) - 1
-    for idx, s in enumerate(suffix_chain):
-        sid  = suffix_to_id.get(s.name, SUFFIX_OFFSET)  
-        cid  = category_to_id.get(s.makes.name, 0)
-        gid  = GROUP_TO_ID.get(getattr(s, 'group', None), SPECIAL_FEATURE_ID)
-        comes_to_id = TYPE_TO_ID.get(getattr(s, 'comes_to', None), SPECIAL_FEATURE_ID)
-        makes_id    = TYPE_TO_ID.get(getattr(s, 'makes', None), SPECIAL_FEATURE_ID)
-        pos_in_word = idx + 1
-        is_final    = WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO
-        encoded.append((sid, cid, gid, comes_to_id, makes_id, pos_in_word, is_final))
-    return encoded
 
 
 def _get_all_suffixes():
@@ -165,6 +166,10 @@ class SentenceDisambiguator(nn.Module):
 
         self.lm_head = nn.Linear(self.embed_dim, self.vocab_size, bias=False)
         self.lm_head.weight = self.suffix_embed.weight
+        self.rank_head = nn.Sequential(
+            nn.LayerNorm(self.embed_dim),
+            nn.Linear(self.embed_dim, 1),
+        )
 
         self._init_weights()
 
@@ -202,69 +207,44 @@ class SentenceDisambiguator(nn.Module):
             self.pos_embed(pos),
         ], dim=-1)
 
-        x = self.input_proj(x)              
-
+        x = self.input_proj(x)
         x = self.transformer(x, src_key_padding_mask=pad_mask)
+        return self.lm_head(x)
 
-        return self.lm_head(x)              
-
-    def log_probs(
+    def rank_scores(
         self,
-        suffix_ids:   torch.Tensor,   
-        category_ids: torch.Tensor,   
-        group_ids:    torch.Tensor,   
-        comes_to_ids: torch.Tensor,   
-        makes_ids:    torch.Tensor,   
-        word_pos_ids: torch.Tensor,   
-        word_final:   torch.Tensor,   
-        pad_mask:     Optional[torch.Tensor] = None,  
+        suffix_ids:   torch.Tensor,
+        category_ids: torch.Tensor,
+        group_ids:    torch.Tensor,
+        comes_to_ids: torch.Tensor,
+        makes_ids:    torch.Tensor,
+        word_pos_ids: torch.Tensor,
+        word_final:   torch.Tensor,
+        pad_mask:     Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         B, L = suffix_ids.shape
-        device = suffix_ids.device
-        result = torch.zeros(B, L, dtype=torch.float, device=device)
+        pos = torch.arange(L, device=suffix_ids.device).unsqueeze(0).expand(B, L)
 
-        is_special = (
-            (suffix_ids == SPECIAL_PAD)
-            | (suffix_ids == SPECIAL_WORD_SEP)
-            | (suffix_ids == SPECIAL_BOS)
-            | (suffix_ids == SPECIAL_MASK)
-        )
-        if pad_mask is not None:
-            is_special = is_special | pad_mask
-        eligible = ~is_special
+        x = torch.cat([
+            self.suffix_embed(suffix_ids),
+            self.category_embed(category_ids),
+            self.group_embed(group_ids),
+            self.comes_to_embed(comes_to_ids),
+            self.makes_embed(makes_ids),
+            self.wordpos_embed(word_pos_ids.clamp(max=self.wordpos_embed.num_embeddings - 1)),
+            self.wordfinal_embed(word_final),
+            self.pos_embed(pos),
+        ], dim=-1)
 
-        flat_eligible = eligible.reshape(-1)
-        if not flat_eligible.any():
-            return result
+        x = self.input_proj(x)
+        x = self.transformer(x, src_key_padding_mask=pad_mask)
 
-        flat_idx   = flat_eligible.nonzero(as_tuple=False).squeeze(-1)  
-        batch_ids  = flat_idx // L                                      
-        pos_ids    = flat_idx %  L                                      
-        K          = flat_idx.numel()
-
-        batched_s  = suffix_ids[batch_ids].clone()
-        batched_c  = category_ids[batch_ids].clone()
-        batched_g  = group_ids[batch_ids].clone()
-        batched_ct = comes_to_ids[batch_ids].clone()
-        batched_m  = makes_ids[batch_ids].clone()
-        batched_wp = word_pos_ids[batch_ids].clone()
-        batched_wf = word_final[batch_ids].clone()
-        row_range = torch.arange(K, device=device)
-        batched_s[row_range, pos_ids] = SPECIAL_MASK
-
-        batched_pad = pad_mask[batch_ids] if pad_mask is not None else None
-
-        logits = self.forward(
-            batched_s, batched_c, batched_g, batched_ct, batched_m, batched_wp, batched_wf,
-            pad_mask=batched_pad,
-        )
-        slot_logits = logits[row_range, pos_ids]                           
-        log_p       = F.log_softmax(slot_logits, dim=-1)                   
-        true_toks   = suffix_ids[batch_ids, pos_ids]                       
-        scores      = log_p.gather(1, true_toks.unsqueeze(-1)).squeeze(-1) 
-
-        result[batch_ids, pos_ids] = scores
-        return result
+        if pad_mask is None:
+            pooled = x.mean(dim=1)
+        else:
+            valid = (~pad_mask).unsqueeze(-1).to(x.dtype)
+            pooled = (x * valid).sum(dim=1) / valid.sum(dim=1).clamp_min(1.0)
+        return self.rank_head(pooled).squeeze(-1)
 
 
 # ============================================================================
@@ -283,7 +263,7 @@ class Trainer:
 
         self.scaler = torch.amp.GradScaler('cuda', enabled=(self.device == 'cuda'))
 
-        if not torch.cuda.is_available() or not hasattr(torch, 'compile'):
+        if not config.use_torch_compile or not torch.cuda.is_available() or not hasattr(torch, 'compile'):
             pass  
         elif torch.version.cuda and hasattr(torch, 'compile'):
             import platform
@@ -337,72 +317,9 @@ class Trainer:
 
         return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
-    def _to_tensor(
-        self,
-        suffix_ids: List[int],
-        category_ids: List[int],
-        group_ids: List[int],
-        comes_to_ids: List[int],
-        makes_ids: List[int],
-        word_pos_ids: List[int],
-        word_final: List[int],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        tensors = [
-            torch.tensor(values, dtype=torch.long, device=self.device).unsqueeze(0)
-            for values in (suffix_ids, category_ids, group_ids, comes_to_ids, makes_ids, word_pos_ids, word_final)
-        ]
-        return tuple(tensors)
 
     def _get_best_index(self, scores: List[float]) -> int:
         return int(max(range(len(scores)), key=lambda i: scores[i]))
-
-    def _compute_metrics(
-        self, preds: torch.Tensor, targets: torch.Tensor
-    ) -> Tuple[float, float, float, float, List[Dict[str, Any]]]:
-        if len(targets) == 0:
-            return 0.0, 0.0, 0.0, 0.0, []
-
-        is_special = (targets == SPECIAL_WORD_SEP) | (targets == SPECIAL_BOS)
-        suffix_mask = ~is_special
-
-        suffix_preds   = preds[suffix_mask]
-        suffix_targets = targets[suffix_mask]
-
-        if len(suffix_targets) == 0:
-            return 0.0, 0.0, 0.0, 0.0, []
-
-        suffix_acc = (suffix_preds == suffix_targets).float().mean().item()
-
-        num_classes = self.model.vocab_size
-        tps_mask      = (suffix_preds == suffix_targets)
-        tps           = torch.bincount(suffix_targets[tps_mask], minlength=num_classes).float()
-        pred_counts   = torch.bincount(suffix_preds,             minlength=num_classes).float()
-        target_counts = torch.bincount(suffix_targets,           minlength=num_classes).float()
-
-        precision = tps / (pred_counts + 1e-9)
-        recall    = tps / (target_counts + 1e-9)
-        f1        = 2 * (precision * recall) / (precision + recall + 1e-9)
-
-        valid_classes = target_counts > 0
-        if not valid_classes.any():
-            return suffix_acc, 0.0, 0.0, 0.0, []
-
-        macro_p  = precision[valid_classes].mean().item()
-        macro_r  = recall[valid_classes].mean().item()
-        macro_f1 = f1[valid_classes].mean().item()
-
-        per_suffix = []
-        valid_idx = valid_classes.nonzero(as_tuple=False).squeeze(-1)
-        for idx in valid_idx.tolist():
-            per_suffix.append({
-                'id': idx,
-                'p': precision[idx].item(),
-                'r': recall[idx].item(),
-                'f1': f1[idx].item(),
-                'count': int(target_counts[idx].item())
-            })
-
-        return suffix_acc, macro_p, macro_r, macro_f1, per_suffix
 
     def _add_to_replay(
         self,
@@ -422,32 +339,6 @@ class Trainer:
             self.replay_buffer.pop(evict_idx)
         self._class_weight_cache = None
 
-    def _compute_class_weights(self) -> Optional[torch.Tensor]:
-        if not config.use_class_weights:
-            return None
-        if self._class_weight_cache is not None:
-            return self._class_weight_cache
-        if not self.replay_buffer:
-            return None
-
-        V = self.model.vocab_size
-        counts = torch.zeros(V, dtype=torch.float, device=self.device)
-        for sids, *_ in self.replay_buffer:
-            if not sids:
-                continue
-            ids = torch.as_tensor(sids, dtype=torch.long, device=self.device)
-            counts.scatter_add_(0, ids, torch.ones_like(ids, dtype=torch.float))
-
-        weights = torch.ones(V, dtype=torch.float, device=self.device)
-        present = counts > 0
-        if present.any():
-            inv_sqrt = 1.0 / torch.sqrt(counts[present])
-            inv_sqrt = inv_sqrt * (inv_sqrt.numel() / inv_sqrt.sum())
-            weights[present] = inv_sqrt
-
-        weights[SPECIAL_PAD] = 1.0  
-        self._class_weight_cache = weights
-        return weights
 
     def _build_padded_batch(
         self, seqs: List[FlatSequence]
@@ -513,7 +404,7 @@ class Trainer:
         valid_mask = targets.reshape(-1) != SPECIAL_PAD
         if valid_mask.any():
             return loss_per_tok[valid_mask].mean()
-        return loss_per_tok.sum()  
+        return loss_per_tok.sum()
 
     def _mlm_mask_batch(
         self,
@@ -572,62 +463,160 @@ class Trainer:
 
         return masked_s, loss_target
 
-    def _gradient_steps(
-        self, seqs: List[Tuple[List[int], List[int]]], n_steps: int
-    ) -> float:
-        s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(seqs)
+    def _sequence_from_chains(self, word_chains: List[List[EncodedToken]]) -> FlatSequence:
+        return build_sentence_sequence(word_chains)
 
-        self.model.train()
-        final_loss = 0.0
-        use_amp = self.device == 'cuda'
+    def _ranking_step(self, candidate_sets: List[List[FlatSequence]]) -> Tuple[float, float]:
+        candidate_sets = [cands for cands in candidate_sets if len(cands) >= 2]
+        if not candidate_sets:
+            return 0.0, 0.0
 
-        for _ in range(n_steps):
-            masked_s, target = self._mlm_mask_batch(s_t, p_mask)
+        flat: List[FlatSequence] = []
+        sizes: List[int] = []
+        for cands in candidate_sets:
+            sizes.append(len(cands))
+            flat.extend(cands)
 
-            if (target != SPECIAL_PAD).sum() == 0:
-                continue
+        try:
+            s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(flat)
 
+            self.model.train()
             self.optimizer.zero_grad()
+            use_amp = self.device == 'cuda'
+            
+            temperature = config.ranking_temperature
+            mlm_weight = config.mlm_weight
+
             with torch.amp.autocast('cuda', enabled=use_amp):
-                logits = self.model(masked_s, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
-                loss = self._compute_focal_loss(logits, target)
+                # 1. Contrastive Ranking Loss
+                scores = self.model.rank_scores(s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
+                losses = []
+                offset = 0
+                for size in sizes:
+                    # Apply temperature scaling to the logits
+                    logits = (scores[offset:offset + size] / temperature).unsqueeze(0)
+                    target = torch.zeros(1, dtype=torch.long, device=self.device)
+                    losses.append(F.cross_entropy(logits, target))
+                    offset += size
+                rank_loss = torch.stack(losses).mean()
 
-            final_loss = loss.item()
+                # 2. Masked Language Modeling Loss (on the gold sequences only)
+                gold_indices = [sum(sizes[:i]) for i in range(len(sizes))]
+                gold_s_t = s_t[gold_indices]
+                gold_p_mask = p_mask[gold_indices]
+                
+                masked_s, mlm_target = self._mlm_mask_batch(gold_s_t, gold_p_mask)
+                
+                mlm_logits = self.model(
+                    masked_s, 
+                    c_t[gold_indices], 
+                    g_t[gold_indices], 
+                    ct_t[gold_indices], 
+                    m_t[gold_indices], 
+                    wp_t[gold_indices], 
+                    wf_t[gold_indices], 
+                    pad_mask=gold_p_mask
+                )
+                
+                mlm_loss = self._compute_focal_loss(mlm_logits, mlm_target)
 
-            self.scaler.scale(loss).backward()
+                # 3. Joint Objective
+                total_loss = rank_loss + (mlm_weight * mlm_loss)
+
+            final_loss = total_loss.item()
+            final_rank = rank_loss.item()
+            self.scaler.scale(total_loss).backward()
             self.scaler.unscale_(self.optimizer)
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            scaler_scale = self.scaler.get_scale()
             self.scaler.step(self.optimizer)
             self.scaler.update()
-            self.scheduler.step()
+            if not use_amp or self.scaler.get_scale() >= scaler_scale:
+                self.scheduler.step()
             self.global_step += 1
+            return final_loss, final_rank
+            
+        except torch.cuda.OutOfMemoryError:
+            self.optimizer.zero_grad(set_to_none=True)
+            if self.device == 'cuda':
+                torch.cuda.empty_cache()
+            if len(candidate_sets) <= 1:
+                raise
+            mid = len(candidate_sets) // 2
+            left_loss, left_rank = self._ranking_step(candidate_sets[:mid])
+            right_loss, right_rank = self._ranking_step(candidate_sets[mid:])
+            return (left_loss + right_loss) / 2.0, (left_rank + right_rank) / 2.0
 
-        return final_loss
+    @staticmethod
+    def _candidate_batch_count(candidate_sets: List[List[FlatSequence]], batch_size: int) -> int:
+        count = 0
+        current_sets = 0
+        current_sequences = 0
+        max_sequences = max(1, int(config.max_candidate_sequences_per_batch))
+
+        for cands in candidate_sets:
+            cand_count = len(cands)
+            would_exceed_sets = current_sets >= batch_size
+            would_exceed_sequences = current_sets > 0 and current_sequences + cand_count > max_sequences
+            if would_exceed_sets or would_exceed_sequences:
+                count += 1
+                current_sets = 0
+                current_sequences = 0
+            current_sets += 1
+            current_sequences += cand_count
+
+        return count + (1 if current_sets else 0)
+
+    @staticmethod
+    def _candidate_batches(
+        candidate_sets: List[List[FlatSequence]],
+        batch_size: int,
+    ) -> List[List[List[FlatSequence]]]:
+        batches: List[List[List[FlatSequence]]] = []
+        current: List[List[FlatSequence]] = []
+        current_sequences = 0
+        max_sequences = max(1, int(config.max_candidate_sequences_per_batch))
+
+        for cands in candidate_sets:
+            cand_count = len(cands)
+            would_exceed_sets = len(current) >= batch_size
+            would_exceed_sequences = current and current_sequences + cand_count > max_sequences
+            if would_exceed_sets or would_exceed_sequences:
+                batches.append(current)
+                current = []
+                current_sequences = 0
+            current.append(cands)
+            current_sequences += cand_count
+
+        if current:
+            batches.append(current)
+        return batches
 
     def train_sentence(
         self,
         word_chains: List[List[EncodedToken]],
-        max_retries: int = None,   
+        negative_word_chains: Optional[List[List[List[EncodedToken]]]] = None,
+        max_retries: int = None,
     ) -> float:
-        suffix_ids, category_ids, group_ids, comes_to_ids, makes_ids, word_pos_ids, word_final = build_sentence_sequence(word_chains)
-
-        if len(suffix_ids) < 2:
+        gold_seq = self._sequence_from_chains(word_chains)
+        if len(gold_seq[0]) < 2:
             return 0.0
 
-        self._add_to_replay(
-            suffix_ids, category_ids, group_ids, comes_to_ids, makes_ids, word_pos_ids, word_final
-        )
+        self._add_to_replay(*gold_seq)
+        negatives = negative_word_chains or []
+        candidate_set = [gold_seq]
+        for neg in negatives:
+            neg_seq = self._sequence_from_chains(neg)
+            if neg_seq != gold_seq:
+                candidate_set.append(neg_seq)
 
-        batch: List[FlatSequence] = [
-            (suffix_ids, category_ids, group_ids, comes_to_ids, makes_ids, word_pos_ids, word_final)
-        ]
-        if len(self.replay_buffer) > 1:
-            k = min(config.replay_k, len(self.replay_buffer) - 1)
-            others = [x for x in self.replay_buffer if x is not batch[0]]
-            batch.extend(random.sample(others, k))
+        if len(candidate_set) < 2:
+            return 0.0
 
-        print(f"   Training on {len(batch)} examples...", end="", flush=True)
-        final_loss = self._gradient_steps(batch, config.steps_per_update)
+        print(f"   Ranking gold against {len(candidate_set) - 1} negatives...", end="", flush=True)
+        final_loss = 0.0
+        for _ in range(config.steps_per_update):
+            final_loss, _ = self._ranking_step([candidate_set])
         print(f" loss={final_loss:.4f}")
 
         self.train_history.append(final_loss)
@@ -635,10 +624,10 @@ class Trainer:
 
     def train_bulk(
         self,
-        all_seqs: List[FlatSequence],
+        all_seqs: List,
         batch_size: Optional[int] = None,
         epochs: Optional[int] = None,
-        validation_seqs: Optional[List[Tuple[List[int], List[int]]]] = None,
+        validation_seqs: Optional[List] = None,
     ) -> float:
         if batch_size is None:
             batch_size = config.bulk_batch_size
@@ -647,13 +636,25 @@ class Trainer:
         if not all_seqs:
             return 0.0
 
-        for sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final in all_seqs:
-            self._add_to_replay(
-                sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final
-            )
+        candidate_sets: List[List[FlatSequence]] = []
+        for item in all_seqs:
+            if not item:
+                continue
+            if isinstance(item, tuple) and len(item) == 7:
+                candidate_sets.append([item])
+            else:
+                candidate_sets.append(list(item))
+
+        for cands in candidate_sets:
+            if cands:
+                self._add_to_replay(*cands[0])
+
+        trainable_sets = [cands for cands in candidate_sets if len(cands) >= 2]
+        if not trainable_sets:
+            return 0.0
 
         # Build dynamic learning rate schedule exactly matched to total steps
-        total_steps = epochs * ((len(all_seqs) + batch_size - 1) // batch_size)
+        total_steps = epochs * self._candidate_batch_count(trainable_sets, batch_size)
         warmup = max(1, int(config.warmup_steps))
         eta_min = float(config.lr_eta_min_ratio)
 
@@ -666,87 +667,48 @@ class Trainer:
         # Re-initialize scheduler to lock decay perfectly to bulk training timeframe
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, bulk_lr_lambda)
 
-        use_amp = self.device == 'cuda'
         final_loss = 0.0
-        data = list(all_seqs)
+        data = list(trainable_sets)
 
         for epoch in range(epochs):
             random.shuffle(data)
             epoch_loss = 0.0
+            epoch_rank_loss = 0.0
             n_batches = 0
-            
-            all_epoch_preds = []
-            all_epoch_targs = []
+            correct = 0
+            total = 0
+            margins: List[float] = []
 
-            for start in range(0, len(data), batch_size):
-                batch = data[start:start + batch_size]
-                s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(batch)
-
-                masked_s, target = self._mlm_mask_batch(s_t, p_mask)
-                if (target != SPECIAL_PAD).sum() == 0:
-                    continue  
-
-                self.model.train()
-                self.optimizer.zero_grad()
-                with torch.amp.autocast('cuda', enabled=use_amp):
-                    logits = self.model(masked_s, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
-                    loss = self._compute_focal_loss(logits, target)
+            for batch_sets in self._candidate_batches(data, batch_size):
+                loss_value, rank_loss_value = self._ranking_step(batch_sets)
+                if loss_value == 0.0 and rank_loss_value == 0.0:
+                    continue
+                epoch_loss += loss_value
+                epoch_rank_loss += rank_loss_value
+                n_batches += 1
 
                 with torch.no_grad():
-                    preds = logits.argmax(dim=-1).reshape(-1)
-                    targs = target.reshape(-1)
-                    valid_mask = targs != SPECIAL_PAD
-                    all_epoch_preds.append(preds[valid_mask].cpu())
-                    all_epoch_targs.append(targs[valid_mask].cpu())
-
-                self.scaler.scale(loss).backward()
-                self.scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-                self.scheduler.step()
-                self.global_step += 1
-                epoch_loss += loss.item()
-                n_batches += 1
+                    for cands in batch_sets:
+                        scores = self.score_flat_sequences(cands)
+                        if not scores:
+                            continue
+                        total += 1
+                        if max(range(len(scores)), key=lambda i: scores[i]) == 0:
+                            correct += 1
+                        if len(scores) > 1:
+                            margins.append(scores[0] - max(scores[1:]))
 
             if n_batches:
                 avg = epoch_loss / n_batches
+                avg_rank = epoch_rank_loss / n_batches
                 final_loss = avg
-                
-                if all_epoch_targs:
-                    epoch_preds_cat = torch.cat(all_epoch_preds)
-                    epoch_targs_cat = torch.cat(all_epoch_targs)
-                    suf_acc, prec, rec, f1, per_suffix = self._compute_metrics(
-                        epoch_preds_cat, epoch_targs_cat
-                    )
-                    header = (
-                        f"   Bulk epoch {epoch+1}/{epochs}: loss={avg:.4f} | "
-                        f"SufAcc={suf_acc:.4f} | F1={f1:.4f} "
-                        f"P={prec:.4f} R={rec:.4f} ({n_batches} batches)"
-                    )
-                    
-                    all_sufs = _get_all_suffixes()
-                    id_to_name = {i + SUFFIX_OFFSET: s.name for i, s in enumerate(all_sufs)}
-                    
-                    filtered_sufs = [s for s in per_suffix if s['count'] >= 10]
-                    if not filtered_sufs:
-                        filtered_sufs = per_suffix
-                    filtered_sufs.sort(key=lambda x: x['f1'])
-                    lowest_sufs = filtered_sufs[:12] 
-                    
-                    cat_cells = []
-                    for s_stat in lowest_sufs:
-                        name = id_to_name.get(s_stat['id'], f"UNK_{s_stat['id']}")
-                        cat_cells.append(f"{name[:14]:>14}: F1={s_stat['f1']:.2f} P={s_stat['p']:.2f} R={s_stat['r']:.2f} ({s_stat['count']:>4})")
-                    
-                    rows = [cat_cells[i:i+2] for i in range(0, len(cat_cells), 2)]
-                    breakdown = "      Lowest Performing Suffixes (Count >= 10):\n"
-                    breakdown += "\n".join("      " + "   ".join(r) for r in rows)
-                    
-                    print(header)
-                    print(breakdown)
-                else:
-                    print(f"   Bulk epoch {epoch+1}/{epochs}: avg_loss={avg:.4f}  ({n_batches} batches)")
+                acc = correct / total if total else 0.0
+                mean_margin = sum(margins) / len(margins) if margins else 0.0
+                print(
+                    f"   Bulk epoch {epoch+1}/{epochs}: loss={avg:.4f} | rank_loss={avg_rank:.4f} | "
+                    f"RankAcc={acc:.4f} | margin={mean_margin:.4f} "
+                    f"({n_batches} batches, {total} candidate sets)"
+                )
 
             if validation_seqs:
                 val_stats = self.validate(validation_seqs, batch_size=batch_size)
@@ -754,10 +716,9 @@ class Trainer:
                 if val_stats['loss'] < self.best_val_loss:
                     self.best_val_loss = val_stats['loss']
                 val_header = (
-                    f"   Validation   : loss={val_stats['loss']:.4f} | "
-                    f"SufAcc={val_stats['suffix_acc']:.4f} | "
-                    f"F1={val_stats['f1']:.4f} "
-                    f"P={val_stats['precision']:.4f} R={val_stats['recall']:.4f} "
+                    f"   Validation   : rank_loss={val_stats['loss']:.4f} | "
+                    f"RankAcc={val_stats['rank_acc']:.4f} | "
+                    f"margin={val_stats['margin']:.4f} "
                     f"(best={self.best_val_loss:.4f})"
                 )
                 print(val_header)
@@ -767,77 +728,58 @@ class Trainer:
 
     def validate(
         self,
-        val_seqs: List[FlatSequence],
+        val_seqs: List,
         batch_size: int = 64,
     ) -> Dict[str, float]:
         empty = {
-            'loss': 0.0, 'suffix_acc': 0.0,
-            'precision': 0.0, 'recall': 0.0, 'f1': 0.0, 'n_batches': 0,
+            'loss': 0.0, 'rank_acc': 0.0, 'margin': 0.0, 'n_batches': 0,
         }
         if not val_seqs:
             return empty
 
         self.model.eval()
-        use_amp = self.device == 'cuda'
 
         total_loss = 0.0
         n_batches = 0
-        all_preds: List[torch.Tensor] = []
-        all_targs: List[torch.Tensor] = []
+        correct = 0
+        total = 0
+        margins: List[float] = []
 
         with torch.no_grad():
             for start in range(0, len(val_seqs), batch_size):
-                batch = val_seqs[start:start + batch_size]
-                s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(batch)
-
-                masked_s, target = self._mlm_mask_batch(s_t, p_mask)
-                if (target != SPECIAL_PAD).sum() == 0:
-                    continue
-
-                with torch.amp.autocast('cuda', enabled=use_amp):
-                    logits = self.model(masked_s, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
-                    loss = self._compute_focal_loss(logits, target)
-
-                preds = logits.argmax(dim=-1).reshape(-1)
-                targs = target.reshape(-1)
-                valid_mask = targs != SPECIAL_PAD
-                all_preds.append(preds[valid_mask].cpu())
-                all_targs.append(targs[valid_mask].cpu())
-
-                total_loss += loss.item()
-                n_batches += 1
+                raw_batch_sets = [list(s) for s in val_seqs[start:start + batch_size] if len(s) >= 2]
+                for batch_sets in self._candidate_batches(raw_batch_sets, batch_size):
+                    flat = [seq for cands in batch_sets for seq in cands]
+                    sizes = [len(cands) for cands in batch_sets]
+                    scores = self.score_flat_sequences(flat)
+                    offset = 0
+                    losses = []
+                    for size in sizes:
+                        group = scores[offset:offset + size]
+                        # Must apply temperature during validation loss calc for parity with training
+                        logits = (torch.tensor(group, dtype=torch.float, device=self.device) / config.ranking_temperature).unsqueeze(0)
+                        target = torch.zeros(1, dtype=torch.long, device=self.device)
+                        losses.append(F.cross_entropy(logits, target).item())
+                        total += 1
+                        if max(range(len(group)), key=lambda i: group[i]) == 0:
+                            correct += 1
+                        margins.append(group[0] - max(group[1:]))
+                        offset += size
+                    total_loss += sum(losses) / len(losses)
+                    n_batches += 1
 
         if n_batches == 0:
             return empty
 
         avg_loss = total_loss / n_batches
-        preds_cat = torch.cat(all_preds) if all_preds else torch.empty(0, dtype=torch.long)
-        targs_cat = torch.cat(all_targs) if all_targs else torch.empty(0, dtype=torch.long)
-        suf_acc, prec, rec, f1, _ = self._compute_metrics(preds_cat, targs_cat)
 
         return {
             'loss':        avg_loss,
-            'suffix_acc':  suf_acc,
-            'precision':   prec,
-            'recall':      rec,
-            'f1':          f1,
+            'rank_acc':    correct / total if total else 0.0,
+            'margin':      sum(margins) / len(margins) if margins else 0.0,
             'n_batches':   n_batches,
         }
 
-    def train_persistent(
-        self,
-        training_data: List[Tuple],
-        max_retries: int = None,
-    ) -> float:
-        confirmed_chains = []
-        for (_, candidates, correct_idx) in training_data:
-            if correct_idx < len(candidates):
-                confirmed_chains.append(candidates[correct_idx])
-            elif candidates:
-                confirmed_chains.append(candidates[0])
-            else:
-                confirmed_chains.append([])
-        return self.train_sentence(confirmed_chains)
 
     def score_candidates(
         self,
@@ -863,68 +805,48 @@ class Trainer:
         prefix_m  = [SPECIAL_FEATURE_ID] + ctx_m
         prefix_wp = [SPECIAL_FEATURE_ID] + ctx_wp
         prefix_wf = [WORD_FINAL_NO] + ctx_wf
-        prefix_len = len(prefix_s)
+        flat_sequences: List[FlatSequence] = []
+        bare_indices: List[int] = []
+        for idx, chain in enumerate(candidates):
+            cand_s, cand_c, cand_g, cand_ct, cand_m, cand_wp, cand_wf = _chain_tokens([chain])
+            if len(cand_s) <= 1:
+                bare_indices.append(idx)
+            flat_sequences.append((
+                prefix_s + cand_s + right_s,
+                prefix_c + cand_c + right_c,
+                prefix_g + cand_g + right_g,
+                prefix_ct + cand_ct + right_ct,
+                prefix_m + cand_m + right_m,
+                prefix_wp + cand_wp + right_wp,
+                prefix_wf + cand_wf + right_wf,
+            ))
 
-        scores: List[float] = []
-        with torch.no_grad():
-            for chain in candidates:
-                cand_s, cand_c, cand_g, cand_ct, cand_m, cand_wp, cand_wf = _chain_tokens([chain])
-                num_cand_toks = len(cand_s) - 1
-                if num_cand_toks <= 0:
-                    scores.append(float(config.bare_root_prior_logprob))
-                    continue
-
-                full_s  = prefix_s  + cand_s  + right_s
-                full_c  = prefix_c  + cand_c  + right_c
-                full_g  = prefix_g  + cand_g  + right_g
-                full_ct = prefix_ct + cand_ct + right_ct
-                full_m  = prefix_m  + cand_m  + right_m
-                full_wp = prefix_wp + cand_wp + right_wp
-                full_wf = prefix_wf + cand_wf + right_wf
-                L = len(full_s)
-
-                base_s  = torch.tensor(full_s, dtype=torch.long, device=self.device)
-                base_c  = torch.tensor(full_c, dtype=torch.long, device=self.device)
-                base_g  = torch.tensor(full_g, dtype=torch.long, device=self.device)
-                base_ct = torch.tensor(full_ct, dtype=torch.long, device=self.device)
-                base_m  = torch.tensor(full_m, dtype=torch.long, device=self.device)
-                base_wp = torch.tensor(full_wp, dtype=torch.long, device=self.device)
-                base_wf = torch.tensor(full_wf, dtype=torch.long, device=self.device)
-
-                batched_s  = base_s.unsqueeze(0).expand(num_cand_toks, L).clone()
-                batched_c  = base_c.unsqueeze(0).expand(num_cand_toks, L).clone()
-                batched_g  = base_g.unsqueeze(0).expand(num_cand_toks, L).clone()
-                batched_ct = base_ct.unsqueeze(0).expand(num_cand_toks, L).clone()
-                batched_m  = base_m.unsqueeze(0).expand(num_cand_toks, L).clone()
-                batched_wp = base_wp.unsqueeze(0).expand(num_cand_toks, L).clone()
-                batched_wf = base_wf.unsqueeze(0).expand(num_cand_toks, L).clone()
-
-                positions = torch.arange(num_cand_toks, device=self.device) + prefix_len
-                rows      = torch.arange(num_cand_toks, device=self.device)
-                batched_s[rows, positions] = SPECIAL_MASK
-
-                logits = self.model(
-                    batched_s, batched_c, batched_g, batched_ct, batched_m, batched_wp, batched_wf
-                )
-                slot   = logits[rows, positions]                         
-                log_p  = F.log_softmax(slot, dim=-1)
-                true_toks = base_s[positions]                            
-                per_tok   = log_p.gather(1, true_toks.unsqueeze(-1)).squeeze(-1)
-                scores.append(per_tok.sum().item())
-
+        scores = self.score_flat_sequences(flat_sequences)
+        for idx in bare_indices:
+            scores[idx] += float(config.bare_root_prior_logprob)
         return scores
 
     def score_sentence_chains(self, word_chains: List[List[EncodedToken]]) -> float:
-        self.model.eval()
-        full_s, full_c, full_g, full_ct, full_m, full_wp, full_wf = build_sentence_sequence(word_chains)
+        full_sequence = build_sentence_sequence(word_chains)
         bare_root_count = sum(1 for chain in word_chains if not chain)
         prior = bare_root_count * float(config.bare_root_prior_logprob)
-        if len(full_s) < 2:
+        if len(full_sequence[0]) < 2:
             return prior
+        return self.score_flat_sequences([full_sequence])[0] + prior
+
+    def score_flat_sequences(self, seqs: List[FlatSequence]) -> List[float]:
+        if not seqs:
+            return []
+        self.model.eval()
+        chunk_size = max(1, int(config.max_candidate_sequences_per_batch))
+        all_scores: List[float] = []
         with torch.no_grad():
-            tensors = self._to_tensor(full_s, full_c, full_g, full_ct, full_m, full_wp, full_wf)
-            lp = self.model.log_probs(*tensors)
-            return lp.sum().item() + prior
+            for start in range(0, len(seqs), chunk_size):
+                chunk = seqs[start:start + chunk_size]
+                s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(chunk)
+                scores = self.model.rank_scores(s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
+                all_scores.extend(scores.detach().cpu().tolist())
+        return all_scores
 
     def predict(
         self,
@@ -936,30 +858,6 @@ class Trainer:
         best = self._get_best_index(scores)
         return best, scores
 
-    def batch_predict(
-        self,
-        batch_candidates: List[List[List[EncodedToken]]],
-    ) -> List[Tuple[int, List[float]]]:
-        results = []
-        for candidates in batch_candidates:
-            best_idx, scores = self.predict(candidates)
-            results.append((best_idx, scores))
-        return results
-
-    def sentence_predict(
-        self,
-        all_candidates: List[List[List[EncodedToken]]],
-    ) -> List[Tuple[int, List[float]]]:
-        committed: List[List[EncodedToken]] = []
-        results: List[Tuple[int, List[float]]] = []
-
-        for candidates in all_candidates:
-            scores  = self.score_candidates(committed, candidates)
-            best    = self._get_best_index(scores)
-            results.append((best, scores))
-            committed.append(candidates[best])
-
-        return results
 
     def save_checkpoint(self):
         torch.save({
@@ -971,11 +869,18 @@ class Trainer:
             'best_val_loss':   self.best_val_loss,
             'global_step':     self.global_step,
             'replay_buffer':   self.replay_buffer,
+            'suffix_inventory': [s.name for s in _get_all_suffixes()],
         }, self.path)
         print(f"Saved to {self.path}")
 
     def load_checkpoint(self, path: str):
-        ckpt = torch.load(path, map_location=self.device)
+        try:
+            ckpt = torch.load(path, map_location=self.device, weights_only=True)
+        except TypeError:
+            ckpt = torch.load(path, map_location=self.device)
+        current_suffix_inventory = [s.name for s in _get_all_suffixes()]
+        saved_suffix_inventory = ckpt.get('suffix_inventory')
+        suffix_inventory_matches = saved_suffix_inventory == current_suffix_inventory
         model_state = ckpt['model_state']
         current_state = self.model.state_dict()
         compatible_state = {
@@ -983,22 +888,25 @@ class Trainer:
             if k in current_state and current_state[k].shape == v.shape
         }
         self.model.load_state_dict(compatible_state, strict=False)
-        try:
-            self.optimizer.load_state_dict(ckpt['optimizer_state'])
-            self.scheduler.load_state_dict(ckpt['scheduler_state'])
-        except Exception:
-            pass
+        if suffix_inventory_matches:
+            try:
+                self.optimizer.load_state_dict(ckpt['optimizer_state'])
+                self.scheduler.load_state_dict(ckpt['scheduler_state'])
+            except Exception:
+                pass
         self.train_history  = ckpt.get('train_history',  [])
         self.val_history    = ckpt.get('val_history',    [])
         self.best_val_loss  = ckpt.get('best_val_loss',  float('inf'))
         self.global_step    = ckpt.get('global_step',    0)
-        raw_replay = ckpt.get('replay_buffer', [])
+        raw_replay = ckpt.get('replay_buffer', []) if suffix_inventory_matches else []
         upgraded_replay = []
         for entry in raw_replay:
             upgraded = self._upgrade_replay_entry(entry)
             if upgraded is not None:
                 upgraded_replay.append(upgraded)
         self.replay_buffer = upgraded_replay
+        if not suffix_inventory_matches:
+            print("Checkpoint suffix inventory changed; replay buffer and optimizer state were discarded.")
         print(f"Loaded from {path} (step {self.global_step}, {len(self.replay_buffer)} replay entries)")
 
     def _upgrade_replay_entry(self, entry) -> Optional[FlatSequence]:

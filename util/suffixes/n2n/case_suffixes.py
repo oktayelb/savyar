@@ -1,3 +1,4 @@
+import util.word_methods as wrd
 from util.suffix import Suffix, Type, SuffixGroup
 ## COMPLETE
 class CaseSuffix(Suffix):
@@ -31,32 +32,44 @@ class CaseSuffix(Suffix):
         )
 
     @staticmethod
-    
-    def _default_form(word, suffix_obj):
-        """
-        Overridden default form handler specifically for Case Suffixes.
-        Consolidates 'n' and 'y' buffer logic for Turkish nominal inflection.
-        
-        """
-        
+    def _harmonized_base(word, suffix_obj):
         base = suffix_obj.suffix
-        candidates = []
-        # Apply standard harmonies using the parent class's static methods
         base = Suffix._apply_major_harmony(word, base, suffix_obj.has_major_harmony)
         base = Suffix._apply_minor_harmony(word, base, suffix_obj.has_minor_harmony)
-        base = Suffix._apply_consonant_hardening(word, base)
+        return Suffix._apply_consonant_hardening(word, base)
 
-        candidates.append(base)  # Always include the base form (e.g. kapı+dan, kalma+da)
+    @staticmethod
+    def _default_form(word, suffix_obj, current_chain=None):
+        """
+        Direct case forms for bare nominal stems.
 
-        # Buffer consonants only apply when the stem ends in a vowel.
-        # 'n' covers post-possessive chains (evi-n-den); 'y' covers vowel+vowel (kapı-y-ı).
-        if word and word[-1] in ["a","e","ı","i","o","ö","u","ü"]:
-            candidates.append('n' + base)
+        Vowel-initial cases cannot attach raw to vowel-final stems: başka+a and
+        başka+na are not direct dative forms; başka+ya is. The pronominal n is
+        emitted after suffixes that create pronominal case contexts:
+        evi-n-e, kapısı-n-dan, evleri-n-e, evdeki-n-den.
+        """
+        base = CaseSuffix._harmonized_base(word, suffix_obj)
+        last_suffix = current_chain[-1] if current_chain else None
+        has_pronominal_n = bool(
+            last_suffix
+            and last_suffix.name in {"possessive_3sg", "possessive_3pl", "marking_ki"}
+        )
 
+        if has_pronominal_n:
+            if word and base and word[-1] in wrd.VOWELS:
+                return ["n" + base]
+            return [base]
+
+        if word and base and word[-1] in wrd.VOWELS and base[0] in wrd.VOWELS:
+            candidates = []
             if suffix_obj.needs_y_buffer:
-                candidates.append('y' + base)
+                candidates.append("y" + base)
+            else:
+                candidates.append("n" + base)
 
-        return candidates
+            return candidates
+
+        return [base]
 
 
 noun_compound = CaseSuffix("noun_compound"  , "in") # köy ağzında needs_y_buffer doğru

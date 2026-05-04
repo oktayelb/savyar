@@ -28,6 +28,7 @@ class AppCLI:
         print("  - 'auto' - Start auto mode (random words from dictionary)")
         print("  - 'eval <word>' - Evaluate model on a word")
         print("  - 'relearn' - Train on all logged decompositions")
+        print("  - 'curriculum' - Train with dynamic hard-negative mining")
         print("  - '10FKV' - 10-fold cross-validation with 95% CI")
         print("  - 'stats' - Show training statistics")
         print("  - 'sample' - Analyze a text word by word.")
@@ -340,6 +341,12 @@ class AppCLI:
                 elif cmd == 'relearn':
                     trained, skipped = self.engine.relearn_all()
                     self.show_message(f"\n  Trained on {trained} examples, skipped {skipped}.")
+                elif cmd == 'curriculum':
+                    stats = self.engine.train_curriculum()
+                    self.show_message(
+                        f"\n  Curriculum trained on {stats['trained_words']} words "
+                        f"across {stats['generations']} mined generations, skipped {stats['skipped']}."
+                    )
                 elif cmd == '10fkv':
                     self.engine.run_kfold_cv(k=10)
                 elif cmd.startswith('eval sentence '):

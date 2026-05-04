@@ -25,7 +25,7 @@ class CompoundVerb(Suffix):
         )
     @staticmethod
     
-    def _default_form(word, suffix_obj):
+    def _default_form(word, suffix_obj, current_chain=None):
 
 
         ebase = suffix_obj.suffix[0]

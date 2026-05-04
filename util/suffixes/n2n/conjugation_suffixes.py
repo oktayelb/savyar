@@ -3,9 +3,29 @@ import util.word_methods as wrd
 
 VOWELS = ["a","e","ı","i","o","ö","u","ü"]
 
-        
+PAST_OR_CONDITIONAL_SUFFIXES = {"pasttense_di", "if_se", "wish_suffix"}
+NEGATIVE_SUFFIXES = {"negative_me", "negative_able"}
 
-def form_for_conjugation_1sg(word, suffix_obj):
+
+def _last_suffix_name(current_chain):
+    if not current_chain:
+        return None
+    return current_chain[-1].name
+
+
+def _after_past_or_conditional(current_chain):
+    return _last_suffix_name(current_chain) in PAST_OR_CONDITIONAL_SUFFIXES
+
+
+def _after_negative(current_chain):
+    return _last_suffix_name(current_chain) in NEGATIVE_SUFFIXES
+
+
+def _after_adverbial_e(current_chain):
+    return _last_suffix_name(current_chain) == "adverbial_e"
+
+
+def form_for_conjugation_1sg(word, suffix_obj, current_chain=None):
     """
     1. Tekil Şahıs (-m, -im)
     - Gel-di-m (Sadece m)
@@ -15,8 +35,8 @@ def form_for_conjugation_1sg(word, suffix_obj):
     """
     return_list = []
     
-    # 1. Durum: Geçmiş zaman (-di) ve Şart (-se) sonrası sadece 'm'
-    if len(word) > 2 and word[-2:] in ["di","dı","du","dü", "ti","tı","tu","tü", "se","sa","me","ma"]:
+    # 1. Durum: Geçmiş zaman (-di), Şart (-se), Olumsuz emir (-me) sonrası sadece 'm'
+    if _after_past_or_conditional(current_chain) or _after_negative(current_chain):
         return_list.append("m")
         return return_list 
     #TODO eyim geleyim gideyim ekle
@@ -35,7 +55,7 @@ def form_for_conjugation_1sg(word, suffix_obj):
     return return_list
 
 
-def form_for_conjugation_2sg(word, suffix_obj):
+def form_for_conjugation_2sg(word, suffix_obj, current_chain=None):
     """
     2. Tekil Şahıs (-n, -sin)
     - Gel-di-n (Sadece n)
@@ -45,8 +65,9 @@ def form_for_conjugation_2sg(word, suffix_obj):
     return_list = []
 
     # 1. Durum: Geçmiş zaman (-di) veya Şart (-se) sonrası sadece 'n'
-    if len(word) > 2 and word[-2:] in ["di","dı","du","dü", "ti","tı","tu","tü", "se","sa"]:
+    if _after_past_or_conditional(current_chain):
         return_list.append("n")
+        return return_list
         
     ## TODO if is verb  add ""
     
@@ -66,14 +87,14 @@ def form_for_conjugation_2sg(word, suffix_obj):
     return return_list 
 
 
-def form_for_conjugation_3sg(word, suffix_obj):
+def form_for_conjugation_3sg(word, suffix_obj, current_chain=None):
     """
     3. Tekil Şahıs (Genelde boştur, emir kipinde -sin)
     """
     # 1. Durum: Emir kipi (Gel-sin, Yap-sın, Gel-me-sin)
     # Sadece fiil kökenli veya olumsuzluk ekinden sonra mantıklıdır.
     # "O doktor-sun" denmez, "O doktor" denir. O yüzden her yere -sin eklemiyoruz.
-    if len(word) > 2 and word[-2:] in ["me","ma"]:
+    if _after_negative(current_chain):
          sin_base = "sin"
          sin_base = Suffix._apply_major_harmony(word, sin_base, suffix_obj.has_major_harmony)
          sin_base = Suffix._apply_minor_harmony(word, sin_base, suffix_obj.has_minor_harmony)
@@ -92,7 +113,7 @@ def form_for_conjugation_3sg(word, suffix_obj):
     return [""]
 
 
-def form_for_conjugation_1pl(word, suffix_obj):
+def form_for_conjugation_1pl(word, suffix_obj, current_chain=None):
     """
     1. Çoğul Şahıs (-k, -iz)
     - Gel-di-k (k)
@@ -102,9 +123,10 @@ def form_for_conjugation_1pl(word, suffix_obj):
     return_list = []
     
     # 1. Durum: Geçmiş zaman (-di) ve Şart (-se) sonrası 'k'
-    if len(word) > 2 and word[-2:] in ["di","dı","du","dü", "ti","tı","tu","tü", "se","sa"]:
+    if _after_past_or_conditional(current_chain):
         k_base = "k" 
         return_list.append(k_base)
+        return return_list
         
     # 2. Durum: Standart -iz hali
     iz_base = "iz"
@@ -112,9 +134,8 @@ def form_for_conjugation_1pl(word, suffix_obj):
     iz_base = Suffix._apply_minor_harmony(word, iz_base, suffix_obj.has_minor_harmony)
 
 
-    # 3. Durum eğer zarf eki e üstüne gelirse lim lım olması gerkiyor. Henüz ek bilgisi görmediği için
-    # yalnızca e-a ile kontrol edebilirim:
-    if word[-1:] in ['e','a']:
+    # 3. Durum eğer zarf eki -e üstüne gelirse -lim/-lım olması gerekiyor.
+    if _after_adverbial_e(current_chain):
         lim_base = "lim"
         lim_base = Suffix._apply_major_harmony(word, lim_base, suffix_obj.has_major_harmony)
         return_list.append(lim_base)
@@ -128,7 +149,7 @@ def form_for_conjugation_1pl(word, suffix_obj):
     return return_list 
  
 
-def form_for_conjugation_2pl(word, suffix_obj):
+def form_for_conjugation_2pl(word, suffix_obj, current_chain=None):
     """
     2. Çoğul Şahıs (-niz, -siniz)
     - Gel-di-niz (niz)
@@ -138,11 +159,12 @@ def form_for_conjugation_2pl(word, suffix_obj):
     return_list = []
     
     # 1. Durum: Geçmiş zaman (-di) ve Şart (-se) sonrası '-niz'
-    if len(word) > 2 and word[-2:] in ["di","dı","du","dü", "ti","tı","tu","tü", "se","sa"]:
+    if _after_past_or_conditional(current_chain):
         niz_base = "niz"
         niz_base = Suffix._apply_major_harmony(word, niz_base, suffix_obj.has_major_harmony)
         niz_base = Suffix._apply_minor_harmony(word, niz_base, suffix_obj.has_minor_harmony)
         return_list.append(niz_base)
+        return return_list
         
     # 2. Durum: Standart -siniz (Predicative)
     siniz_base = "siniz"
@@ -151,7 +173,7 @@ def form_for_conjugation_2pl(word, suffix_obj):
     return_list.append(siniz_base)
     
     # 3. Durum: Emir kipi (Gel-in, Gel-iniz) - Sadece fiilse
-    if wrd.can_be_verb(word) or (len(word)>2 and word[-2:] in ["me","ma"]):
+    if wrd.can_be_verb(word) or _after_negative(current_chain):
          in_base = "in"
          in_base = Suffix._apply_major_harmony(word, in_base, suffix_obj.has_major_harmony)
          in_base = Suffix._apply_minor_harmony(word, in_base, suffix_obj.has_minor_harmony)
@@ -164,7 +186,7 @@ def form_for_conjugation_2pl(word, suffix_obj):
     return return_list 
 
 
-def form_for_conjugation_3pl(word, suffix_obj):
+def form_for_conjugation_3pl(word, suffix_obj, current_chain=None):
     result_list  = []
     # Standart: -ler (Gel-ir-ler, Ev-ler)
     base = "ler"
@@ -173,7 +195,7 @@ def form_for_conjugation_3pl(word, suffix_obj):
     result_list.append(base)
     
     # Emir kipi 3. çoğul: Gel-sin-ler
-    if(wrd.can_be_verb(word)) or word[-2:] in ['me','ma']:
+    if wrd.can_be_verb(word) or _after_negative(current_chain):
         base_2 = "sinler"
         base_2 = Suffix._apply_major_harmony(word, base_2, suffix_obj.has_major_harmony)
         base_2 = Suffix._apply_minor_harmony(word, base_2, suffix_obj.has_minor_harmony)

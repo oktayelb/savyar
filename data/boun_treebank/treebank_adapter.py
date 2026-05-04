@@ -44,9 +44,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from util.decomposer import decompose, ALL_SUFFIXES, enable_index
-
-enable_index()
+from util.decomposer import decompose, ALL_SUFFIXES
 from util.suffix import Type
 from util.words.closed_class import CLOSED_CLASS_LOOKUP
 from util.word_methods import tr_lower
@@ -89,12 +87,12 @@ CASE_MAP = {
 
 # ── Possessive (Person[psor] + Number[psor] → suffix) ──
 POSS_MAP = {
-    ("1", "Sing"): "posessive_1sg",
-    ("2", "Sing"): "posessive_2sg",
-    ("3", "Sing"): "posessive_3sg",
-    ("1", "Plur"): "posessive_1pl",
-    ("2", "Plur"): "posessive_2pl",
-    ("3", "Plur"): "posessive_3pl",
+    ("1", "Sing"): "possessive_1sg",
+    ("2", "Sing"): "possessive_2sg",
+    ("3", "Sing"): "possessive_3sg",
+    ("1", "Plur"): "possessive_1pl",
+    ("2", "Plur"): "possessive_2pl",
+    ("3", "Plur"): "possessive_3pl",
 }
 
 # ── V-person (verb conjugation on VERB/AUX) ──
@@ -126,13 +124,13 @@ MOOD_MAP = {
     "Rapid": "suddenative_ivermek",      # -iver
     "Dur":   "persistive_egelmek",       # -egel
     # Imp handled specially (imperative 2sg/2pl)
-    # Nec handled specially (-meli = infinitive_me + composessive_li)
+    # Nec handled specially (-meli = infinitive_me + compositive_li)
     # Iter: no direct Savyar equivalent — recorded as unmapped
 }
 
 # ── Mood expansions (multi-suffix) ──
 MOOD_MULTI = {
-    "Nec": ["infinitive_me", "composessive_li"],   # -meli/-malı
+    "Nec": ["infinitive_me", "compositive_li"],   # -meli/-malı
 }
 
 # ── AUX "i" (i-copula) feature pattern → ordered suffix list (sans person). ──
@@ -304,8 +302,8 @@ SUFFIX_ALTERNATIVES = {
     "adverbial_ip":      ["adverbial_erek"],
     "copula_mis":        ["pastfactative_miş"],
     "pastfactative_miş": ["copula_mis"],
-    "composessive_li":   ["relative_sel"],
-    "relative_sel":      ["composessive_li"],
+    "compositive_li":   ["relative_sel"],
+    "relative_sel":      ["compositive_li"],
     "actor_ci":          ["factative_ir"],
     # BOUN treats `-ti` after `-miş` as the same pasttense_di, but Savyar's
     # decomposer models it as pasttense_noundi (the nominal past-tense variant).
@@ -314,7 +312,7 @@ SUFFIX_ALTERNATIVES = {
 
 # Suffix-chain equivalences (copied from METU).
 EQUIVALENT_SEQUENCES = [
-    (["aplicative_le", "factative_ir"], ["plural_ler"]),
+    (["applicative_le", "factative_ir"], ["plural_ler"]),
 ]
 
 
@@ -726,348 +724,37 @@ def _try_add_verb_lemma_to_dict(lemma, treebank_says_verb=False):
     return False
 
 
-def match_against_decomposer(surface, lemma, expected_suffixes, force=False,
-                             treebank_says_verb=False):
-    try:
-        candidates = decompose(tr_lower(surface), force=force)
-    except Exception:
-        return None
-
-    if not candidates:
-        if _try_add_verb_lemma_to_dict(lemma, treebank_says_verb=treebank_says_verb):
-            try:
-                candidates = decompose(tr_lower(surface), force=force)
-            except Exception:
-                return None
-    if not candidates:
-        return None
-
-    lemma_lower = tr_lower(lemma)
-
-    def normalize_ler_poss(names):
-        result = []
-        i = 0
-        while i < len(names):
-            if (i + 1 < len(names)
-                    and names[i] == "plural_ler"
-                    and names[i + 1] in ("posessive_3sg", "posessive_3pl")):
-                result.append("_PLURAL_P3_")
-                i += 2
-            elif names[i] == "posessive_3pl":
-                result.append("_PLURAL_P3_")
-                i += 1
-            else:
-                result.append(names[i])
-                i += 1
-        return result
-
-    def normalize_plural_conj(names):
-        return ["_PLURAL_OR_3PL_" if n in ("plural_ler", "conjugation_3pl") else n
-                for n in names]
-
-    def apply_equiv(names):
-        result = list(names)
-        for decomp_seq, tb_equiv in EQUIVALENT_SEQUENCES:
-            k = len(decomp_seq)
-            i = 0
-            out = []
-            while i < len(result):
-                if result[i:i + k] == decomp_seq:
-                    out.extend(tb_equiv)
-                    i += k
-                else:
-                    out.append(result[i])
-                    i += 1
-            result = out
-        return result
-
-    def normalize_full(names):
-        return normalize_plural_conj(normalize_ler_poss(apply_equiv(names)))
-
-    def expand_alternatives(expected):
-        results = [expected]
-        for name, alts in SUFFIX_ALTERNATIVES.items():
-            if name in expected:
-                for alt in alts:
-                    results.append([alt if n == name else n for n in expected])
-        for i in range(len(expected) - 1):
-            if expected[i] in ("negative_me", "negative_able") and expected[i + 1] == "factative_ir":
-                results.append(expected[:i + 1] + expected[i + 2:])
-        return results
-
-    expected_filtered = [n for n in expected_suffixes if n != "conjugation_3sg"]
-
-    def get_chain_names(chain):
-        return [s.name for s in chain if s.name != "conjugation_3sg"]
-
-    if not expected_filtered:
-        for root, start_pos, chain, final_pos in candidates:
-            if root == lemma_lower and not chain:
-                return (root, start_pos, chain, final_pos)
-        for root, start_pos, chain, final_pos in candidates:
-            if not chain:
-                return (root, start_pos, chain, final_pos)
-        return None
-
-    all_expected_variants = expand_alternatives(expected_filtered)
-
-    def tail_matches(chain_names, expected):
-        k = len(expected)
-        if len(chain_names) < k:
-            return False
-        return chain_names[-k:] == expected
-
-    def tail_matches_normalized(chain_names, expected):
-        cn = normalize_full(chain_names)
-        en = normalize_full(expected)
-        k = len(en)
-        if len(cn) < k:
-            return False
-        return cn[-k:] == en
-
-    # ── Tier-based matching ──
-    # Treebanks are ground truth: if their suffix chain "somehow exists"
-    # within a decomposer candidate, accept that candidate and write the
-    # decomposition using Savyar's suffix nomenclature.
-    # Tiers (higher wins):
-    #   5 exact/normalized-exact  4 tail either direction
-    #   3 contains contiguous     2 ordered subsequence  1 multiset equal
-    def _ends_with(a, b):
-        # Reject empty-vs-nonempty: an empty chain never "ends with" a
-        # non-empty expected and vice versa. Both-empty is handled by the
-        # tier-5 equality check above, so we need not allow it here.
-        if not a or not b:
-            return False
-        return len(b) <= len(a) and a[-len(b):] == b
-
-    def _contains_contig(a, b):
-        if not a or not b:
-            return False
-        if len(b) > len(a):
-            return False
-        for i in range(len(a) - len(b) + 1):
-            if a[i:i+len(b)] == b:
-                return True
-        return False
-
-    def _is_subseq(a, b):
-        if not a or not b:
-            return False
-        j = 0
-        for x in a:
-            if j < len(b) and x == b[j]:
-                j += 1
-        return j == len(b)
-
-    def _match_tier(cn, en):
-        cn_n, en_n = normalize_full(cn), normalize_full(en)
-        if cn == en or cn_n == en_n:
-            return 5
-        if _ends_with(cn, en) or _ends_with(cn_n, en_n):
-            return 4
-        if _ends_with(en, cn) or _ends_with(en_n, cn_n):
-            return 4
-        if _contains_contig(cn, en) or _contains_contig(cn_n, en_n):
-            return 3
-        if _contains_contig(en, cn) or _contains_contig(en_n, cn_n):
-            return 3
-        if _is_subseq(cn, en) or _is_subseq(cn_n, en_n):
-            return 2
-        if _is_subseq(en, cn) or _is_subseq(en_n, cn_n):
-            return 2
-        if sorted(cn) == sorted(en) or sorted(cn_n) == sorted(en_n):
-            return 1
-        return -1
-
-    best = None
-    best_score = (False, -1, float("-inf"), float("-inf"))
-    for root, start_pos, chain, final_pos in candidates:
-        chain_names = get_chain_names(chain)
-        if has_unexpected_nounifier_is(root, lemma_lower, chain_names, expected_filtered):
-            continue
-        is_lemma = (root == lemma_lower)
-        for exp_variant in all_expected_variants:
-            tier = _match_tier(chain_names, exp_variant)
-            if tier < 0:
-                continue
-            length_penalty = -abs(len(chain_names) - len(exp_variant))
-            score = (is_lemma, tier, length_penalty, -len(chain_names))
-            if score > best_score:
-                best = (root, start_pos, chain, final_pos)
-                best_score = score
-
-    return best
-
-
-def diagnose_mismatch(surface, lemma, expected_suffixes, force=False):
-    try:
-        candidates = decompose(tr_lower(surface), force=force)
-    except Exception as e:
-        return {
-            "reason": "decompose_error",
-            "detail": f"decompose() raised: {e}",
-            "expected": expected_suffixes,
-            "closest": None,
-            "diff": None,
-        }
-
-    lemma_lower = tr_lower(lemma)
-
-    if not candidates:
-        import util.word_methods as wrd
-        lemma_known = wrd.can_be_noun(lemma_lower) or wrd.can_be_verb(lemma_lower)
-        if lemma_known:
-            return {
-                "reason": "chain_build_failed",
-                "detail": (
-                    f"lemma '{lemma_lower}' IS in dictionary, but decompose() "
-                    f"could not build any suffix chain for '{surface}'. "
-                    f"Expected: {expected_suffixes}."
-                ),
-                "expected": expected_suffixes,
-                "closest": None,
-                "diff": None,
-            }
-        return {
-            "reason": "root_not_in_dict",
-            "detail": (
-                f"lemma '{lemma_lower}' not in words.txt (and infinitive "
-                f"{lemma_lower}mek/{lemma_lower}mak also absent)."
-            ),
-            "expected": expected_suffixes,
-            "closest": None,
-            "diff": None,
-        }
-
-    candidates_with_lemma = [c for c in candidates if c[0] == lemma_lower]
-    if not candidates_with_lemma:
-        other_roots = sorted({r for r, _, _, _ in candidates})[:4]
-        return {
-            "reason": "root_not_found",
-            "detail": f"lemma '{lemma_lower}' not among decomposer roots. Roots: {other_roots}",
-            "expected": expected_suffixes,
-            "closest": {
-                "root": candidates[0][0],
-                "suffixes": [s.name for s in candidates[0][2]],
-            },
-            "diff": None,
-        }
-
-    import difflib
-
-    def edit_distance(a, b):
-        return 1.0 - difflib.SequenceMatcher(None, a, b).ratio()
-
-    def suffix_diff(chain_names, expected):
-        matcher = difflib.SequenceMatcher(None, chain_names, expected)
-        ops = []
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag == "equal":
-                continue
-            elif tag == "replace":
-                ops.append(f"replace {chain_names[i1:i2]} → {expected[j1:j2]}")
-            elif tag == "delete":
-                ops.append(f"extra {chain_names[i1:i2]} not in expected")
-            elif tag == "insert":
-                ops.append(f"missing {expected[j1:j2]}")
-        return ops
-
-    best = min(
-        candidates_with_lemma,
-        key=lambda c: edit_distance([s.name for s in c[2]], expected_suffixes),
-    )
-    best_names = [s.name for s in best[2]]
-    diff_ops = suffix_diff(best_names, expected_suffixes)
-
-    if not best_names and expected_suffixes:
-        reason = "root_bare_expected_suffixes"
-        detail = f"decomposer found bare root '{lemma_lower}', expected {expected_suffixes}"
-    elif best_names and not expected_suffixes:
-        reason = "root_has_extra_suffixes"
-        detail = f"decomposer found suffixes {best_names}, expected bare root"
-    else:
-        reason = "suffix_sequence_mismatch"
-        detail = (
-            f"root '{lemma_lower}' found; decomposer={best_names} vs "
-            f"expected={expected_suffixes}. Diff: {'; '.join(diff_ops)}"
-        )
-
-    all_root_chains = [[s.name for s in ch] for _, _, ch, _ in candidates_with_lemma][:5]
-    return {
-        "reason": reason,
-        "detail": detail,
-        "expected": expected_suffixes,
-        "closest": {"root": lemma_lower, "suffixes": best_names},
-        "all_root_candidates": all_root_chains,
-        "diff": diff_ops,
-    }
-
 
 # =============================================================================
 # WORD-ENTRY BUILDERS
 # =============================================================================
 
-def build_word_entry(surface, decomposition):
-    root, start_pos, chain, final_pos = decomposition
-    morphology_parts = [root]
-    suffixes = []
-    current_stem = root
-    surface_lower = tr_lower(surface)
-    for s in chain:
-        forms = s.form(current_stem)
-        form_used = ""
-        rest = surface_lower[len(current_stem):]
-        for f in forms:
-            if f and rest.startswith(f):
-                form_used = f
-                break
-        if not form_used:
-            for f in forms:
-                if f:
-                    form_used = f
-                    break
-        if not form_used:
-            form_used = s.suffix
-        morphology_parts.append(form_used)
-        suffixes.append({
-            "name": s.name,
-            "form": form_used,
-            "makes": "VERB" if str(s.makes).upper().endswith("VERB") else "NOUN",
-        })
-        current_stem = current_stem + form_used
-    return {
-        "word": surface,
-        "morphology_string": " ".join(morphology_parts),
-        "root": root,
-        "suffixes": suffixes,
-        "final_pos": final_pos,
-    }
-
 
 def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
     surface_lower = tr_lower(surface)
     root = tr_lower(lemma)
-    try:
-        candidates = decompose(surface_lower)
-    except Exception:
-        candidates = []
-    if candidates:
-        lemma_roots = [c for c in candidates if c[0] == root]
-        if lemma_roots:
-            root = lemma_roots[0][0]
 
     suffixes = []
     current_stem = root
+    accepted_chain = []
     for sname in expected_suffix_names:
         sobj = SUFFIX_BY_NAME.get(sname)
         if sobj:
             makes_str = "VERB" if sobj.makes == Type.VERB else "NOUN"
             try:
-                forms = sobj.form(current_stem)
-                form_str = forms[0] if forms else sobj.suffix
+                forms = sobj.form(current_stem, current_chain=accepted_chain)
+                form_str = ""
+                rest = surface_lower[len(current_stem):]
+                for form in forms:
+                    if form and rest.startswith(form):
+                        form_str = form
+                        break
+                if not form_str:
+                    form_str = forms[0] if forms else sobj.suffix
             except Exception:
                 form_str = sobj.suffix
             suffixes.append({"name": sname, "form": form_str, "makes": makes_str})
+            accepted_chain.append(sobj)
         else:
             suffixes.append({"name": sname, "form": "", "makes": "NOUN"})
         current_stem = current_stem + (suffixes[-1]["form"] or "")
@@ -1078,7 +765,7 @@ def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
         "morphology_string": " ".join(morphology_parts),
         "root": root,
         "suffixes": suffixes,
-        "final_pos": "noun",
+        "final_pos": "verb" if suffixes and suffixes[-1]["makes"] == "VERB" else "noun",
     }
 
 
@@ -1092,7 +779,7 @@ def _build_cc_entry(surface_lower, cc_category):
         "word": surface_lower,
         "morphology_string": surface_lower,
         "root": surface_lower,
-        "suffixes": [{"name": suffix_name, "form": "", "makes": ""}],
+        "suffixes": [{"name": suffix_name, "form": "", "makes": "", "cc_surface": surface_lower}],
         "final_pos": suffix_name,
     }
 
@@ -1102,7 +789,8 @@ def _build_cc_entry(surface_lower, cc_category):
 # =============================================================================
 
 def adapt_treebank(conllu_paths, output_path, stats_path=None,
-                   unmatched_path=None, unmapped_path=None):
+                   unmatched_path=None, unmapped_path=None,
+                   sentence_diagnostics_path=None):
     if isinstance(conllu_paths, (str, os.PathLike)):
         conllu_paths = [conllu_paths]
 
@@ -1126,6 +814,7 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
     output_entries = []
     unmatched_log = []
     unmapped_features = {}
+    sentence_diagnostics = []
 
     for sent_idx, sentence_tokens in enumerate(all_sentences):
         if sent_idx % 500 == 0:
@@ -1141,6 +830,10 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
         word_entries = []
         sentence_all_matched = True
         sentence_has_any = False
+        sentence_unmappable = []
+        bare_root_words = []
+        skipped_words = []
+        trainable_words_in_sentence = 0
 
         for word in words:
             total_words += 1
@@ -1152,6 +845,8 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
             head_upos = word["head_upos"]
 
             if head_upos in SKIP_UPOS:
+                skipped_words.append(surface_lower)
+                bare_root_words.append(surface_lower)
                 word_entries.append({
                     "word": surface_lower,
                     "morphology_string": surface_lower,
@@ -1162,30 +857,28 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
                 no_suffix_words += 1
                 continue
 
-            # Closed-class words with no inflection → CC entry directly.
-            # (Pronouns with inflection continue through the normal path.)
+            # Closed-class words route to CC entries directly. Pronouns stay
+            # closed-class even when they are inflected; we do not want
+            # words.txt-style noun analyses for pronoun paradigms.
             if not word["is_mwt"] and head_upos in UPOS_TO_CC_CATEGORY:
-                layer = word["feature_layers"][0]
-                has_inflection = any(k in layer["features"] for k in
-                                     ("Case", "Number[psor]", "Person[psor]"))
-                is_pron = head_upos == "PRON"
-                if not (is_pron and has_inflection and layer["features"].get("Case", "Nom") != "Nom"):
-                    cc_category = UPOS_TO_CC_CATEGORY[head_upos]
-                    entry = _build_cc_entry(surface_lower, cc_category)
-                    if entry:
-                        word_entries.append(entry)
-                        matched_words += 1
-                        sentence_has_any = True
-                    else:
-                        word_entries.append({
-                            "word": surface_lower,
-                            "morphology_string": surface_lower,
-                            "root": surface_lower,
-                            "suffixes": [],
-                            "final_pos": "noun",
-                        })
-                        no_suffix_words += 1
-                    continue
+                cc_category = UPOS_TO_CC_CATEGORY[head_upos]
+                entry = _build_cc_entry(surface_lower, cc_category)
+                if entry:
+                    word_entries.append(entry)
+                    matched_words += 1
+                    sentence_has_any = True
+                    trainable_words_in_sentence += 1
+                else:
+                    bare_root_words.append(surface_lower)
+                    word_entries.append({
+                        "word": surface_lower,
+                        "morphology_string": surface_lower,
+                        "root": surface_lower,
+                        "suffixes": [],
+                        "final_pos": "noun",
+                    })
+                    no_suffix_words += 1
+                continue
 
             expected_suffixes, unmapped_feats, has_unmappable = \
                 features_to_suffix_names(word, unmapped_features)
@@ -1193,6 +886,15 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
             if has_unmappable:
                 unmappable_words += 1
                 sentence_all_matched = False
+                sentence_unmappable.append({
+                    "surface": surface_lower,
+                    "lemma": lemma,
+                    "feature_layers": [
+                        {"upos": l["upos"], "xpos": l["xpos"], "features": l["features"]}
+                        for l in word["feature_layers"]
+                    ],
+                    "unmapped": list(unmapped_feats),
+                })
                 unmatched_log.append({
                     "surface": surface_lower,
                     "lemma": lemma,
@@ -1210,10 +912,12 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
                     "suffixes": [],
                     "final_pos": "noun",
                 })
+                bare_root_words.append(surface_lower)
                 continue
 
             if not expected_suffixes:
                 no_suffix_words += 1
+                bare_root_words.append(surface_lower)
                 word_entries.append({
                     "word": surface_lower,
                     "morphology_string": surface_lower,
@@ -1223,51 +927,11 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
                 })
                 continue
 
-            is_proper = (
-                head_upos == "PROPN"
-                or any(l["upos"] == "PROPN" for l in word["feature_layers"])
-                or (lemma and lemma[0].isupper())
-            )
-            tb_verb = any(
-                (l["upos"] == "VERB" and any(
-                    l["features"].get(k) for k in ("Tense", "Aspect", "Evident",
-                                                    "VerbForm", "Mood", "Voice")))
-                for l in word["feature_layers"]
-            )
-
-            match = match_against_decomposer(
-                surface_lower, lemma, expected_suffixes,
-                force=is_proper, treebank_says_verb=tb_verb,
-            )
-
-            # Fallback: retry with force=True. Needed when the lemma isn't in
-            # words.txt or when the regular decompose path can't reach a match.
-            if match is None and not is_proper:
-                match = match_against_decomposer(
-                    surface_lower, lemma, expected_suffixes,
-                    force=True, treebank_says_verb=tb_verb,
-                )
-
-            if match:
-                entry = build_word_entry(surface_lower, match)
-                word_entries.append(entry)
-                matched_words += 1
-                sentence_has_any = True
-            else:
-                forced = build_treebank_forced_entry(surface_lower, lemma, expected_suffixes)
-                word_entries.append(forced)
-                forced_words += 1
-                sentence_has_any = True
-                diag = diagnose_mismatch(surface_lower, lemma, expected_suffixes, force=is_proper)
-                unmatched_log.append({
-                    "surface": surface_lower,
-                    "lemma": lemma,
-                    "feature_layers": [
-                        {"upos": l["upos"], "xpos": l["xpos"], "features": l["features"]}
-                        for l in word["feature_layers"]
-                    ],
-                    **diag,
-                })
+            entry = build_treebank_forced_entry(surface_lower, lemma, expected_suffixes)
+            word_entries.append(entry)
+            matched_words += 1
+            sentence_has_any = True
+            trainable_words_in_sentence += 1
 
         if word_entries:
             decomposed_parts = [we["morphology_string"] for we in word_entries]
@@ -1281,8 +945,39 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
                 matched_sentences += 1
             elif sentence_has_any:
                 partial_sentences += 1
+                sentence_diagnostics.append({
+                    "sentence_index": sent_idx,
+                    "original_sentence": original_sentence,
+                    "diagnostic_type": "partially_trainable_sentence",
+                    "why": "At least one token was trainable, but one or more tokens had unmappable features or had to remain bare roots.",
+                    "how_to_fix": "Inspect the unmappable token list first. If it is empty, this sentence is only partially trainable because some tokens are bare roots or skipped POS.",
+                    "trainable_word_count": trainable_words_in_sentence,
+                    "bare_root_words": bare_root_words,
+                    "skipped_words": skipped_words,
+                    "unmappable_tokens": sentence_unmappable,
+                })
             else:
                 failed_sentences += 1
+                diagnostic_type = "non_trainable_sentence"
+                why = "No token in the sentence produced a trainable suffix sequence."
+                how_to_fix = (
+                    "Usually not an adapter bug. These are often suffixless fragments, titles, numeric snippets, or unmappable tokens."
+                )
+                if sentence_unmappable:
+                    diagnostic_type = "non_trainable_due_to_unmappable_tokens"
+                    why = "No token was trainable and at least one token has unmappable treebank features."
+                    how_to_fix = "Add the missing treebank→Savyar mapping for the listed unmappable tokens."
+                sentence_diagnostics.append({
+                    "sentence_index": sent_idx,
+                    "original_sentence": original_sentence,
+                    "diagnostic_type": diagnostic_type,
+                    "why": why,
+                    "how_to_fix": how_to_fix,
+                    "trainable_word_count": trainable_words_in_sentence,
+                    "bare_root_words": bare_root_words,
+                    "skipped_words": skipped_words,
+                    "unmappable_tokens": sentence_unmappable,
+                })
 
     # ── Write outputs ──
     print(f"\nWriting {len(output_entries)} sentences to {output_path}")
@@ -1294,6 +989,12 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
         unmatched_path = output_path.replace(".jsonl", "_unmatched.jsonl")
     with open(unmatched_path, "w", encoding="utf-8") as f:
         for entry in unmatched_log:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    if sentence_diagnostics_path is None:
+        sentence_diagnostics_path = output_path.replace(".jsonl", "_sentence_diagnostics.jsonl")
+    with open(sentence_diagnostics_path, "w", encoding="utf-8") as f:
+        for entry in sentence_diagnostics:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     unmapped_sorted = {}
@@ -1320,16 +1021,17 @@ def adapt_treebank(conllu_paths, output_path, stats_path=None,
         "input_files":                      [str(p) for p in conllu_paths],
         "total_sentences":                  len(all_sentences),
         "total_words":                      total_words,
-        "matched_words (decomposer-confirmed)": matched_words,
-        "forced_words (treebank-trusted)":      forced_words,
+        "translated_words (treebank-authoritative)": matched_words,
+        "compat_words (legacy-forced)":         forced_words,
         "trainable_words (total)":              trainable_words,
         "unmappable_words":                     unmappable_words,
         "no_suffix_words":                      no_suffix_words,
         "trainable_rate":
             f"{trainable_words / max(total_words - no_suffix_words, 1) * 100:.1f}%",
-        "fully_matched_sentences":       matched_sentences,
-        "partially_matched_sentences":   partial_sentences,
-        "failed_sentences":              failed_sentences,
+        "fully_trainable_sentences":     matched_sentences,
+        "partially_trainable_sentences": partial_sentences,
+        "non_trainable_sentences":       failed_sentences,
+        "sentence_diagnostics_count":    len(sentence_diagnostics),
         "unmapped_feature_value_count":  sum(len(v) for v in unmapped_features.values()),
     }
 
@@ -1378,4 +1080,5 @@ if __name__ == "__main__":
         stats_path=os.path.join(base_dir, "treebank_adaptation_stats.json"),
         unmatched_path=os.path.join(base_dir, "treebank_adapted_unmatched.jsonl"),
         unmapped_path=os.path.join(base_dir, "unmapped_features.json"),
+        sentence_diagnostics_path=os.path.join(base_dir, "treebank_adapted_sentence_diagnostics.jsonl"),
     )

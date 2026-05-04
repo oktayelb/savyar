@@ -25,11 +25,11 @@ class MarkingKi(Suffix):
         )
     @staticmethod
     
-    def _default_form(word, suffix_obj):
-
-        if word[-2:] in ["de", "da", "te", "ta","in","ın"]:
+    def _default_form(word, suffix_obj, current_chain=None):
+        last_suffix = current_chain[-1] if current_chain else None
+        if last_suffix and last_suffix.name in {"locative_de", "noun_compound"}:
             return ["ki"]
-        return ["ki", "kü"]
+        return []
 
 ###form fonksiyonu mu dizsek?
 

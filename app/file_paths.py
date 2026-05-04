@@ -1,6 +1,7 @@
 class FilePaths:
 
     words_path: str                 = "data/words.txt"
+    verbs_path: str                 = "data/verbs.txt"
     training_count_path: str        = "data/training_count.txt"
     valid_decompositions_path: str  = "data/sentence_valid_decompositions.jsonl"
     treebank_adapted_path: str      = "data/metu_treebank/treebank_adapted.jsonl"

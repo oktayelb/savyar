@@ -10,6 +10,8 @@ def tr_lower(s: str) -> str:
     return s.translate(_TR_LOWER_TABLE).lower()
 
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "words.txt"
+VERB_DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "verbs.txt"
+
 
 ## Vowel Classes
 BACK_FLAT   = ['a','ı']
@@ -45,9 +47,10 @@ def _load_dictionary():
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             WORDS_SET = {line.strip() for line in f if line.strip()}
-            VERB_SET = {w[:-3] for w in WORDS_SET if w.endswith("mak") or w.endswith("mek")}
+        with open(VERB_DATA_FILE, "r", encoding="utf-8") as f:
+            VERB_SET = {line.strip() for line in f if line.strip()}
     except FileNotFoundError:
-        print(f"Warning: {DATA_FILE} not found")
+        print(f"Warning: {DATA_FILE} or {VERB_DATA_FILE} not found")
         WORDS_SET = set()
         VERB_SET = set()
 
@@ -56,16 +59,43 @@ _load_dictionary()
 
 def delete_word(word: str) -> bool:
     """Removes a word from the in-memory dictionary state."""
-    if word not in WORDS_SET:
-        return False
-    WORDS_SET.discard(word)
-    if word.endswith("mak") or word.endswith("mek"):
-        VERB_SET.discard(word[:-3])
-    return True
+    word = tr_lower(word.strip())
+    removed = False
+
+    if word in WORDS_SET:
+        WORDS_SET.discard(word)
+        removed = True
+
+    if word in VERB_SET:
+        VERB_SET.discard(word)
+        removed = True
+
+    if removed:
+        _DERIVED_CACHE.clear()
+        return True
+
+    return False
 
 def get_all_words() -> List[str]:
     """Returns the current list of dictionary words."""
-    return list(WORDS_SET)
+    return sorted(WORDS_SET)
+
+def get_all_verbs() -> List[str]:
+    """Returns the current list of dictionary verb roots."""
+    return sorted(VERB_SET)
+
+def infinitive_form(root: str) -> Optional[str]:
+    """Build the -mAk infinitive for a verb root using the actual suffix object."""
+    root = tr_lower(root.strip())
+    if not root:
+        return None
+
+    from util.suffixes.v2n.infinitives import infinitive_mek
+
+    forms = infinitive_mek.form(root)
+    if not forms:
+        return None
+    return root + forms[0]
 
 def get_random_word() -> Optional[str]:
     """Returns a random word from the dictionary."""
@@ -74,11 +104,10 @@ def get_random_word() -> Optional[str]:
 def exists(word: str) -> bool:
     return can_be_noun(word) or can_be_verb(word)
 
-def get_closed_class_categories(word: str) -> List[str]:
-    """Returns list of closed-class categories for a word, or empty list if open-class."""
-    from util.words.closed_class import CLOSED_CLASS_LOOKUP
-    entries = CLOSED_CLASS_LOOKUP.get(word, [])
-    return list({e.category for e in entries})
+
+def is_non_ben_pronoun_surface(word: str) -> bool:
+    from util.words.closed_class import NON_BEN_PRONOUN_SURFACES
+    return word in NON_BEN_PRONOUN_SURFACES
 
 def can_be_noun(word: str) -> bool:
     if not word:
@@ -243,7 +272,11 @@ def get_root_candidates(surface_root: str) -> List[str]:
     # Consonant gemination reversal: hiss→his, hakk→hak, redd→ret
     # Common in Arabic/Persian loanwords where the final consonant doubles
     # before vowel-initial suffixes (hak→hakkı, his→hissi, ret→reddi)
-    if len(surface_root) >= 3 and surface_root[-1] == surface_root[-2]:
+    if (
+        len(surface_root) >= 3
+        and surface_root[-1] == surface_root[-2]
+        and surface_root[-1] not in VOWELS
+    ):
         degeminated = surface_root[:-1]
         if (can_be_noun(degeminated) or can_be_verb(degeminated)) and degeminated not in candidates:
             candidates.append(degeminated)

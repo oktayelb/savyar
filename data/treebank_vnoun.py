@@ -13,7 +13,7 @@ def _iter_suffix_tails(current_stem, suffix_names, suffix_by_name, limit=256):
     """
     results = set()
 
-    def visit(stem, names, tail):
+    def visit(stem, names, tail, current_chain):
         if len(results) >= limit:
             return
         if not names:
@@ -25,7 +25,7 @@ def _iter_suffix_tails(current_stem, suffix_names, suffix_by_name, limit=256):
             return
 
         try:
-            forms = suffix_obj.form(stem)
+            forms = suffix_obj.form(stem, current_chain=current_chain)
         except Exception:
             forms = [suffix_obj.suffix]
 
@@ -34,9 +34,9 @@ def _iter_suffix_tails(current_stem, suffix_names, suffix_by_name, limit=256):
             if form in seen_forms:
                 continue
             seen_forms.add(form)
-            visit(stem + form, names[1:], tail + form)
+            visit(stem + form, names[1:], tail + form, current_chain + [suffix_obj])
 
-    visit(current_stem, suffix_names, "")
+    visit(current_stem, suffix_names, "", [])
     return results
 
 

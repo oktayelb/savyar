@@ -147,6 +147,9 @@ class DataManager:
                 with open(self.paths.words_path, "w", encoding="utf-8") as f:
                     for w in wrd.get_all_words():
                         f.write(w + "\n")
+                with open(self.paths.verbs_path, "w", encoding="utf-8") as f:
+                    for v in wrd.get_all_verbs():
+                        f.write(v + "\n")
                 return True
             return False
         except Exception:

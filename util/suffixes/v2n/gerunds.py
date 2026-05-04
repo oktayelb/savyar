@@ -7,7 +7,7 @@ class Gerund(Suffix):
                 has_major_harmony=True, 
                 has_minor_harmony=None,  # Set to None to detect if the user passed a value
                 needs_y_buffer=None, 
-                group=SuffixGroup.DERIVATIONAL_LOCKING_VERB, 
+                group=SuffixGroup.VERB_TO_ADVERB, 
                 is_unique=False):
         
         # Dynamic default assignment for minor harmony
@@ -43,7 +43,8 @@ adverbial_ip      = Gerund("adverbial_ip", "ip")
 adverbial_e       = Gerund("adverbial_e", "e")
 adverbial_dikçe   = Gerund("adverbial_dikçe", "dikçe")
 since_eli         = Gerund("since_eli", "eli", has_minor_harmony=False)
-nondoing_meden    = Gerund("nondoing_meden", "meden", has_minor_harmony=False)
+undoing_meksizin  = Gerund("undoing_meksizin", "meksizin", has_minor_harmony=False)
+#nondoing_meden    = Gerund("nondoing_meden", "meden", has_minor_harmony=False)
 
 ##esiye eklenmeli mi?
 GERUNDS = [

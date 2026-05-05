@@ -26,7 +26,7 @@ warnings.filterwarnings(
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Optional, Tuple, Dict
+from typing import Any, List, Optional, Tuple, Dict
 from .config import config  
 from util.suffix import SuffixGroup, Type
 
@@ -286,6 +286,9 @@ class Trainer:
         self.train_history: List[float] = []
         self.val_history:   List[float] = []
         self.best_val_loss  = float('inf')
+        self.last_train_stats: Optional[Dict[str, Any]] = None
+        self.last_validation_stats: Optional[Dict[str, Any]] = None
+        self.last_validation_report: Optional[Dict[str, Any]] = None
         self.global_step    = 0
 
         self.replay_buffer: List[FlatSequence] = []
@@ -616,6 +619,140 @@ class Trainer:
         )
         return matches, len(gold_tokens), len(pred_tokens)
 
+    @staticmethod
+    def _topk_hit(scores: List[float], k: int) -> bool:
+        if not scores:
+            return False
+        topk = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:max(1, k)]
+        return 0 in topk
+
+    @staticmethod
+    def _suffix_name_for_token_id(token_id: int) -> Optional[str]:
+        suffixes = _get_all_suffixes()
+        suffix_idx = token_id - SUFFIX_OFFSET
+        if 0 <= suffix_idx < len(suffixes):
+            return suffixes[suffix_idx].name
+        return None
+
+    @classmethod
+    def _update_suffix_metric_buckets(
+        cls,
+        suffix_buckets: Dict[str, Dict[str, int]],
+        gold_tokens: List[int],
+        pred_tokens: List[int],
+    ) -> None:
+        for gold_tok, pred_tok in zip(gold_tokens, pred_tokens):
+            gold_name = cls._suffix_name_for_token_id(gold_tok)
+            pred_name = cls._suffix_name_for_token_id(pred_tok)
+
+            if gold_name is not None:
+                bucket = suffix_buckets.setdefault(
+                    gold_name,
+                    {'tp': 0, 'fp': 0, 'fn': 0, 'gold_count': 0, 'pred_count': 0},
+                )
+                bucket['gold_count'] += 1
+
+            if pred_name is not None:
+                bucket = suffix_buckets.setdefault(
+                    pred_name,
+                    {'tp': 0, 'fp': 0, 'fn': 0, 'gold_count': 0, 'pred_count': 0},
+                )
+                bucket['pred_count'] += 1
+
+            if gold_name is not None and gold_name == pred_name:
+                suffix_buckets[gold_name]['tp'] += 1
+                continue
+
+            if gold_name is not None:
+                suffix_buckets[gold_name]['fn'] += 1
+            if pred_name is not None:
+                suffix_buckets[pred_name]['fp'] += 1
+
+    @classmethod
+    def _finalize_suffix_metric_buckets(
+        cls,
+        suffix_buckets: Dict[str, Dict[str, int]],
+    ) -> Dict[str, Dict[str, float]]:
+        suffixes = _get_all_suffixes()
+        finalized: Dict[str, Dict[str, float]] = {}
+        for suffix in suffixes:
+            counts = suffix_buckets.get(
+                suffix.name,
+                {'tp': 0, 'fp': 0, 'fn': 0, 'gold_count': 0, 'pred_count': 0},
+            )
+            tp = counts['tp']
+            fp = counts['fp']
+            fn = counts['fn']
+            gold_count = counts['gold_count']
+            pred_count = counts['pred_count']
+            denom = max(gold_count, pred_count)
+            precision = tp / pred_count if pred_count else 0.0
+            recall = tp / gold_count if gold_count else 0.0
+            f1 = (
+                2 * precision * recall / (precision + recall)
+                if (precision + recall) > 0.0
+                else 0.0
+            )
+            finalized[suffix.name] = {
+                'group': suffix.group.name if suffix.group else None,
+                'accuracy': tp / denom if denom else 0.0,
+                'precision': precision,
+                'recall': recall,
+                'f1': f1,
+                'tp': tp,
+                'fp': fp,
+                'fn': fn,
+                'gold_count': gold_count,
+                'pred_count': pred_count,
+            }
+        return finalized
+
+    @classmethod
+    def _aggregate_group_metrics(
+        cls,
+        suffix_metrics: Dict[str, Dict[str, float]],
+    ) -> Dict[str, Dict[str, float]]:
+        group_buckets: Dict[str, Dict[str, float]] = {}
+        for suffix_name, metrics in suffix_metrics.items():
+            group_name = metrics.get('group') or 'UNGROUPED'
+            bucket = group_buckets.setdefault(
+                group_name,
+                {'tp': 0.0, 'fp': 0.0, 'fn': 0.0, 'gold_count': 0.0, 'pred_count': 0.0},
+            )
+            bucket['tp'] += float(metrics.get('tp', 0))
+            bucket['fp'] += float(metrics.get('fp', 0))
+            bucket['fn'] += float(metrics.get('fn', 0))
+            bucket['gold_count'] += float(metrics.get('gold_count', 0))
+            bucket['pred_count'] += float(metrics.get('pred_count', 0))
+
+        finalized: Dict[str, Dict[str, float]] = {}
+        for group_name, counts in group_buckets.items():
+            tp = counts['tp']
+            fp = counts['fp']
+            fn = counts['fn']
+            gold_count = counts['gold_count']
+            pred_count = counts['pred_count']
+            denom = max(gold_count, pred_count)
+            precision = tp / pred_count if pred_count else 0.0
+            recall = tp / gold_count if gold_count else 0.0
+            f1 = (
+                2 * precision * recall / (precision + recall)
+                if (precision + recall) > 0.0
+                else 0.0
+            )
+            finalized[group_name] = {
+                'accuracy': tp / denom if denom else 0.0,
+                'precision': precision,
+                'recall': recall,
+                'f1': f1,
+                'tp': tp,
+                'fp': fp,
+                'fn': fn,
+                'gold_count': gold_count,
+                'pred_count': pred_count,
+            }
+        return finalized
+
     def train_sentence(
         self,
         word_chains: List[List[EncodedToken]],
@@ -659,6 +796,9 @@ class Trainer:
             epochs = config.bulk_epochs
         if not all_seqs:
             return 0.0
+        self.last_train_stats = None
+        self.last_validation_stats = None
+        self.last_validation_report = None
 
         candidate_sets: List[List[FlatSequence]] = []
         for item in all_seqs:
@@ -693,13 +833,14 @@ class Trainer:
 
         final_loss = 0.0
         data = list(trainable_sets)
-
         for epoch in range(epochs):
             random.shuffle(data)
             epoch_loss = 0.0
             epoch_rank_loss = 0.0
             n_batches = 0
             correct = 0
+            top2 = 0
+            top3 = 0
             total = 0
             margins: List[float] = []
 
@@ -717,8 +858,12 @@ class Trainer:
                         if not scores:
                             continue
                         total += 1
-                        if max(range(len(scores)), key=lambda i: scores[i]) == 0:
+                        if self._topk_hit(scores, 1):
                             correct += 1
+                        if self._topk_hit(scores, 2):
+                            top2 += 1
+                        if self._topk_hit(scores, 3):
+                            top3 += 1
                         if len(scores) > 1:
                             margins.append(scores[0] - max(scores[1:]))
 
@@ -727,21 +872,36 @@ class Trainer:
                 avg_rank = epoch_rank_loss / n_batches
                 final_loss = avg
                 acc = correct / total if total else 0.0
+                top2_acc = top2 / total if total else 0.0
+                top3_acc = top3 / total if total else 0.0
                 mean_margin = sum(margins) / len(margins) if margins else 0.0
+                self.last_train_stats = {
+                    'loss': avg,
+                    'rank_acc': acc,
+                    'top2_acc': top2_acc,
+                    'top3_acc': top3_acc,
+                    'margin': mean_margin,
+                    'n_batches': n_batches,
+                    'total': total,
+                }
                 print(
                     f"   Bulk epoch {epoch+1}/{epochs}: loss={avg:.4f} | rank_loss={avg_rank:.4f} | "
-                    f"RankAcc={acc:.4f} | margin={mean_margin:.4f} "
+                    f"RankAcc={acc:.4f} | Top2={top2_acc:.4f} | Top3={top3_acc:.4f} | margin={mean_margin:.4f} "
                     f"({n_batches} batches, {total} candidate sets)"
                 )
 
             if validation_seqs:
                 val_stats = self.validate(validation_seqs, batch_size=batch_size)
+                self.last_validation_stats = val_stats
+                self.last_validation_report = val_stats
                 self.val_history.append(val_stats['loss'])
                 if val_stats['loss'] < self.best_val_loss:
                     self.best_val_loss = val_stats['loss']
                 val_header = (
                     f"   Validation   : rank_loss={val_stats['loss']:.4f} | "
                     f"RankAcc={val_stats['rank_acc']:.4f} | "
+                    f"Top2={val_stats['top2_acc']:.4f} | "
+                    f"Top3={val_stats['top3_acc']:.4f} | "
                     f"SuffAcc={val_stats['suff_acc']:.4f} | "
                     f"SuffPrecision={val_stats['suff_precision']:.4f} | "
                     f"SuffRecall={val_stats['suff_recall']:.4f} | "
@@ -758,16 +918,20 @@ class Trainer:
         self,
         val_seqs: List,
         batch_size: int = 64,
-    ) -> Dict[str, float]:
+    ) -> Dict[str, Any]:
         empty = {
             'loss': 0.0,
             'rank_acc': 0.0,
+            'top2_acc': 0.0,
+            'top3_acc': 0.0,
             'suff_acc': 0.0,
             'suff_precision': 0.0,
             'suff_recall': 0.0,
             'suff_f1': 0.0,
             'margin': 0.0,
             'n_batches': 0,
+            'suffix_metrics': {},
+            'suffix_group_metrics': {},
         }
         if not val_seqs:
             return empty
@@ -777,12 +941,15 @@ class Trainer:
         total_loss = 0.0
         n_batches = 0
         correct = 0
+        top2 = 0
+        top3 = 0
         total = 0
         suff_acc_total = 0.0
         suff_matches = 0
         suff_gold_total = 0
         suff_pred_total = 0
         margins: List[float] = []
+        suffix_buckets: Dict[str, Dict[str, int]] = {}
 
         with torch.no_grad():
             for start in range(0, len(val_seqs), batch_size):
@@ -803,6 +970,10 @@ class Trainer:
                         best_idx = max(range(len(group)), key=lambda i: group[i])
                         if best_idx == 0:
                             correct += 1
+                        if self._topk_hit(group, 2):
+                            top2 += 1
+                        if self._topk_hit(group, 3):
+                            top3 += 1
                         gold_seq = batch_sets[set_idx][0]
                         pred_seq = batch_sets[set_idx][best_idx]
                         suff_acc_total += self._suffix_token_accuracy(gold_seq, pred_seq)
@@ -810,6 +981,15 @@ class Trainer:
                         suff_matches += matches
                         suff_gold_total += gold_count
                         suff_pred_total += pred_count
+                        gold_tokens = [
+                            tok for tok in gold_seq[0]
+                            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
+                        ]
+                        pred_tokens = [
+                            tok for tok in pred_seq[0]
+                            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
+                        ]
+                        self._update_suffix_metric_buckets(suffix_buckets, gold_tokens, pred_tokens)
                         margins.append(group[0] - max(group[1:]))
                         offset += size
                     total_loss += sum(losses) / len(losses)
@@ -826,16 +1006,22 @@ class Trainer:
             if (suff_precision + suff_recall) > 0.0
             else 0.0
         )
+        suffix_metrics = self._finalize_suffix_metric_buckets(suffix_buckets)
+        suffix_group_metrics = self._aggregate_group_metrics(suffix_metrics)
 
         return {
             'loss':        avg_loss,
             'rank_acc':    correct / total if total else 0.0,
+            'top2_acc':    top2 / total if total else 0.0,
+            'top3_acc':    top3 / total if total else 0.0,
             'suff_acc':    suff_acc_total / total if total else 0.0,
             'suff_precision': suff_precision,
             'suff_recall': suff_recall,
             'suff_f1':     suff_f1,
             'margin':      sum(margins) / len(margins) if margins else 0.0,
             'n_batches':   n_batches,
+            'suffix_metrics': suffix_metrics,
+            'suffix_group_metrics': suffix_group_metrics,
         }
 
 

@@ -104,6 +104,16 @@ class WorkflowEngine:
         self.trainer.save_checkpoint()
         self.data_manager.save_training_count(self.training_count)
 
+    def _save_final_suffix_metrics(self) -> None:
+        report: Dict[str, Any] = {}
+        if self.trainer.last_train_stats:
+            report["training"] = self.trainer.last_train_stats
+        validation = self.trainer.last_validation_report or self.trainer.last_validation_stats
+        if validation:
+            report["validation"] = validation
+        if report:
+            self.data_manager.save_final_suffix_metrics(report)
+
     # ------------------------------------------------------------------ #
     # Interactive path: analyze                                          #
     # ------------------------------------------------------------------ #
@@ -566,6 +576,7 @@ class WorkflowEngine:
         if train_seqs:
             print(f"   Bulk training on {len(train_seqs)} sequences ({total_words} words)...")
             self.trainer.train_bulk(train_seqs, validation_seqs=val_seqs)
+            self._save_final_suffix_metrics()
 
         self.training_count += total_words
         self.save()
@@ -616,7 +627,11 @@ class WorkflowEngine:
                     f"   Curriculum warm-up: {len(warmup_seqs)} static candidate sets "
                     f"({warmup_words} words), {warmup_epochs} epochs"
                 )
-                self.trainer.train_bulk(warmup_seqs, epochs=warmup_epochs, validation_seqs=val_seqs)
+                self.trainer.train_bulk(
+                    warmup_seqs,
+                    epochs=warmup_epochs,
+                    validation_seqs=val_seqs,
+                )
                 total_trained_words += warmup_words
                 self.training_count += warmup_words
                 self.save()
@@ -635,11 +650,17 @@ class WorkflowEngine:
                 f"mined {len(mined_seqs)} candidate sets ({mined_words} words), "
                 f"{mining_epochs} epochs"
             )
-            self.trainer.train_bulk(mined_seqs, epochs=mining_epochs, validation_seqs=val_seqs)
+            self.trainer.train_bulk(
+                mined_seqs,
+                epochs=mining_epochs,
+                validation_seqs=val_seqs,
+            )
             total_trained_words += mined_words
             self.training_count += mined_words
             self.save()
             completed_generations += 1
+
+        self._save_final_suffix_metrics()
 
         return {
             'trained_words': total_trained_words,

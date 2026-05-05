@@ -28,6 +28,42 @@ class DataManager:
         except Exception:
             pass
 
+    def save_final_suffix_metrics(self, metrics: Dict) -> bool:
+        try:
+            training = metrics.get("training", {})
+            validation = metrics.get("validation", metrics)
+            payload = {
+                "training": {
+                    "rank_accuracy": float(training.get("rank_acc", 0.0)),
+                    "top2_accuracy": float(training.get("top2_acc", 0.0)),
+                    "top3_accuracy": float(training.get("top3_acc", 0.0)),
+                    "loss": float(training.get("loss", 0.0)),
+                    "margin": float(training.get("margin", 0.0)),
+                    "n_batches": int(training.get("n_batches", 0)),
+                    "total_sets": int(training.get("total", 0)),
+                },
+                "validation": {
+                    "suffix_accuracy": float(validation.get("suff_acc", 0.0)),
+                    "suffix_precision": float(validation.get("suff_precision", 0.0)),
+                    "suffix_recall": float(validation.get("suff_recall", 0.0)),
+                    "suffix_f1": float(validation.get("suff_f1", 0.0)),
+                    "rank_accuracy": float(validation.get("rank_acc", 0.0)),
+                    "top2_accuracy": float(validation.get("top2_acc", 0.0)),
+                    "top3_accuracy": float(validation.get("top3_acc", 0.0)),
+                    "validation_loss": float(validation.get("loss", 0.0)),
+                    "margin": float(validation.get("margin", 0.0)),
+                    "n_batches": int(validation.get("n_batches", 0)),
+                },
+                "suffixes": validation.get("suffix_metrics", {}),
+                "groups": validation.get("suffix_group_metrics", {}),
+            }
+            with open(self.paths.final_suffix_metrics_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+                f.write("\n")
+            return True
+        except Exception:
+            return False
+
     def random_word(self) -> Optional[str]:
         return wrd.get_random_word()
 

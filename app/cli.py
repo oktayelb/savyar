@@ -1,9 +1,9 @@
+"""Thin I/O layer for the interactive flow."""
 import os
 from typing import List, Optional, Dict, Any
 
-from app.workflows import WorkflowEngine
-from app.sequence_matcher import get_top_sentence_predictions
-from app.input import sanitize_word, sanitize_sentence
+from app.engine import WorkflowEngine, get_top_sentence_predictions
+from app.nlp_pipeline import sanitize_word, sanitize_sentence
 
 
 class AppCLI:
@@ -12,9 +12,6 @@ class AppCLI:
     Each command follows the same shape:
         raw text -> sanitize -> engine.analyze_* -> display -> user input
                  -> engine.commit_*
-
-    Sanitation happens here at the boundary; the engine and analyzer only
-    ever see canonical (tr_lower'd, apostrophe-stripped) input.
     """
 
     def __init__(self):
@@ -95,10 +92,8 @@ class AppCLI:
     def get_user_choices(self, num_options: int) -> Optional[List[int]]:
         while True:
             choice = input(f"\nSelect correct (1-{num_options}, 's'=skip, 'q'=quit): ").strip().lower()
-            if choice == 'q':
-                return None
-            if choice == 's':
-                return [-1]
+            if choice == 'q': return None
+            if choice == 's': return [-1]
 
             normalized = choice.replace(',', ' ').replace('-', ' ').replace('/', ' ')
             parts = normalized.split()
@@ -130,8 +125,7 @@ class AppCLI:
 
     def handle_word(self, raw_word: str) -> Optional[bool]:
         word = sanitize_word(raw_word)
-        if not word:
-            return False
+        if not word: return False
 
         analysis = self.engine.analyze_word(word)
         if analysis is None:
@@ -148,15 +142,11 @@ class AppCLI:
         self.show_decompositions(word, analysis['vms'])
 
         choices = self.get_user_choices(len(analysis['decomps']))
-        if choices is None:
-            return None
-        if choices == [-1]:
-            return False
+        if choices is None: return None
+        if choices == [-1]: return False
 
         loss, deleted_msgs = self.engine.commit_word(analysis, choices)
-
-        for msg in deleted_msgs:
-            print(f"  {msg}")
+        for msg in deleted_msgs: print(f"  {msg}")
 
         self.show_message(f"\n Training complete. Loss: {loss:.4f}")
         self.show_message(f"Total examples: {self.engine.training_count}")
@@ -179,8 +169,7 @@ class AppCLI:
 
         while True:
             target_str = self.get_input("Enter correct decomposition string (or prefix) ['q' to cancel]: ").strip()
-            if target_str.lower() == 'q':
-                return False
+            if target_str.lower() == 'q': return False
 
             self.show_message("\nSearching for legal combinations...")
             all_sentences, furthest_text, furthest_idx = self.engine.evaluate_sentence_target(analyses, target_str)
@@ -213,10 +202,8 @@ class AppCLI:
             varying_indices = []
             for w_idx in range(len(words)):
                 unique_indices = set(c['combo_indices'][w_idx] for c in display_list)
-                if len(unique_indices) > 1:
-                    varying_indices.append(w_idx)
-            if not varying_indices:
-                varying_indices = list(range(len(words)))
+                if len(unique_indices) > 1: varying_indices.append(w_idx)
+            if not varying_indices: varying_indices = list(range(len(words)))
 
             self.show_message("\nPredictions (showing only ambiguous words):")
             for i, c in enumerate(display_list):
@@ -228,8 +215,7 @@ class AppCLI:
 
             while True:
                 choice = self.get_input(f"\nSelect by number (0-{len(display_list)-1}) or 'q' to cancel: ").strip()
-                if choice.lower() == 'q':
-                    return False
+                if choice.lower() == 'q': return False
                 if choice.isdigit() and int(choice) < len(display_list):
                     correct_combo = display_list[int(choice)]['combo_indices']
                     break
@@ -264,17 +250,11 @@ class AppCLI:
 
         while True:
             choice = self.get_input(f"\nSelect correct decomposition by number (0-{len(top_predictions)-1}), 'm' to manually enter target string, or 'q' to cancel: ").strip().lower()
-
-            if choice == 'q':
-                return False
-
-            if choice == 'm':
-                return self.handle_sentence(raw_sentence, analyses=analyses)
-
+            if choice == 'q': return False
+            if choice == 'm': return self.handle_sentence(raw_sentence, analyses=analyses)
             if choice.isdigit() and int(choice) < len(top_predictions):
                 correct_combo = top_predictions[int(choice)]['combo_indices']
                 break
-
             self.show_message("Invalid selection.")
 
         self.show_message("\nTraining on full sentence context...")
@@ -296,8 +276,7 @@ class AppCLI:
                 processed -= 1
                 self.show_message("\n Exiting auto mode...")
                 break
-            if result is False:
-                skipped += 1
+            if result is False: skipped += 1
         self.show_auto_summary(processed, skipped)
 
     def run(self):
@@ -306,12 +285,10 @@ class AppCLI:
             try:
                 raw = self.get_input("\n Enter word or command: ").strip()
                 cmd = raw.lower()
-                if not cmd:
-                    continue
+                if not cmd: continue
 
                 if cmd == 'quit':
-                    if self.engine.training_count > 0 and self.confirm_save():
-                        self.engine.save()
+                    if self.engine.training_count > 0 and self.confirm_save(): self.engine.save()
                     break
                 elif cmd == 'save':
                     self.engine.save()
@@ -323,30 +300,20 @@ class AppCLI:
                     self.run_auto_mode()
                 elif cmd == 'sample':
                     filename = self.get_input("Enter filename (default: sample.txt): ").strip()
-                    if not filename:
-                        filename = "sample.txt"
+                    if not filename: filename = "sample.txt"
                     self.show_message("Decomposing and ranking words...")
                     success = self.engine.sample_text(filename)
-                    if success:
-                        self.show_message("Sample text processing complete.")
-                    else:
-                        self.show_message("Failed to process sample text.")
+                    self.show_message("Sample text processing complete." if success else "Failed to process sample text.")
                 elif cmd == 'sample sentence':
                     self.show_message("Processing sentences from sample/sample_sentence.txt...")
                     success = self.engine.sample_sentences()
-                    if success:
-                        self.show_message("Sentence sampling complete.")
-                    else:
-                        self.show_message("Failed to process sentence samples.")
+                    self.show_message("Sentence sampling complete." if success else "Failed to process sentence samples.")
                 elif cmd == 'relearn':
                     trained, skipped = self.engine.relearn_all()
                     self.show_message(f"\n  Trained on {trained} examples, skipped {skipped}.")
                 elif cmd == 'curriculum':
                     stats = self.engine.train_curriculum()
-                    self.show_message(
-                        f"\n  Curriculum trained on {stats['trained_words']} words "
-                        f"across {stats['generations']} mined generations, skipped {stats['skipped']}."
-                    )
+                    self.show_message(f"\n  Curriculum trained on {stats['trained_words']} words across {stats['generations']} mined generations, skipped {stats['skipped']}.")
                 elif cmd == '10fkv':
                     self.engine.run_kfold_cv(k=10)
                 elif cmd.startswith('eval sentence '):
@@ -374,8 +341,7 @@ class AppCLI:
                         break
 
             except KeyboardInterrupt:
-                if self.confirm_save():
-                    self.engine.save()
+                if self.confirm_save(): self.engine.save()
                 break
             except Exception as e:
                 print(f"\n Error: {e}")

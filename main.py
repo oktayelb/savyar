@@ -1,8 +1,10 @@
-from app.cli import AppCLI
+from app_new.cli import AppCLI
 
 
 ## TODO  arapça sözsonu ünsüz ikilemesi
 ## his hissim zan zannetmek  vs
+
+##TODO ler ve le r ayrışımını nasıl öğreteceğiz?
 
 ## TODO maksızın anlaşılmıyor, ın geri mi gelsin yoksa maksızın mı olsun
 if __name__ == "__main__":

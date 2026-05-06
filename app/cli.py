@@ -5,6 +5,8 @@ from typing import List, Optional, Dict, Any
 from app.engine import WorkflowEngine, get_top_sentence_predictions
 from app.nlp_pipeline import sanitize_word, sanitize_sentence
 
+MAX_MANUAL_SENTENCE_MATCHES = 100
+
 
 class AppCLI:
     """Thin I/O layer for the interactive flow.
@@ -189,7 +191,12 @@ class AppCLI:
                 continue
             break
 
-        display_list = all_sentences
+        display_list = all_sentences[:MAX_MANUAL_SENTENCE_MATCHES]
+        if len(all_sentences) > MAX_MANUAL_SENTENCE_MATCHES:
+            self.show_message(
+                f"\nFound {len(all_sentences)} legal matches. "
+                f"Showing top {MAX_MANUAL_SENTENCE_MATCHES} by score."
+            )
 
         if len(display_list) == 1:
             self.show_message("\nAuto-selected the only legal match:")

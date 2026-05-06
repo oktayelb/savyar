@@ -47,7 +47,7 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     next_g = next_suffix.group
 
     #for trying
-    # return True;
+    return True
 
     ## main waterfall rule.
    
@@ -173,6 +173,20 @@ def _suffix_iter(start_pos, root, current_chain):
             yield target_pos, suffix_obj, suffix_obj.form(root, current_chain=current_chain)
 
 
+def _can_apply_suffix(current_chain, suffix_obj):
+    """Check hierarchy and uniqueness constraints for the next suffix."""
+    if current_chain:
+        last_suffix = current_chain[-1]
+        if not is_valid_transition(last_suffix, suffix_obj):
+            return False
+
+    if suffix_obj.is_unique:
+        if any(s.name == suffix_obj.name for s in current_chain):
+            return False
+
+    return True
+
+
 def find_suffix_chain(word: str, start_pos: str, root: str,
                       current_chain: List = None, visited: Set = None,
                       shared_cache: dict = None) -> List:
@@ -197,7 +211,28 @@ def find_suffix_chain(word: str, start_pos: str, root: str,
 
     # Base Case
     if not rest:
-        return [([], start_pos)]
+        results = [([], start_pos)]
+
+        if start_pos in SUFFIX_TRANSITIONS:
+            for target_pos, suffix_obj, suffix_forms in _suffix_iter(start_pos, root, current_chain):
+                if "" not in suffix_forms:
+                    continue
+                if not suffix_obj.is_unique:
+                    continue
+                if not _can_apply_suffix(current_chain, suffix_obj):
+                    continue
+
+                subchains = find_suffix_chain(
+                    word, target_pos,
+                    root,
+                    current_chain + [suffix_obj],
+                    visited,
+                    shared_cache
+                )
+                for chain, final_pos in subchains:
+                    results.append(([suffix_obj] + chain, final_pos))
+
+        return results
 
     if start_pos not in SUFFIX_TRANSITIONS:
         return []
@@ -215,19 +250,14 @@ def find_suffix_chain(word: str, start_pos: str, root: str,
 
     for target_pos, suffix_obj, suffix_forms in _iter:
 
-            # --- HIERARCHY VALIDATION ---
-            if current_chain:
-                last_suffix = current_chain[-1]
-                if not is_valid_transition(last_suffix, suffix_obj):
-                    continue
-
-            # --- UNIQUENESS CHECK ---
-            if suffix_obj.is_unique:
-                if any(s.name == suffix_obj.name for s in current_chain):
-                    continue
+            if not _can_apply_suffix(current_chain, suffix_obj):
+                continue
 
             # --- FORM MATCHING ---
             for suffix_form in suffix_forms:
+                if suffix_form == "":
+                    continue
+
                 sf_len = len(suffix_form)
                 if sf_len > len(rest):
                     continue

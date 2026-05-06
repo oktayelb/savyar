@@ -3,7 +3,7 @@ import util.word_methods as wrd
 
 VOWELS = ["a","e","ı","i","o","ö","u","ü"]
 
-PAST_OR_CONDITIONAL_SUFFIXES = {"pasttense_di", "if_se", "wish_suffix"}
+PAST_OR_CONDITIONAL_SUFFIXES = {"pasttense_di", "if_se", "wish_suffix","pasttense_noundi"}
 NEGATIVE_SUFFIXES = {"negative_me", "negative_able"}
 
 

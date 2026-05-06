@@ -23,8 +23,8 @@ class Copula(Suffix):
         super().__init__(
             name=name,
             suffix=suffix,
-            comes_to=Type.NOUN,
-            makes=Type.NOUN,
+            comes_to=comes_to,
+            makes=makes,
             form_function=None, # Force the use of the overridden _default_form
             has_major_harmony=has_major_harmony,
             has_minor_harmony=has_minor_harmony,
@@ -52,6 +52,7 @@ class Copula(Suffix):
 
         if word and word[-1] in VOWELS:  # If the last character is a vowel, we need to consider buffer consonants
             if suffix_obj.needs_y_buffer:
+                candidates.remove(base)
                 candidates.append('y' + base)
 
         return candidates

@@ -12,6 +12,8 @@ class MLConfig:
     # --- File Paths ---
     model_path: Path = "ml/model.pt"
     training_count_file: Path = DATA_DIR / "training_count.txt"
+    device: str = "cuda"
+    allow_cpu_fallback: bool = False
     
     # --- Model Architecture ---
     # Vocab size is dynamic (passed at runtime), others are static
@@ -56,7 +58,7 @@ class MLConfig:
     mlm_weight: float = 0.2
 
     # --- Bulk-training defaults ---
-    bulk_epochs: int = 10  
+    bulk_epochs: int = 11
     bulk_batch_size: int = 128
 
     # --- LR Schedule ---

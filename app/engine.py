@@ -16,7 +16,7 @@ import util.word_methods as wrd
 from util.word_methods import tr_lower
 from app.data_manager import DataManager
 import app.nlp_pipeline as nlp
-from ml.ml_ranking_model import SentenceDisambiguator, Trainer, build_sentence_sequence
+from ml.ml_ranking_model import SentenceDisambiguator, Trainer, build_sentence_sequence, resolve_torch_device
 from ml.config import config
 from util.words.closed_class import CLOSED_CLASS_TOKEN_SPECS
 
@@ -188,11 +188,13 @@ def get_top_sentence_predictions(word_data: List[Dict], trainer, top_k: int = 10
 class WorkflowEngine:
     def __init__(self):
         self.data_manager = DataManager()
+        self.device = resolve_torch_device()
         self.model = SentenceDisambiguator(
             suffix_vocab_size=len(sfx.ALL_SUFFIXES),
             closed_class_vocab_size=len(CLOSED_CLASS_TOKEN_SPECS),
+            device=self.device,
         )
-        self.trainer = Trainer(model=self.model)
+        self.trainer = Trainer(model=self.model, device=self.device)
         self.training_count = self.data_manager.load_training_count()
         self.decomp_cache = {}
 
@@ -624,8 +626,12 @@ class WorkflowEngine:
         tmp_dir = tempfile.mkdtemp(prefix="savyar_kfold_")
         def fold_runner(train_seqs, val_seqs, fold_idx: int):
             fold_path = os.path.join(tmp_dir, f"fold_{fold_idx}.pt")
-            model = SentenceDisambiguator(suffix_vocab_size=len(sfx.ALL_SUFFIXES), closed_class_vocab_size=len(CLOSED_CLASS_TOKEN_SPECS))
-            trainer = Trainer(model=model, path=fold_path)
+            model = SentenceDisambiguator(
+                suffix_vocab_size=len(sfx.ALL_SUFFIXES),
+                closed_class_vocab_size=len(CLOSED_CLASS_TOKEN_SPECS),
+                device=self.device,
+            )
+            trainer = Trainer(model=model, path=fold_path, device=self.device)
             trainer.train_bulk(list(train_seqs), validation_seqs=None)
             stats = trainer.validate(list(val_seqs))
             del trainer, model

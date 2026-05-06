@@ -261,7 +261,6 @@ Erfelek
 Ergani
 Ermenek
 Ermeni
-Ermenice
 Eros
 Eruh
 Erzin
@@ -269,11 +268,9 @@ Erzincan
 Erzurum
 Eskil
 Eskimo
-Eskimoca
 Eskipazar
 Eskişehir
 Esperanto
-Esperantocu
 Espiye
 Eti
 Etimesgut
@@ -8422,7 +8419,7 @@ gerilim
 gerilimölçer
 geriliş
 gerilla
-geriz
+gerizekalı
 germanyum
 germek
 gerzek
@@ -21391,7 +21388,6 @@ tapınma
 tapınış
 tapır
 tapırtı
-tar
 taraba
 taraf
 tarafeyn

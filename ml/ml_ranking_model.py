@@ -1,4 +1,5 @@
 import math
+import os
 import random
 import warnings
 
@@ -32,6 +33,48 @@ from util.suffix import SuffixGroup, Type
 
 # Enable cuDNN auto-tuner
 torch.backends.cudnn.benchmark = True
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _debug_gpu_enabled() -> bool:
+    """Enable with SAVYAR_DEBUG_GPU=1 to print GPU/batch diagnostics."""
+    return _env_flag("SAVYAR_DEBUG_GPU")
+
+
+def resolve_torch_device(device: Optional[Any] = None) -> torch.device:
+    requested = str(device or os.environ.get("SAVYAR_TORCH_DEVICE") or config.device).strip().lower()
+    allow_cpu = bool(config.allow_cpu_fallback or _env_flag("SAVYAR_ALLOW_CPU"))
+
+    if requested in {"auto", ""}:
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if allow_cpu:
+            warnings.warn("CUDA is unavailable; falling back to CPU because CPU fallback is enabled.")
+            return torch.device("cpu")
+        requested = "cuda"
+
+    if requested.startswith("cuda"):
+        if torch.cuda.is_available():
+            return torch.device(requested)
+        detail = (
+            f"CUDA was requested, but PyTorch cannot use it "
+            f"(torch.version.cuda={torch.version.cuda!r}, device_count={torch.cuda.device_count()})."
+        )
+        if allow_cpu:
+            warnings.warn(f"{detail} Falling back to CPU because CPU fallback is enabled.")
+            return torch.device("cpu")
+        raise RuntimeError(
+            f"{detail} Refusing to run training on CPU. Fix the CUDA/NVIDIA driver setup, "
+            "set SAVYAR_TORCH_DEVICE=cpu, or set SAVYAR_ALLOW_CPU=1 to permit CPU fallback."
+        )
+
+    if requested == "cpu":
+        return torch.device("cpu")
+
+    return torch.device(requested)
 
 # ============================================================================
 # SPECIAL TOKENS
@@ -122,56 +165,63 @@ def build_sentence_sequence(
 # ============================================================================
 
 class SentenceDisambiguator(nn.Module):
-    def __init__(self, suffix_vocab_size: int, closed_class_vocab_size: int = 0):
-        super().__init__()
-        self.embed_dim = config.embed_dim
-        self.vocab_size = SUFFIX_OFFSET + suffix_vocab_size + closed_class_vocab_size
+    def __init__(
+        self,
+        suffix_vocab_size: int,
+        closed_class_vocab_size: int = 0,
+        device: Optional[Any] = None,
+    ):
+        target_device = resolve_torch_device(device)
+        with torch.device(target_device):
+            super().__init__()
+            self.embed_dim = config.embed_dim
+            self.vocab_size = SUFFIX_OFFSET + suffix_vocab_size + closed_class_vocab_size
 
-        self.suffix_embed   = nn.Embedding(self.vocab_size, self.embed_dim, padding_idx=SPECIAL_PAD)
-        
-        self.category_embed = nn.Embedding(4, config.category_embed_dim)
-        self.group_embed    = nn.Embedding(len(GROUP_TO_ID), config.group_embed_dim)
-        self.comes_to_embed = nn.Embedding(max(TYPE_TO_ID.values()) + 1, config.comes_makes_embed_dim)
-        self.makes_embed    = nn.Embedding(max(TYPE_TO_ID.values()) + 1, config.comes_makes_embed_dim)
-        self.wordpos_embed  = nn.Embedding(64, config.wordpos_embed_dim)
-        self.wordfinal_embed = nn.Embedding(2, config.wordfinal_embed_dim)
-        
-        self.pos_embed      = nn.Embedding(512, self.embed_dim)
+            self.suffix_embed = nn.Embedding(self.vocab_size, self.embed_dim, padding_idx=SPECIAL_PAD)
 
-        feature_width = (
-            self.embed_dim * 2 + 
-            config.category_embed_dim + 
-            config.group_embed_dim + 
-            config.comes_makes_embed_dim * 2 + 
-            config.wordpos_embed_dim + 
-            config.wordfinal_embed_dim
-        )
+            self.category_embed = nn.Embedding(4, config.category_embed_dim)
+            self.group_embed = nn.Embedding(len(GROUP_TO_ID), config.group_embed_dim)
+            self.comes_to_embed = nn.Embedding(max(TYPE_TO_ID.values()) + 1, config.comes_makes_embed_dim)
+            self.makes_embed = nn.Embedding(max(TYPE_TO_ID.values()) + 1, config.comes_makes_embed_dim)
+            self.wordpos_embed = nn.Embedding(64, config.wordpos_embed_dim)
+            self.wordfinal_embed = nn.Embedding(2, config.wordfinal_embed_dim)
 
-        self.input_proj = nn.Sequential(
-            nn.Linear(feature_width, 512),
-            nn.GELU(),
-            nn.Linear(512, self.embed_dim)
-        )
+            self.pos_embed = nn.Embedding(512, self.embed_dim)
 
-        layer = nn.TransformerEncoderLayer(
-            d_model=self.embed_dim,
-            nhead=config.num_heads,
-            dim_feedforward=self.embed_dim * 4,
-            dropout=config.dropout,
-            batch_first=True,
-            activation='gelu',
-            norm_first=True,   
-        )
-        self.transformer = nn.TransformerEncoder(layer, num_layers=config.num_layers)
+            feature_width = (
+                self.embed_dim * 2 +
+                config.category_embed_dim +
+                config.group_embed_dim +
+                config.comes_makes_embed_dim * 2 +
+                config.wordpos_embed_dim +
+                config.wordfinal_embed_dim
+            )
 
-        self.lm_head = nn.Linear(self.embed_dim, self.vocab_size, bias=False)
-        self.lm_head.weight = self.suffix_embed.weight
-        self.rank_head = nn.Sequential(
-            nn.LayerNorm(self.embed_dim),
-            nn.Linear(self.embed_dim, 1),
-        )
+            self.input_proj = nn.Sequential(
+                nn.Linear(feature_width, 512),
+                nn.GELU(),
+                nn.Linear(512, self.embed_dim)
+            )
 
-        self._init_weights()
+            layer = nn.TransformerEncoderLayer(
+                d_model=self.embed_dim,
+                nhead=config.num_heads,
+                dim_feedforward=self.embed_dim * 4,
+                dropout=config.dropout,
+                batch_first=True,
+                activation='gelu',
+                norm_first=True,
+            )
+            self.transformer = nn.TransformerEncoder(layer, num_layers=config.num_layers)
+
+            self.lm_head = nn.Linear(self.embed_dim, self.vocab_size, bias=False)
+            self.lm_head.weight = self.suffix_embed.weight
+            self.rank_head = nn.Sequential(
+                nn.LayerNorm(self.embed_dim),
+                nn.Linear(self.embed_dim, 1),
+            )
+
+            self._init_weights()
 
     def _init_weights(self):
         for name, p in self.named_parameters():
@@ -252,19 +302,24 @@ class SentenceDisambiguator(nn.Module):
 # ============================================================================
 
 class Trainer:
-    def __init__(self, model: SentenceDisambiguator, path: Optional[str] = None):
+    def __init__(
+        self,
+        model: SentenceDisambiguator,
+        path: Optional[str] = None,
+        device: Optional[Any] = None,
+    ):
         self.model = model
 
         self.checkpoint_frequency = config.checkpoint_frequency
         self.path                 = path if path is not None else str(config.model_path)
 
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = resolve_torch_device(device)
         self.model.to(self.device)
 
-        self.scaler = torch.amp.GradScaler('cuda', enabled=(self.device == 'cuda'))
+        self.scaler = torch.amp.GradScaler('cuda', enabled=(self.device.type == 'cuda'))
 
         if not config.use_torch_compile or not torch.cuda.is_available() or not hasattr(torch, 'compile'):
-            pass  
+            pass
         elif torch.version.cuda and hasattr(torch, 'compile'):
             import platform
             if platform.system() != 'Windows':
@@ -273,8 +328,11 @@ class Trainer:
                 except Exception:
                     pass
 
+        # IMPORTANT: use self.model here, not the original model argument.
+        # If torch.compile wrapped the model above, the optimizer must track
+        # the active module used in forward/backward.
         self.optimizer = torch.optim.AdamW(
-            model.parameters(),
+            self.model.parameters(),
             lr=config.learning_rate,
             weight_decay=config.weight_decay,
             betas=(0.9, 0.999),
@@ -301,6 +359,22 @@ class Trainer:
             print(f"Starting fresh (no checkpoint found at {self.path})")
         except Exception as e:
             print(f"Could not load checkpoint: {e}")
+
+        if _debug_gpu_enabled():
+            print(
+                "[GPU DEBUG] Trainer initialized:",
+                f"device={self.device}",
+                f"cuda_available={torch.cuda.is_available()}",
+                f"torch_cuda={torch.version.cuda}",
+                f"device_count={torch.cuda.device_count()}",
+                flush=True,
+            )
+            if self.device.type == "cuda":
+                print(
+                    "[GPU DEBUG] CUDA device:",
+                    torch.cuda.get_device_name(self.device),
+                    flush=True,
+                )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -347,39 +421,37 @@ class Trainer:
         self, seqs: List[FlatSequence]
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         max_len = max(len(seq[0]) for seq in seqs)
-        bsz = len(seqs)
 
-        pin = self.device == 'cuda'
-        s_t    = torch.full((bsz, max_len), SPECIAL_PAD,        dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), SPECIAL_PAD,        dtype=torch.long)
-        c_t    = torch.full((bsz, max_len), CATEGORY_SPECIAL,   dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), CATEGORY_SPECIAL,   dtype=torch.long)
-        g_t    = torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long)
-        ct_t   = torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long)
-        m_t    = torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long)
-        wp_t   = torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), SPECIAL_FEATURE_ID, dtype=torch.long)
-        wf_t   = torch.full((bsz, max_len), WORD_FINAL_NO,      dtype=torch.long).pin_memory() if pin else torch.full((bsz, max_len), WORD_FINAL_NO,      dtype=torch.long)
-        p_mask = torch.ones((bsz, max_len), dtype=torch.bool)
+        suffix_rows: List[List[int]] = []
+        category_rows: List[List[int]] = []
+        group_rows: List[List[int]] = []
+        comes_to_rows: List[List[int]] = []
+        makes_rows: List[List[int]] = []
+        word_pos_rows: List[List[int]] = []
+        word_final_rows: List[List[int]] = []
+        pad_mask_rows: List[List[bool]] = []
 
-        for i, (sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final) in enumerate(seqs):
+        for sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final in seqs:
             L = len(sids)
-            s_t[i, :L]    = torch.tensor(sids, dtype=torch.long)
-            c_t[i, :L]    = torch.tensor(cids, dtype=torch.long)
-            g_t[i, :L]    = torch.tensor(gids, dtype=torch.long)
-            ct_t[i, :L]   = torch.tensor(comes_to_ids, dtype=torch.long)
-            m_t[i, :L]    = torch.tensor(makes_ids, dtype=torch.long)
-            wp_t[i, :L]   = torch.tensor(word_pos_ids, dtype=torch.long)
-            wf_t[i, :L]   = torch.tensor(word_final, dtype=torch.long)
-            p_mask[i, :L] = False
+            pad_count = max_len - L
+            suffix_rows.append(list(sids) + [SPECIAL_PAD] * pad_count)
+            category_rows.append(list(cids) + [CATEGORY_SPECIAL] * pad_count)
+            group_rows.append(list(gids) + [SPECIAL_FEATURE_ID] * pad_count)
+            comes_to_rows.append(list(comes_to_ids) + [SPECIAL_FEATURE_ID] * pad_count)
+            makes_rows.append(list(makes_ids) + [SPECIAL_FEATURE_ID] * pad_count)
+            word_pos_rows.append(list(word_pos_ids) + [SPECIAL_FEATURE_ID] * pad_count)
+            word_final_rows.append(list(word_final) + [WORD_FINAL_NO] * pad_count)
+            pad_mask_rows.append([False] * L + [True] * pad_count)
 
-        non_blocking = self.device == 'cuda'
         return (
-            s_t.to(self.device, non_blocking=non_blocking),
-            c_t.to(self.device, non_blocking=non_blocking),
-            g_t.to(self.device, non_blocking=non_blocking),
-            ct_t.to(self.device, non_blocking=non_blocking),
-            m_t.to(self.device, non_blocking=non_blocking),
-            wp_t.to(self.device, non_blocking=non_blocking),
-            wf_t.to(self.device, non_blocking=non_blocking),
-            p_mask.to(self.device, non_blocking=non_blocking),
+            torch.tensor(suffix_rows, dtype=torch.long, device=self.device),
+            torch.tensor(category_rows, dtype=torch.long, device=self.device),
+            torch.tensor(group_rows, dtype=torch.long, device=self.device),
+            torch.tensor(comes_to_rows, dtype=torch.long, device=self.device),
+            torch.tensor(makes_rows, dtype=torch.long, device=self.device),
+            torch.tensor(word_pos_rows, dtype=torch.long, device=self.device),
+            torch.tensor(word_final_rows, dtype=torch.long, device=self.device),
+            torch.tensor(pad_mask_rows, dtype=torch.bool, device=self.device),
         )
 
     def _compute_focal_loss(
@@ -483,9 +555,20 @@ class Trainer:
         try:
             s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(flat)
 
+            if _debug_gpu_enabled():
+                print(
+                    "[GPU DEBUG] training batch:",
+                    f"sets={len(candidate_sets)}",
+                    f"flat_sequences={len(flat)}",
+                    f"tensor_shape={tuple(s_t.shape)}",
+                    f"device={s_t.device}",
+                    f"global_step={self.global_step}",
+                    flush=True,
+                )
+
             self.model.train()
             self.optimizer.zero_grad()
-            use_amp = self.device == 'cuda'
+            use_amp = self.device.type == 'cuda'
             
             temperature = config.ranking_temperature
             mlm_weight = config.mlm_weight
@@ -541,7 +624,7 @@ class Trainer:
             
         except torch.cuda.OutOfMemoryError:
             self.optimizer.zero_grad(set_to_none=True)
-            if self.device == 'cuda':
+            if self.device.type == 'cuda':
                 torch.cuda.empty_cache()
             if len(candidate_sets) <= 1:
                 raise
@@ -625,6 +708,13 @@ class Trainer:
             return False
         topk = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:max(1, k)]
         return 0 in topk
+
+    @staticmethod
+    def _topk_hit_tensor(scores: torch.Tensor, k: int) -> bool:
+        if scores.numel() == 0:
+            return False
+        topk = scores.topk(min(max(1, k), scores.numel())).indices
+        return bool((topk == 0).any().item())
 
     @staticmethod
     def _suffix_name_for_token_id(token_id: int) -> Optional[str]:
@@ -814,7 +904,30 @@ class Trainer:
                 self._add_to_replay(*cands[0])
 
         trainable_sets = [cands for cands in candidate_sets if len(cands) >= 2]
+
+        if _debug_gpu_enabled():
+            total_candidates = sum(len(cands) for cands in candidate_sets)
+            trainable_candidates = sum(len(cands) for cands in trainable_sets)
+            print(
+                "[GPU DEBUG] train_bulk input:",
+                f"device={self.device}",
+                f"cuda_available={torch.cuda.is_available()}",
+                f"total_sets={len(candidate_sets)}",
+                f"trainable_sets={len(trainable_sets)}",
+                f"skipped_sets_lt_2_candidates={len(candidate_sets) - len(trainable_sets)}",
+                f"total_candidate_sequences={total_candidates}",
+                f"trainable_candidate_sequences={trainable_candidates}",
+                f"batch_size={batch_size}",
+                f"max_candidate_sequences_per_batch={config.max_candidate_sequences_per_batch}",
+                flush=True,
+            )
+
         if not trainable_sets:
+            print(
+                "No trainable candidate sets found. Each training item needs at least "
+                "one gold sequence and one negative/candidate sequence; otherwise no "
+                "optimizer step is run and the GPU will remain idle."
+            )
             return 0.0
 
         # Build dynamic learning rate schedule exactly matched to total steps
@@ -957,22 +1070,22 @@ class Trainer:
                 for batch_sets in self._candidate_batches(raw_batch_sets, batch_size):
                     flat = [seq for cands in batch_sets for seq in cands]
                     sizes = [len(cands) for cands in batch_sets]
-                    scores = self.score_flat_sequences(flat)
+                    scores = self.score_flat_sequences_tensor(flat)
                     offset = 0
                     losses = []
                     for set_idx, size in enumerate(sizes):
                         group = scores[offset:offset + size]
                         # Must apply temperature during validation loss calc for parity with training
-                        logits = (torch.tensor(group, dtype=torch.float, device=self.device) / config.ranking_temperature).unsqueeze(0)
+                        logits = (group / config.ranking_temperature).unsqueeze(0)
                         target = torch.zeros(1, dtype=torch.long, device=self.device)
                         losses.append(F.cross_entropy(logits, target).item())
                         total += 1
-                        best_idx = max(range(len(group)), key=lambda i: group[i])
+                        best_idx = int(torch.argmax(group).item())
                         if best_idx == 0:
                             correct += 1
-                        if self._topk_hit(group, 2):
+                        if self._topk_hit_tensor(group, 2):
                             top2 += 1
-                        if self._topk_hit(group, 3):
+                        if self._topk_hit_tensor(group, 3):
                             top3 += 1
                         gold_seq = batch_sets[set_idx][0]
                         pred_seq = batch_sets[set_idx][best_idx]
@@ -990,7 +1103,8 @@ class Trainer:
                             if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
                         ]
                         self._update_suffix_metric_buckets(suffix_buckets, gold_tokens, pred_tokens)
-                        margins.append(group[0] - max(group[1:]))
+                        if group.numel() > 1:
+                            margins.append(float((group[0] - group[1:].max()).item()))
                         offset += size
                     total_loss += sum(losses) / len(losses)
                     n_batches += 1
@@ -1081,16 +1195,21 @@ class Trainer:
     def score_flat_sequences(self, seqs: List[FlatSequence]) -> List[float]:
         if not seqs:
             return []
+        return self.score_flat_sequences_tensor(seqs).detach().cpu().tolist()
+
+    def score_flat_sequences_tensor(self, seqs: List[FlatSequence]) -> torch.Tensor:
+        if not seqs:
+            return torch.empty(0, dtype=torch.float, device=self.device)
         self.model.eval()
         chunk_size = max(1, int(config.max_candidate_sequences_per_batch))
-        all_scores: List[float] = []
+        chunks: List[torch.Tensor] = []
         with torch.no_grad():
             for start in range(0, len(seqs), chunk_size):
                 chunk = seqs[start:start + chunk_size]
                 s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(chunk)
                 scores = self.model.rank_scores(s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
-                all_scores.extend(scores.detach().cpu().tolist())
-        return all_scores
+                chunks.append(scores.detach())
+        return torch.cat(chunks) if chunks else torch.empty(0, dtype=torch.float, device=self.device)
 
     def predict(
         self,

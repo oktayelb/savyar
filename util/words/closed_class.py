@@ -219,10 +219,10 @@ COORDINATING_CONJUNCTIONS = [
     Conjunction("ne", "coordinating"),         # neither...nor (part of ne...ne)
     Conjunction("da", "coordinating"),         # also / too
     Conjunction("de", "coordinating"),         # also / too
-    # Conjunction("ile", "coordinating"),        # with / and
-    # Conjunction("ama", "coordinating"),        # but
+    Conjunction("ile", "coordinating"),        # with / and
+    Conjunction("ama", "coordinating"),        # but
     # Conjunction("fakat", "coordinating"),      # but
-    # Conjunction("ancak", "coordinating"),      # however
+    Conjunction("ancak", "coordinating"),      # however
     # Conjunction("lakin", "coordinating"),      # but (literary)
     # Conjunction("veya", "coordinating"),       # or
     # Conjunction("ya da", "coordinating"),      # or
@@ -236,11 +236,11 @@ COORDINATING_CONJUNCTIONS = [
 
 SUBORDINATING_CONJUNCTIONS = [
     Conjunction("çünkü", "subordinating"),     # because
-    Conjunction("zira", "subordinating"),      # because (formal)
+    #Conjunction("zira", "subordinating"),      # because (formal)
     Conjunction("ki", "subordinating"),        # that / because
     Conjunction("iken", "subordinating"),      # while
     Conjunction("diye", "subordinating"),      # so that / saying
-    # Conjunction("eğer", "subordinating"),      # if
+    Conjunction("eğer", "subordinating"),      # if
     # Conjunction("şayet", "subordinating"),     # if (formal)
     # Conjunction("madem", "subordinating"),     # since / given that
     # Conjunction("mademki", "subordinating"),   # since (emphatic)

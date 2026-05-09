@@ -78,6 +78,12 @@ class AppCLI:
             print(f"    Final POS: {vm['final_pos']}")
         print("-" * 70)
 
+    def _format_sentence_parse_failure(self, failures: List[Dict[str, Any]]) -> str:
+        if not failures:
+            return "Could not parse sentence."
+        words = ", ".join(f"{f['index']}: '{f['word']}'" for f in failures)
+        return f"Could not parse sentence. Problem word(s): {words}"
+
     def show_stats(self, stats: Dict[str, Any]):
         print("\n Training Statistics:")
         print(f"  Total examples: {stats['total']}")
@@ -160,9 +166,9 @@ class AppCLI:
             if not words:
                 self.show_message(f"\n Could not parse: {raw_sentence}")
                 return False
-            analyses = self.engine.analyze_sentence(words)
+            analyses, failures = self.engine.analyze_sentence_with_failures(words)
             if analyses is None:
-                self.show_message(f"\n Could not parse all words in: {raw_sentence}")
+                self.show_message(f"\n {self._format_sentence_parse_failure(failures)}")
                 return False
             self.clear_screen()
             self.show_message(f"Sentence: {raw_sentence}\n")
@@ -239,9 +245,9 @@ class AppCLI:
             self.show_message("\n Could not parse sentence.")
             return False
 
-        analyses = self.engine.analyze_sentence(words)
+        analyses, failures = self.engine.analyze_sentence_with_failures(words)
         if analyses is None:
-            self.show_message("\n Could not parse sentence.")
+            self.show_message(f"\n {self._format_sentence_parse_failure(failures)}")
             return False
 
         self.clear_screen()

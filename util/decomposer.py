@@ -316,7 +316,6 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
     suffix chains for the same remaining text + POS + last_group context.\n
     The lru_cache rapidly short-circuits re-evaluations across entire files.
     """
-
     if (not force) and wrd.is_non_ben_pronoun_surface(word):
         return []
 
@@ -328,13 +327,11 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
     for i in range(1, len(word) + 1):
         root = word[:i]
 
-        # is_derived_word is a noun-side check: it flags dictionary nouns that
-        # look like verb+derivation (e.g. "alıcı" = al+ıcı, "konuş" = kon+uş).
-        # It must NOT block the verb interpretation — "konuş" is also a valid
-        # verb root because "konuşmak" is in the dictionary independently.
-        root_is_derived = i < len(word) and wrd.is_derived_word(root)
+        if root in wrd.UNSUFFIXABLE_SET:
+            continue
 
-        if force or (wrd.can_be_noun(root) and not root_is_derived):
+
+        if force or wrd.can_be_noun(root) :
             append_analysis(word, "noun", root, analyses, shared_cache)
 
         if force or wrd.can_be_verb(root):
@@ -343,10 +340,9 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
         if (not force ) and (not wrd.exists(root)):
             root_pairs = wrd.get_root_candidates(word[:i])
             for lemma_root in root_pairs:
-                lemma_is_derived = i < len(word) and wrd.is_derived_word(lemma_root)
                 virtual_word = lemma_root + word[i:]
 
-                if wrd.can_be_noun(lemma_root) and not lemma_is_derived:
+                if wrd.can_be_noun(lemma_root):
                     append_analysis(virtual_word, "noun", lemma_root, analyses, shared_cache)
 
                 if wrd.can_be_verb(lemma_root):

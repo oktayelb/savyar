@@ -828,6 +828,7 @@ saç
 sağ
 sağal
 sağalt
+seç
 sek
 sekit
 selbet

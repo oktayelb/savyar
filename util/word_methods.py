@@ -11,6 +11,7 @@ def tr_lower(s: str) -> str:
 
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "words.txt"
 VERB_DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "verbs.txt"
+UNSUFFIXABLE_FILE = Path(__file__).resolve().parent.parent / "data" / "ekistemez.txt"
 
 
 ## Vowel Classes
@@ -41,18 +42,22 @@ class MinorHarmony(Enum):
 # --- Centralized Dictionary State ---
 WORDS_SET: set = set()
 VERB_SET: set = set()
+UNSUFFIXABLE_SET: set = set()
 
 def _load_dictionary():
-    global WORDS_SET, VERB_SET
+    global WORDS_SET, VERB_SET, UNSUFFIXABLE_SET
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             WORDS_SET = {line.strip() for line in f if line.strip()}
         with open(VERB_DATA_FILE, "r", encoding="utf-8") as f:
             VERB_SET = {line.strip() for line in f if line.strip()}
+        with open(UNSUFFIXABLE_FILE, "r", encoding="utf-8") as f:
+            UNSUFFIXABLE_SET = {line.strip() for line in f if line.strip()}
     except FileNotFoundError:
         print(f"Warning: {DATA_FILE} or {VERB_DATA_FILE} not found")
         WORDS_SET = set()
         VERB_SET = set()
+        UNSUFFIXABLE_SET = set()
 
 # Initialize on module load
 _load_dictionary()
@@ -60,19 +65,13 @@ _load_dictionary()
 def delete_word(word: str) -> bool:
     """Removes a word from the in-memory dictionary state."""
     word = tr_lower(word.strip())
-    removed = False
 
     if word in WORDS_SET:
         WORDS_SET.discard(word)
-        removed = True
-
+        
     if word in VERB_SET:
         VERB_SET.discard(word)
-        removed = True
-
-    if removed:
-        _DERIVED_CACHE.clear()
-        return True
+    
 
     return False
 
@@ -155,81 +154,6 @@ def minor_harmony(word: str) -> MinorHarmony | None:
 def ends_with_consonant(word: str) -> bool:
     """Check if word ends with a consonant"""
     return word and word[-1] not in VOWELS
-
-# --- Derived-word detection ---
-# Common Turkish derivational suffix patterns that create new dictionary entries.
-# If a word ends with one of these AND stripping it yields a valid root,
-# the word is likely derived (not a true root).
-_DERIVATIONAL_ENDINGS_NOUN = [
-    # Noun-from-verb
-    ('ıcı', 'verb'), ('ici', 'verb'), ('ucu', 'verb'), ('ücü', 'verb'),
-    ('gıcı', 'verb'), ('gici', 'verb'), ('gucu', 'verb'), ('gücü', 'verb'),
-    ('ma', 'verb'), ('me', 'verb'),
-    ('ış', 'verb'), ('iş', 'verb'), ('uş', 'verb'), ('üş', 'verb'),
-    # Noun-from-noun
-    ('lık', 'noun'), ('lik', 'noun'), ('luk', 'noun'), ('lük', 'noun'),
-    ('cı', 'noun'), ('ci', 'noun'), ('cu', 'noun'), ('cü', 'noun'),
-    ('çı', 'noun'), ('çi', 'noun'), ('çu', 'noun'), ('çü', 'noun'),
-    ('sız', 'noun'), ('siz', 'noun'), ('suz', 'noun'), ('süz', 'noun'),
-    ('lı', 'noun'), ('li', 'noun'), ('lu', 'noun'), ('lü', 'noun'),
-]
-
-_DERIVATIONAL_ENDINGS_VERB = [
-    # Verb-from-verb (reciprocal, reflexive, causative, passive)
-    ('ışmak', 'verb'), ('işmek', 'verb'), ('uşmak', 'verb'), ('üşmek', 'verb'),
-    ('ınmak', 'verb'), ('inmek', 'verb'), ('unmak', 'verb'), ('ünmek', 'verb'),
-    ('dırmak', 'verb'), ('dirmek', 'verb'), ('tırmak', 'verb'), ('tirmek', 'verb'),
-    ('durmak', 'verb'), ('dürmek', 'verb'), ('turmak', 'verb'), ('türmek', 'verb'),
-    ('ılmak', 'verb'), ('ilmek', 'verb'), ('ulmak', 'verb'), ('ülmek', 'verb'),
-    # Verb-from-noun
-    ('lamak', 'noun'), ('lemek', 'noun'),
-]
-
-# Cache of words confirmed as derived
-_DERIVED_CACHE: dict = {}
-
-def is_derived_word(word: str) -> bool:
-    """
-    Returns True if `word` is likely a derived form (not a true root).
-    Checks if stripping a common derivational suffix yields a valid shorter root.
-    """
-    if word in _DERIVED_CACHE:
-        return _DERIVED_CACHE[word]
-
-    result = False
-
-    # Check noun roots that might be derived
-    if word in WORDS_SET:
-        for ending, source_pos in _DERIVATIONAL_ENDINGS_NOUN:
-            if word.endswith(ending) and len(word) > len(ending) + 1:
-                stem = word[:-len(ending)]
-                if source_pos == 'verb':
-                    if can_be_verb(stem):
-                        result = True
-                        break
-                else:
-                    if can_be_noun(stem):
-                        result = True
-                        break
-
-    # Check verb infinitives that might be derived
-    if not result and word in WORDS_SET and (word.endswith('mak') or word.endswith('mek')):
-        verb_root = word[:-3]
-        for ending, source_pos in _DERIVATIONAL_ENDINGS_VERB:
-            suffix_part = ending[:-3]  # strip mak/mek from the ending
-            if verb_root.endswith(suffix_part) and len(verb_root) > len(suffix_part) + 1:
-                stem = verb_root[:-len(suffix_part)]
-                if source_pos == 'verb':
-                    if can_be_verb(stem):
-                        result = True
-                        break
-                else:
-                    if can_be_noun(stem):
-                        result = True
-                        break
-
-    _DERIVED_CACHE[word] = result
-    return result
 
 
 def get_root_candidates(surface_root: str) -> List[str]:

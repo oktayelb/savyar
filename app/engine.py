@@ -289,8 +289,6 @@ class WorkflowEngine:
         return analyses
 
     def commit_word(self, analysis: Dict[str, Any], selected_indices: List[int]) -> Tuple[float, List[str]]:
-        from util.words.closed_class import ClosedClassMarker as _CCMarker
-
         word = analysis['word']
         word_lower = tr_lower(word)
         correct_decomps = [analysis['decomps'][i] for i in selected_indices]
@@ -298,28 +296,8 @@ class WorkflowEngine:
 
         log_entries: List[Dict[str, Any]] = []
         for decomp in correct_decomps:
-            root, pos, chain, final_pos = decomp
-            suffix_info: List[Dict[str, Any]] = []
-            if chain and not isinstance(chain[0], _CCMarker):
-                current = root
-                accepted_chain = []
-                for suffix in chain:
-                    forms = suffix.form(current, current_chain=accepted_chain)
-                    rest = word_lower[len(current):]
-                    used_form = ""
-                    for f in forms:
-                        if f and rest.startswith(f):
-                            used_form = f
-                            break
-                    if not used_form:
-                        used_form = forms[0] if forms else ""
-                    suffix_info.append({
-                        'name': suffix.name,
-                        'form': used_form,
-                        'makes': suffix.makes.name if suffix.makes else None,
-                    })
-                    current += used_form
-                    accepted_chain.append(suffix)
+            root, _, _, final_pos = decomp
+            suffix_info = nlp.build_suffix_log_info(word, decomp)
             log_entries.append({'word': word, 'root': root, 'suffixes': suffix_info, 'final_pos': final_pos})
         self.data_manager.log_decompositions(log_entries)
 
@@ -356,8 +334,6 @@ class WorkflowEngine:
         return find_matching_combinations(word_data, target_str, self.trainer)
 
     def commit_sentence_training(self, sentence: str, words: List[str], word_data: List[Dict], correct_combo: List[int]) -> float:
-        from util.words.closed_class import ClosedClassMarker as _CCMarker
-
         confirmed_chains = []
         log_entries = []
 
@@ -368,25 +344,8 @@ class WorkflowEngine:
             typing_str = wd['typing_strings'][correct_d_idx]
             confirmed_chain = wd['encoded_chains'][correct_d_idx]
             confirmed_chains.append(confirmed_chain)
-            root, pos, chain, final_pos = decomps[correct_d_idx]
-            suffix_info = []
-            word_lower = tr_lower(word)
-            if chain and not isinstance(chain[0], _CCMarker):
-                current = root
-                accepted_chain = []
-                for suffix in chain:
-                    forms = suffix.form(current, current_chain=accepted_chain)
-                    rest = word_lower[len(current):]
-                    used_form = ""
-                    for f in forms:
-                        if f and rest.startswith(f):
-                            used_form = f
-                            break
-                    if not used_form:
-                        used_form = forms[0] if forms else ""
-                    suffix_info.append({'name': suffix.name, 'form': used_form, 'makes': suffix.makes.name if suffix.makes else None})
-                    current += used_form
-                    accepted_chain.append(suffix)
+            root, _, _, final_pos = decomps[correct_d_idx]
+            suffix_info = nlp.build_suffix_log_info(word, decomps[correct_d_idx])
             log_entries.append({
                 'word': word, 'morphology_string': typing_str,
                 'root': root, 'suffixes': suffix_info, 'final_pos': final_pos,

@@ -86,6 +86,45 @@ def match_decompositions(entries: List[Dict], decompositions: List[Tuple]) -> Li
     return indices
 
 
+def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any]]:
+    """Build log-friendly suffix metadata for a selected decomposition."""
+    root, _pos, chain, _final_pos = decomposition
+
+    if not chain or isinstance(chain[0], ClosedClassMarker):
+        return []
+
+    word_lower = tr_lower(word)
+    current = root
+    accepted_chain = []
+    suffix_info: List[Dict[str, Any]] = []
+
+    for suffix in chain:
+        if isinstance(suffix, ClosedClassMarker):
+            continue
+
+        forms = suffix.form(current, current_chain=accepted_chain)
+        rest = word_lower[len(current):]
+        used_form = ""
+
+        for form in forms:
+            if form and rest.startswith(form):
+                used_form = form
+                break
+
+        if not used_form:
+            used_form = forms[0] if forms else ""
+
+        suffix_info.append({
+            'name': suffix.name,
+            'form': used_form,
+            'makes': suffix.makes.name if suffix.makes else None,
+        })
+        current += used_form
+        accepted_chain.append(suffix)
+
+    return suffix_info
+
+
 def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, int, int, int, int]]:
     """Encode suffix chain directly from JSONL suffix dicts (name/makes strings)."""
     category_to_id = {'NOUN': 0, 'VERB': 1, 'noun': 0, 'verb': 1, 'Noun': 0, 'Verb': 1}

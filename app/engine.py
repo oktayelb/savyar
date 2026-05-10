@@ -271,12 +271,21 @@ class WorkflowEngine:
             nlp.score_and_sort(analysis, self.trainer)
         return analysis
 
-    def analyze_sentence(self, words: List[str]) -> Optional[List[Dict[str, Any]]]:
+    def analyze_sentence_with_failures(self, words: List[str]) -> Tuple[Optional[List[Dict[str, Any]]], List[Dict[str, Any]]]:
         if not words:
-            return None
+            return None, []
         analyses = nlp.analyze_words(words, include_closed_class=True)
-        if any(not a['decomps'] for a in analyses):
-            return None
+        failures = [
+            {'index': i + 1, 'word': a['word']}
+            for i, a in enumerate(analyses)
+            if not a['decomps']
+        ]
+        if failures:
+            return None, failures
+        return analyses, []
+
+    def analyze_sentence(self, words: List[str]) -> Optional[List[Dict[str, Any]]]:
+        analyses, _failures = self.analyze_sentence_with_failures(words)
         return analyses
 
     def commit_word(self, analysis: Dict[str, Any], selected_indices: List[int]) -> Tuple[float, List[str]]:

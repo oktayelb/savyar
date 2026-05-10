@@ -9465,6 +9465,7 @@ haykırtı
 haykırı
 haylaz
 haylazca
+hayli
 haymana
 haymatlos
 hayran
@@ -15719,7 +15720,7 @@ mobilyalı
 mobilyasız
 mobił
 mobiłize
-mobiłya
+mobilya
 mobiłyacı
 moda
 modacı

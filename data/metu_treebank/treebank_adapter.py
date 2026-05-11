@@ -657,47 +657,6 @@ def features_to_suffix_names(token):
 # =============================================================================
 
 
-
-# =============================================================================
-# DECOMPOSER MATCHING
-# =============================================================================
-
-def _try_add_verb_lemma_to_dict(lemma: str, treebank_says_verb: bool = False) -> bool:
-    """Make the decomposer able to find `lemma` as a verb root.
-
-    Two paths:
-      (1) lemma+mek/mak is already in the dictionary → the bare lemma is a
-          legitimate verb root that was simply absent as a standalone entry.
-      (2) treebank_says_verb=True: the treebank asserts this is a verb, but
-          neither the lemma nor its infinitive is in words.txt. We trust
-          the treebank and inject the right infinitive so can_be_verb works.
-
-    Returns True if anything was added.
-    """
-    import util.word_methods as wrd
-    lemma_lower = tr_lower(lemma)
-    if wrd.can_be_verb(lemma_lower):
-        return False  # decomposer can already find it
-
-    # Path (1): infinitive already known, bare lemma just missing
-    for inf in (lemma_lower + "mek", lemma_lower + "mak"):
-        if inf in wrd.WORDS_SET:
-            wrd.WORDS_SET.add(lemma_lower)
-            decompose.cache_clear()
-            return True
-
-    # Path (2): treebank ground truth — inject the matching infinitive
-    if treebank_says_verb and lemma_lower:
-        from util.word_methods import MajorHarmony, major_harmony
-        harmony = major_harmony(lemma_lower)
-        inf = lemma_lower + ("mak" if harmony == MajorHarmony.BACK else "mek")
-        wrd.WORDS_SET.add(inf)
-        decompose.cache_clear()
-        return True
-
-    return False
-
-
 def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
     """Build a word entry directly from treebank info, bypassing decomposer.
 

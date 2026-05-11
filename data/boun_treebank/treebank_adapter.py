@@ -700,28 +700,6 @@ def features_to_suffix_names(word, unmapped_sink):
     return suffix_names, unmapped_on_word, has_unmappable
 
 
-# =============================================================================
-# DECOMPOSER MATCHING  (mirrors the METU / Google adapters)
-# =============================================================================
-
-def _try_add_verb_lemma_to_dict(lemma, treebank_says_verb=False):
-    import util.word_methods as wrd
-    lemma_lower = tr_lower(lemma)
-    if wrd.can_be_verb(lemma_lower):
-        return False
-    for inf in (lemma_lower + "mek", lemma_lower + "mak"):
-        if inf in wrd.WORDS_SET:
-            wrd.WORDS_SET.add(lemma_lower)
-            decompose.cache_clear()
-            return True
-    if treebank_says_verb and lemma_lower:
-        from util.word_methods import MajorHarmony, major_harmony
-        harmony = major_harmony(lemma_lower)
-        inf = lemma_lower + ("mak" if harmony == MajorHarmony.BACK else "mek")
-        wrd.WORDS_SET.add(inf)
-        decompose.cache_clear()
-        return True
-    return False
 
 
 

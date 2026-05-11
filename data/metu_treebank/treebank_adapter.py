@@ -14,36 +14,19 @@ This gives us correct surface forms from the decomposer (no guessing morpheme bo
 
 """
 
-import json
 import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from util.decomposer import decompose, ALL_SUFFIXES
-from util.suffix import  Type
-from util.words.closed_class import CLOSED_CLASS_LOOKUP
-from util.word_methods import tr_lower
-import util.word_methods as wrd
-from data.treebank_vnoun import (
+from data.treebank_adapter_commons import (
     AMBIGUOUS_VNOUN,
-    has_unexpected_nounifier_is,
+    SUFFIX_BY_NAME,
+    adapt_normalized_treebank,
+    make_layer,
+    make_word,
     resolve_ambiguous_vnoun_suffixes,
 )
-
-# Name → suffix object lookup for building treebank-forced entries
-SUFFIX_BY_NAME = {s.name: s for s in ALL_SUFFIXES}
-
-# Quote-like characters to strip from surface/lemma before processing.
-# Some treebanks leak these into tokens (e.g. BOUN prefixes `"Müjdeler`).
-_QUOTE_CHARS = "\"'`‘’“”„«»‹›"
-
-def _strip_quotes(s):
-    if not s:
-        return s
-    for q in _QUOTE_CHARS:
-        s = s.replace(q, "")
-    return s
 
 # =============================================================================
 # TREEBANK FEATURE → SAVYAR SUFFIX NAME MAPPING
@@ -319,10 +302,10 @@ def merge_deriv_tokens(tokens):
       row 6: _ | yap | Verb | Verb | _      | 7 | DERIV
       row 7: yapamazlar | _ | Verb | Verb | Able|Neg|Aor|A3pl | 8 | SENTENCE
 
-    We merge these into a single entry with:
+    We merge these into a normalized word with:
       surface = 'yapamazlar'
       lemma = 'yap'
-      feature_chain = [('Verb', 'Verb', ''), ('Verb', 'Verb', 'Able|Neg|Aor|A3pl')]
+      feature_layers = [('Verb', 'Verb', ''), ('Verb', 'Verb', 'Able|Neg|Aor|A3pl')]
     """
     merged = []
     i = 0
@@ -369,21 +352,21 @@ def merge_deriv_tokens(tokens):
                     break
 
             if surface and lemma:
-                # Build feature chain: list of (upos, xpos, features) for each step
-                feature_chain = []
+                # Build normalized feature layers for each derivational step.
+                feature_layers = []
                 for ct in chain_tokens:
-                    feature_chain.append({
-                        "upos": ct["upos"],
-                        "xpos": ct["xpos"],
-                        "features": ct["features"],
-                    })
+                    feature_layers.append(make_layer(
+                        ct["upos"], ct["xpos"], ct["features"],
+                        lemma=ct["lemma"], surface=ct["surface"],
+                    ))
 
-                merged.append({
-                    "surface": surface,
-                    "lemma": lemma,
-                    "feature_chain": feature_chain,
-                    "is_deriv_chain": True,
-                })
+                merged.append(make_word(
+                    surface,
+                    lemma,
+                    feature_layers,
+                    is_multiword=True,
+                    is_deriv_chain=True,
+                ))
 
                 # Skip all tokens in this chain
                 # Mark head tokens so we don't double-process
@@ -398,16 +381,13 @@ def merge_deriv_tokens(tokens):
 
         # Normal (non-DERIV) token
         # Skip if this token was already consumed as part of a DERIV chain above
-        merged.append({
-            "surface": tok["surface"] if tok["surface"] != "_" else None,
-            "lemma": tok["lemma"],
-            "feature_chain": [{
-                "upos": tok["upos"],
-                "xpos": tok["xpos"],
-                "features": tok["features"],
-            }],
-            "is_deriv_chain": False,
-        })
+        merged.append(make_word(
+            tok["surface"] if tok["surface"] != "_" else None,
+            tok["lemma"],
+            [make_layer(tok["upos"], tok["xpos"], tok["features"], lemma=tok["lemma"], surface=tok["surface"])],
+            is_multiword=False,
+            is_deriv_chain=False,
+        ))
         i += 1
 
     # Filter out entries without surface forms
@@ -418,7 +398,7 @@ def merge_deriv_tokens(tokens):
 # FEATURE → SUFFIX MAPPING
 # =============================================================================
 
-def features_to_suffix_names(token):
+def features_to_suffix_names(word, _unmapped_sink=None):
     """Convert treebank feature chain to expected Savyar suffix name sequence.
 
     Returns (suffix_names: list[str], unmapped: list[str], has_unmappable: bool)
@@ -427,7 +407,7 @@ def features_to_suffix_names(token):
     unmapped = []
     has_unmappable = False
 
-    for step in token["feature_chain"]:
+    for step in word["feature_layers"]:
         upos = step["upos"]
         xpos = step["xpos"]
         feat_str = step["features"]
@@ -644,8 +624,8 @@ def features_to_suffix_names(token):
                 unmapped.append(feat)
 
     suffix_names = resolve_ambiguous_vnoun_suffixes(
-        token["surface"],
-        token["lemma"],
+        word["surface"],
+        word["lemma"],
         suffix_names,
         SUFFIX_BY_NAME,
     )
@@ -653,453 +633,46 @@ def features_to_suffix_names(token):
 
 
 # =============================================================================
-# MISMATCH DIAGNOSTICS
+# TREEBANK-SPECIFIC PIPELINE HOOKS
 # =============================================================================
 
-
-def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
-    """Build a word entry directly from treebank info, bypassing decomposer.
-
-    The treebank is ground truth. If the decomposer doesn't produce a matching
-    candidate, we still trust the treebank's analysis and build the entry from
-    the suffix names it tells us.
-
-    Uses SUFFIX_BY_NAME to look up real suffix objects for form/makes info.
-    Falls back to raw name strings if a suffix isn't found in our inventory.
-    """
-    surface_lower = tr_lower(surface)
-    root = tr_lower(lemma)
-
-    suffixes = []
-    current_stem = root
-    accepted_chain = []
-    for sname in expected_suffix_names:
-        sobj = SUFFIX_BY_NAME.get(sname)
-        if sobj:
-            makes_str = "VERB" if sobj.makes == Type.VERB else "NOUN"
-            try:
-                forms = sobj.form(current_stem, current_chain=accepted_chain)
-                form_str = ""
-                rest = surface_lower[len(current_stem):]
-                for form in forms:
-                    if form and rest.startswith(form):
-                        form_str = form
-                        break
-                if not form_str:
-                    form_str = forms[0] if forms else sobj.suffix
-            except Exception:
-                form_str = sobj.suffix
-            suffixes.append({
-                "name": sname,
-                "form": form_str,
-                "makes": makes_str,
-            })
-            accepted_chain.append(sobj)
-        else:
-            suffixes.append({
-                "name": sname,
-                "form": "",
-                "makes": "NOUN",
-            })
-        current_stem = current_stem + (suffixes[-1]["form"] or "")
-
-    morphology_parts = [root] + [s["form"] for s in suffixes if s["form"]]
-
-    return {
-        "word": surface_lower,
-        "morphology_string": " ".join(morphology_parts),
-        "root": root,
-        "suffixes": suffixes,
-        "final_pos": "verb" if suffixes and suffixes[-1]["makes"] == "VERB" else "noun",
-    }
+def should_skip_word(word):
+    first_step = word["feature_layers"][0]
+    return first_step["upos"] in {"Num", "Ques"}
 
 
-# =============================================================================
-# CLOSED-CLASS WORD ENTRY BUILDER
-# =============================================================================
-
-def _build_cc_entry(surface_lower, cc_category):
-    """Build a word entry for a closed-class word.
-
-    Looks up surface_lower in CLOSED_CLASS_LOOKUP, finds a match for
-    cc_category, and returns a JSONL word entry with the cc_XXX suffix name
-    so that match_decompositions + encode_suffix_chain can handle it.
-
-    Returns None if the word is not in CLOSED_CLASS_LOOKUP.
-    """
-    cc_entries = CLOSED_CLASS_LOOKUP.get(surface_lower, [])
-    if not cc_entries:
-        return None
-
-    # Find a CC object matching the expected category
-    matched_cc = None
-    for cc_obj in cc_entries:
-        if cc_obj.category == cc_category:
-            matched_cc = cc_obj
-            break
-    # Fallback: use any CC entry for this surface if category not found
-    if matched_cc is None:
-        matched_cc = cc_entries[0]
-
-    suffix_name = f"cc_{matched_cc.category}"
-    return {
-        "word": surface_lower,
-        "morphology_string": surface_lower,
-        "root": surface_lower,
-        "suffixes": [{"name": suffix_name, "form": "", "makes": "", "cc_surface": surface_lower}],
-        "final_pos": suffix_name,
-    }
+def closed_class_category(word):
+    first_step = word["feature_layers"][0]
+    first_upos = first_step["upos"]
+    first_xpos = first_step["xpos"]
+    if first_upos == "Pron" and first_xpos in PRON_XPOS:
+        return "pronoun"
+    return UPOS_TO_CC_CATEGORY.get(first_upos)
 
 
-# =============================================================================
-# MAIN ADAPTER
-# =============================================================================
+def metu_unmappable_context(word):
+    return [s["features"] for s in word["feature_layers"]]
+
 
 def adapt_treebank(treebank_path, output_path, stats_path=None, sentence_diagnostics_path=None):
     """Main entry point: convert treebank to JSONL training data."""
-
-    print(f"Parsing treebank: {treebank_path}")
-    sentences = parse_treebank(treebank_path)
-    print(f"Found {len(sentences)} sentences")
-
-    total_words = 0
-    matched_words = 0
-    forced_words = 0
-    unmatched_words = 0
-    unmappable_words = 0  # words with features Savyar doesn't have
-    no_suffix_words = 0   # bare roots (no suffixes to learn)
-    skipped_pos = 0       # skipped POS categories
-
-    matched_sentences = 0
-    partial_sentences = 0
-    failed_sentences = 0
-
-    output_entries = []
-    unmatched_log = []
-    sentence_diagnostics = []
-
-    skip_upos = {"Num", "Ques"}   # truly non-morphological; CC words handled below
-
-    for sent_idx, sentence in enumerate(sentences):
-        if sent_idx % 500 == 0:
-            print(f"  Processing sentence {sent_idx}/{len(sentences)}...")
-
-        # Build original sentence text
-        original_parts = [tok["surface"] for tok in sentence]
-        original_sentence = " ".join(original_parts)
-
-        word_entries = []
-        sentence_all_matched = True
-        sentence_has_any = False
-        sentence_unmappable = []
-        bare_root_words = []
-        skipped_words = []
-        trainable_words_in_sentence = 0
-
-        for tok in sentence:
-            surface = tok["surface"]
-            lemma = tok["lemma"]
-            total_words += 1
-
-            # Strip apostrophes and other quote-like chars (e.g. leading "
-            # from quoted-dialog tokens). Turkish orthography separates
-            # proper-noun roots with ' but it is not part of the morphology.
-            surface = _strip_quotes(surface)
-            lemma = _strip_quotes(lemma)
-
-            # Lowercase surface for decomposer compatibility
-            surface_lower = tr_lower(surface)
-
-            # ── Numeric / question words: skip as bare root ──
-            first_step = tok["feature_chain"][0]
-            first_upos = first_step["upos"]
-            first_xpos = first_step["xpos"]
-
-            if first_upos in skip_upos:
-                skipped_words.append(surface_lower)
-                bare_root_words.append(surface_lower)
-                word_entries.append({
-                    "word": surface_lower,
-                    "morphology_string": surface_lower,
-                    "root": surface_lower,
-                    "suffixes": [],
-                    "final_pos": "noun",
-                })
-                no_suffix_words += 1
-                continue
-
-            # ── Closed-class words: Conj, Postp, Adv, Det, Interj, Pron ──
-            cc_category = UPOS_TO_CC_CATEGORY.get(first_upos)
-            if first_upos == "Pron" and first_xpos in PRON_XPOS:
-                cc_category = "pronoun"
-
-            if cc_category:
-                entry = _build_cc_entry(surface_lower, cc_category)
-                if entry:
-                    word_entries.append(entry)
-                    matched_words += 1
-                    sentence_has_any = True
-                    trainable_words_in_sentence += 1
-                else:
-                    # CC word not in CLOSED_CLASS_LOOKUP — store as bare root
-                    bare_root_words.append(surface_lower)
-                    word_entries.append({
-                        "word": surface_lower,
-                        "morphology_string": surface_lower,
-                        "root": surface_lower,
-                        "suffixes": [],
-                        "final_pos": "noun",
-                    })
-                    no_suffix_words += 1
-                continue
-
-            # Map features to expected suffix names
-            expected_suffixes, unmapped_feats, has_unmappable = features_to_suffix_names(tok)
-
-            if has_unmappable:
-                unmappable_words += 1
-                sentence_all_matched = False
-                sentence_unmappable.append({
-                    "surface": surface_lower,
-                    "lemma": lemma,
-                    "features": [s["features"] for s in tok["feature_chain"]],
-                    "unmapped": list(unmapped_feats),
-                })
-                unmatched_log.append({
-                    "surface": surface_lower,
-                    "lemma": lemma,
-                    "features": [s["features"] for s in tok["feature_chain"]],
-                    "reason": f"unmappable features: {unmapped_feats}",
-                })
-                # Store with surface as root so _preload_replay_buffer can match it
-                word_entries.append({
-                    "word": surface_lower,
-                    "morphology_string": surface_lower,
-                    "root": surface_lower,
-                    "suffixes": [],
-                    "final_pos": "noun",
-                })
-                bare_root_words.append(surface_lower)
-                continue
-
-            if not expected_suffixes:
-                # Bare root — no suffixes to learn
-                no_suffix_words += 1
-                bare_root_words.append(surface_lower)
-                word_entries.append({
-                    "word": surface_lower,
-                    "morphology_string": surface_lower,
-                    "root": surface_lower,
-                    "suffixes": [],
-                    "final_pos": "noun",
-                })
-                continue
-
-            entry = build_treebank_forced_entry(surface_lower, lemma, expected_suffixes)
-            word_entries.append(entry)
-            matched_words += 1
-            sentence_has_any = True
-            trainable_words_in_sentence += 1
-
-        # Build sentence entry
-        if word_entries:
-            decomposed_parts = []
-            for we in word_entries:
-                decomposed_parts.append(we["morphology_string"])
-
-            entry = {
-                "type": "sentence",
-                "original_sentence": original_sentence,
-                "decomposed_sentence": " ".join(decomposed_parts),
-                "words": word_entries,
-            }
-            output_entries.append(entry)
-
-            if sentence_all_matched and sentence_has_any:
-                matched_sentences += 1
-            elif sentence_has_any:
-                partial_sentences += 1
-                sentence_diagnostics.append({
-                    "sentence_index": sent_idx,
-                    "original_sentence": original_sentence,
-                    "diagnostic_type": "partially_trainable_sentence",
-                    "why": "At least one token was trainable, but one or more tokens had unmappable features or had to remain bare roots.",
-                    "how_to_fix": "Inspect the unmappable token list first. If it is empty, this sentence is only partially trainable because some tokens are bare roots or skipped POS.",
-                    "trainable_word_count": trainable_words_in_sentence,
-                    "bare_root_words": bare_root_words,
-                    "skipped_words": skipped_words,
-                    "unmappable_tokens": sentence_unmappable,
-                })
-            else:
-                failed_sentences += 1
-                diagnostic_type = "non_trainable_sentence"
-                why = "No token in the sentence produced a trainable suffix sequence."
-                how_to_fix = (
-                    "Usually not an adapter bug. These are often suffixless fragments, titles, numeric snippets, or unmappable tokens."
-                )
-                if sentence_unmappable:
-                    diagnostic_type = "non_trainable_due_to_unmappable_tokens"
-                    why = "No token was trainable and at least one token has unmappable treebank features."
-                    how_to_fix = "Add the missing treebank→Savyar mapping for the listed unmappable tokens."
-                sentence_diagnostics.append({
-                    "sentence_index": sent_idx,
-                    "original_sentence": original_sentence,
-                    "diagnostic_type": diagnostic_type,
-                    "why": why,
-                    "how_to_fix": how_to_fix,
-                    "trainable_word_count": trainable_words_in_sentence,
-                    "bare_root_words": bare_root_words,
-                    "skipped_words": skipped_words,
-                    "unmappable_tokens": sentence_unmappable,
-                })
-
-    # Write output
-    print(f"\nWriting {len(output_entries)} sentences to {output_path}")
-    with open(output_path, "w", encoding="utf-8") as f:
-        for entry in output_entries:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-    # Write unmatched log
-    unmatched_path = output_path.replace(".jsonl", "_unmatched.jsonl")
-    with open(unmatched_path, "w", encoding="utf-8") as f:
-        for entry in unmatched_log:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-    if sentence_diagnostics_path is None:
-        sentence_diagnostics_path = output_path.replace(".jsonl", "_sentence_diagnostics.jsonl")
-    with open(sentence_diagnostics_path, "w", encoding="utf-8") as f:
-        for entry in sentence_diagnostics:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-    # Stats
-    trainable_words = matched_words + forced_words
-    stats = {
-        "total_sentences": len(sentences),
-        "total_words": total_words,
-        "translated_words (treebank-authoritative)": matched_words,
-        "compat_words (legacy-forced)": forced_words,
-        "trainable_words (total)": trainable_words,
-        "unmappable_words": unmappable_words,
-        "no_suffix_words": no_suffix_words,
-        "trainable_rate": f"{trainable_words / max(total_words - no_suffix_words, 1) * 100:.1f}%",
-        "fully_trainable_sentences": matched_sentences,
-        "partially_trainable_sentences": partial_sentences,
-        "non_trainable_sentences": failed_sentences,
-        "sentence_diagnostics_count": len(sentence_diagnostics),
-    }
-
-    print("\n=== ADAPTATION STATS ===")
-    for k, v in stats.items():
-        print(f"  {k}: {v}")
-
-    if stats_path:
-        with open(stats_path, "w", encoding="utf-8") as f:
-            json.dump(stats, f, indent=2, ensure_ascii=False)
-
-    # ── Diagnostic report ──
-    if unmatched_log:
-        from collections import Counter
-
-        decomp_mismatches = [e for e in unmatched_log if e.get("reason") not in (None, "") and not e["reason"].startswith("unmappable")]
-        unmappable_entries = [e for e in unmatched_log if str(e.get("reason", "")).startswith("unmappable")]
-
-        print(f"\n=== UNMAPPABLE FEATURES ({len(unmappable_entries)} words) ===")
-        feat_counts = Counter()
-        for e in unmappable_entries:
-            for f in e.get("reason", "").replace("unmappable features: ", "").strip("[]'").split("', '"):
-                feat_counts[f.strip("[]' ")] += 1
-        for feat, n in feat_counts.most_common():
-            print(f"  {n:4d}x  {feat}")
-
-        print(f"\n=== DECOMPOSER MISMATCH BREAKDOWN ({len(decomp_mismatches)} words) ===")
-        reason_counts = Counter(e["reason"] for e in decomp_mismatches)
-        for reason, count in reason_counts.most_common():
-            print(f"  {count:4d}x  {reason}")
-
-        # ── chain_build_failed: lemma IS in dict, decomposer still got 0 ──
-        chain_failed = [e for e in decomp_mismatches if e["reason"] == "chain_build_failed"]
-        if chain_failed:
-            print(f"\n  CHAIN_BUILD_FAILED — lemma IS in dictionary, decompose() returned 0 "
-                  f"({len(chain_failed)} words): suffix-form or hierarchy issue")
-            seen = set()
-            for e in chain_failed:
-                key = (e["surface"], tuple(e["expected"]))
-                if key in seen: continue
-                seen.add(key)
-                try:
-                    print(f"    {e['surface']:22s} lemma={e['lemma']:12s} expected: {e['expected']}")
-                except UnicodeEncodeError:
-                    pass
-                if len(seen) >= 12: break
-
-        # ── root_not_in_dict: lemma genuinely absent from words.txt ──
-        root_missing = [e for e in decomp_mismatches if e["reason"] == "root_not_in_dict"]
-        if root_missing:
-            print(f"\n  ROOT_NOT_IN_DICT — lemma genuinely missing from words.txt "
-                  f"({len(root_missing)} words):")
-            seen = set()
-            for e in root_missing:
-                key = (e["surface"], tuple(e["expected"]))
-                if key in seen: continue
-                seen.add(key)
-                try:
-                    print(f"    {e['surface']:22s} lemma={e['lemma']:12s} expected: {e['expected']}")
-                except UnicodeEncodeError:
-                    pass
-                if len(seen) >= 12: break
-
-        # ── root_not_found: decomposer uses a different root ──
-        wrong_root = [e for e in decomp_mismatches if e["reason"] == "root_not_found"]
-        if wrong_root:
-            print(f"\n  ROOT_NOT_FOUND — lemma not among decomposer roots ({len(wrong_root)} words):")
-            seen = set()
-            for e in wrong_root:
-                key = e["surface"]
-                if key in seen: continue
-                seen.add(key)
-                closest = e.get("closest") or {}
-                try:
-                    print(f"    {e['surface']:22s} lemma={e['lemma']:12s}  decomposer_root={closest.get('root','?'):12s}  decomposer_suffixes={closest.get('suffixes','?')}")
-                except UnicodeEncodeError:
-                    pass
-                if len(seen) >= 12: break
-
-        # ── suffix_sequence_mismatch: root found but wrong suffixes ──
-        suffix_mismatch = [e for e in decomp_mismatches if e["reason"] == "suffix_sequence_mismatch"]
-        if suffix_mismatch:
-            print(f"\n  SUFFIX_SEQUENCE_MISMATCH — root found, wrong suffixes ({len(suffix_mismatch)} words):")
-            seen = set()
-            for e in suffix_mismatch:
-                key = e["surface"]
-                if key in seen: continue
-                seen.add(key)
-                closest = e.get("closest") or {}
-                diff = e.get("diff") or []
-                try:
-                    print(f"    {e['surface']:22s}  expected={e['expected']}")
-                    print(f"    {'':22s}  closest ={closest.get('suffixes','?')}")
-                    if diff:
-                        print(f"    {'':22s}  diff    : {' | '.join(diff)}")
-                except UnicodeEncodeError:
-                    pass
-                if len(seen) >= 10: break
-
-        # ── root_bare_expected_suffixes: decomposer gives bare root ──
-        bare_root = [e for e in decomp_mismatches if e["reason"] == "root_bare_expected_suffixes"]
-        if bare_root:
-            print(f"\n  ROOT_BARE_EXPECTED_SUFFIXES — decomposer strips all suffixes ({len(bare_root)} words):")
-            seen = set()
-            for e in bare_root:
-                key = e["surface"]
-                if key in seen: continue
-                seen.add(key)
-                try:
-                    print(f"    {e['surface']:22s}  expected: {e['expected']}")
-                except UnicodeEncodeError:
-                    pass
-                if len(seen) >= 12: break
-
-    return stats
+    return adapt_normalized_treebank(
+        treebank_path,
+        output_path,
+        parse_sentences=parse_treebank,
+        translate_word=features_to_suffix_names,
+        should_skip_word=should_skip_word,
+        closed_class_category=closed_class_category,
+        stats_path=stats_path,
+        sentence_diagnostics_path=sentence_diagnostics_path,
+        word_context=metu_unmappable_context,
+        unmappable_context_key="features",
+        unmappable_reason="unmappable features",
+        unmappable_detail=False,
+        parse_message="Parsing treebank: {path}",
+        parsed_message="Found {count} sentences",
+        summary_unmappable_label="UNMAPPABLE FEATURES",
+    )
 
 
 if __name__ == "__main__":

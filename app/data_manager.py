@@ -92,9 +92,10 @@ class DataManager:
         entries = []
         paths_to_load = [
             self.paths.valid_decompositions_path,
-            self.paths.treebank_adapted_path,
+            self.paths.metu_treebank_adapted_path,
             self.paths.google_treebank_adapted_path,
             self.paths.boun_treebank_adapted_path,
+            self.paths.trmor2018_treebank_adapted_path,
         ]
         for path in paths_to_load:
             try:

@@ -37,36 +37,21 @@ Files produced (alongside this adapter):
                                      user fills these in over time.
 """
 
-import json
 import sys
 import os
-from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from util.decomposer import decompose, ALL_SUFFIXES
-from util.suffix import Type
-from util.words.closed_class import CLOSED_CLASS_LOOKUP
-from util.word_methods import tr_lower
-import util.word_methods as wrd
-from data.treebank_vnoun import (
+from data.treebank_adapter_commons import (
     AMBIGUOUS_VNOUN,
-    has_unexpected_nounifier_is,
+    SUFFIX_BY_NAME,
+    adapt_normalized_treebank,
+    make_layer,
+    make_word,
+    parse_conllu,
+    record_unmapped as _record_unmapped,
     resolve_ambiguous_vnoun_suffixes,
 )
-
-SUFFIX_BY_NAME = {s.name: s for s in ALL_SUFFIXES}
-
-# Quote-like characters to strip from surface/lemma. BOUN leaks leading `"`
-# into surface forms for quoted-dialog tokens (e.g. `"Müjdeler`).
-_QUOTE_CHARS = "\"'`‘’“”„«»‹›"
-
-def _strip_quotes(s):
-    if not s:
-        return s
-    for q in _QUOTE_CHARS:
-        s = s.replace(q, "")
-    return s
 
 
 # =============================================================================
@@ -317,67 +302,11 @@ EQUIVALENT_SEQUENCES = [
 
 
 # =============================================================================
-# CONLL-U PARSER
+# TREEBANK ROW MERGER
 # =============================================================================
 
-def parse_conllu(filepath):
-    """Parse a .conllu file → list of sentences. Each sentence is a list of
-    token rows (every row is a dict). MWT header rows (id like `i-j`) are
-    preserved with key ``mwt_range`` so we can stitch them downstream."""
-    sentences = []
-    current = []
-    with open(filepath, "r", encoding="utf-8") as f:
-        for raw in f:
-            line = raw.rstrip("\n")
-            if not line:
-                if current:
-                    sentences.append(current)
-                    current = []
-                continue
-            if line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) < 8:
-                continue
-
-            # Empty nodes: skip
-            if "." in parts[0]:
-                continue
-
-            token = {
-                "id":       parts[0],
-                "surface":  parts[1],
-                "lemma":    parts[2],
-                "upos":     parts[3],
-                "xpos":     parts[4],
-                "features": _parse_feats(parts[5]),
-                "head":     parts[6],
-                "deprel":   parts[7],
-                "misc":     parts[9] if len(parts) >= 10 else "_",
-            }
-
-            if "-" in parts[0]:
-                a, b = parts[0].split("-")
-                token["mwt_range"] = (int(a), int(b))
-            else:
-                token["mwt_range"] = None
-                token["id_int"] = int(parts[0])
-
-            current.append(token)
-    if current:
-        sentences.append(current)
-    return sentences
-
-
-def _parse_feats(field):
-    if not field or field == "_":
-        return {}
-    out = {}
-    for item in field.split("|"):
-        if "=" in item:
-            k, v = item.split("=", 1)
-            out[k] = v
-    return out
+def parse_boun_conllu(filepath):
+    return parse_conllu(filepath, preserve_mwt=True)
 
 
 def merge_mwt_words(sentence_tokens):
@@ -399,13 +328,10 @@ def merge_mwt_words(sentence_tokens):
                 if r is None:
                     continue
                 covered.add(j)
-                layers.append({
-                    "upos":     r["upos"],
-                    "xpos":     r["xpos"],
-                    "features": r["features"],
-                    "lemma":    r["lemma"],
-                    "surface":  r["surface"],
-                })
+                layers.append(make_layer(
+                    r["upos"], r["xpos"], r["features"],
+                    lemma=r["lemma"], surface=r["surface"],
+                ))
             if layers:
                 # Lemma = first non-"_" lemma from sub-rows (typically the
                 # content word, not the AUX copula).
@@ -413,14 +339,15 @@ def merge_mwt_words(sentence_tokens):
                     (l["lemma"] for l in layers if l["lemma"] and l["lemma"] != "_"),
                     layers[0]["lemma"],
                 )
-                words.append({
-                    "surface":        tok["surface"],
-                    "lemma":          content_lemma,
-                    "feature_layers": layers,
-                    "is_mwt":         True,
-                    "head_upos":      layers[0]["upos"],
-                    "head_xpos":      layers[0]["xpos"],
-                })
+                words.append(make_word(
+                    tok["surface"],
+                    content_lemma,
+                    layers,
+                    is_multiword=True,
+                    is_mwt=True,
+                    head_upos=layers[0]["upos"],
+                    head_xpos=layers[0]["xpos"],
+                ))
             i += 1
             continue
 
@@ -429,20 +356,15 @@ def merge_mwt_words(sentence_tokens):
             if tok["upos"] == "PUNCT":
                 i += 1
                 continue
-            words.append({
-                "surface": tok["surface"],
-                "lemma":   tok["lemma"],
-                "feature_layers": [{
-                    "upos":     tok["upos"],
-                    "xpos":     tok["xpos"],
-                    "features": tok["features"],
-                    "lemma":    tok["lemma"],
-                    "surface":  tok["surface"],
-                }],
-                "is_mwt":    False,
-                "head_upos": tok["upos"],
-                "head_xpos": tok["xpos"],
-            })
+            words.append(make_word(
+                tok["surface"],
+                tok["lemma"],
+                [make_layer(tok["upos"], tok["xpos"], tok["features"], lemma=tok["lemma"], surface=tok["surface"])],
+                is_multiword=False,
+                is_mwt=False,
+                head_upos=tok["upos"],
+                head_xpos=tok["xpos"],
+            ))
         i += 1
     return words
 
@@ -450,18 +372,6 @@ def merge_mwt_words(sentence_tokens):
 # =============================================================================
 # FEATURE → SUFFIX MAPPING
 # =============================================================================
-
-def _record_unmapped(sink, feat_key, feat_val, word):
-    slot = sink.setdefault(feat_key, {}).setdefault(feat_val, {
-        "count": 0,
-        "examples": [],
-    })
-    slot["count"] += 1
-    if len(slot["examples"]) < 8:
-        ex = f"{word['surface']}({word['lemma']})"
-        if ex not in slot["examples"]:
-            slot["examples"].append(ex)
-
 
 def features_to_suffix_names(word, unmapped_sink):
     """Map a merged word's feature_layers into the expected Savyar suffix chain.
@@ -551,7 +461,7 @@ def features_to_suffix_names(word, unmapped_sink):
         # --------------------------------------------------------------
         if is_closed_class_layer and upos != "PRON":
             # bare CC — no per-layer suffixes emitted here; the word-level
-            # builder routes to _build_cc_entry.
+            # common pipeline routes to the closed-class entry builder.
             continue
 
         # --------------------------------------------------------------
@@ -704,345 +614,42 @@ def features_to_suffix_names(word, unmapped_sink):
 
 
 # =============================================================================
-# WORD-ENTRY BUILDERS
+# TREEBANK-SPECIFIC PIPELINE HOOKS
 # =============================================================================
 
-
-def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
-    surface_lower = tr_lower(surface)
-    root = tr_lower(lemma)
-
-    suffixes = []
-    current_stem = root
-    accepted_chain = []
-    for sname in expected_suffix_names:
-        sobj = SUFFIX_BY_NAME.get(sname)
-        if sobj:
-            makes_str = "VERB" if sobj.makes == Type.VERB else "NOUN"
-            try:
-                forms = sobj.form(current_stem, current_chain=accepted_chain)
-                form_str = ""
-                rest = surface_lower[len(current_stem):]
-                for form in forms:
-                    if form and rest.startswith(form):
-                        form_str = form
-                        break
-                if not form_str:
-                    form_str = forms[0] if forms else sobj.suffix
-            except Exception:
-                form_str = sobj.suffix
-            suffixes.append({"name": sname, "form": form_str, "makes": makes_str})
-            accepted_chain.append(sobj)
-        else:
-            suffixes.append({"name": sname, "form": "", "makes": "NOUN"})
-        current_stem = current_stem + (suffixes[-1]["form"] or "")
-
-    morphology_parts = [root] + [s["form"] for s in suffixes if s["form"]]
-    return {
-        "word": surface_lower,
-        "morphology_string": " ".join(morphology_parts),
-        "root": root,
-        "suffixes": suffixes,
-        "final_pos": "verb" if suffixes and suffixes[-1]["makes"] == "VERB" else "noun",
-    }
+def should_skip_word(word):
+    return word["head_upos"] in SKIP_UPOS
 
 
-def _build_cc_entry(surface_lower, cc_category):
-    cc_entries = CLOSED_CLASS_LOOKUP.get(surface_lower, [])
-    if not cc_entries:
+def closed_class_category(word):
+    if word["is_multiword"]:
         return None
-    matched_cc = next((c for c in cc_entries if c.category == cc_category), cc_entries[0])
-    suffix_name = f"cc_{matched_cc.category}"
-    return {
-        "word": surface_lower,
-        "morphology_string": surface_lower,
-        "root": surface_lower,
-        "suffixes": [{"name": suffix_name, "form": "", "makes": "", "cc_surface": surface_lower}],
-        "final_pos": suffix_name,
-    }
+    return UPOS_TO_CC_CATEGORY.get(word["head_upos"])
 
-
-# =============================================================================
-# MAIN ADAPTER
-# =============================================================================
 
 def adapt_treebank(conllu_paths, output_path, stats_path=None,
                    unmatched_path=None, unmapped_path=None,
                    sentence_diagnostics_path=None):
-    if isinstance(conllu_paths, (str, os.PathLike)):
-        conllu_paths = [conllu_paths]
-
-    all_sentences = []
-    for path in conllu_paths:
-        print(f"Parsing: {path}")
-        sents = parse_conllu(path)
-        print(f"  -> {len(sents)} sentences")
-        all_sentences.extend(sents)
-
-    total_words = 0
-    matched_words = 0
-    forced_words = 0
-    unmappable_words = 0
-    no_suffix_words = 0
-
-    matched_sentences = 0
-    partial_sentences = 0
-    failed_sentences = 0
-
-    output_entries = []
-    unmatched_log = []
-    unmapped_features = {}
-    sentence_diagnostics = []
-
-    for sent_idx, sentence_tokens in enumerate(all_sentences):
-        if sent_idx % 500 == 0:
-            print(f"  Processing sentence {sent_idx}/{len(all_sentences)}...")
-
-        words = merge_mwt_words(sentence_tokens)
-        if not words:
-            continue
-
-        original_parts = [w["surface"] for w in words]
-        original_sentence = " ".join(original_parts)
-
-        word_entries = []
-        sentence_all_matched = True
-        sentence_has_any = False
-        sentence_unmappable = []
-        bare_root_words = []
-        skipped_words = []
-        trainable_words_in_sentence = 0
-
-        for word in words:
-            total_words += 1
-
-            surface = _strip_quotes(word["surface"])
-            surface_lower = tr_lower(surface)
-            lemma = _strip_quotes(word["lemma"])
-
-            head_upos = word["head_upos"]
-
-            if head_upos in SKIP_UPOS:
-                skipped_words.append(surface_lower)
-                bare_root_words.append(surface_lower)
-                word_entries.append({
-                    "word": surface_lower,
-                    "morphology_string": surface_lower,
-                    "root": surface_lower,
-                    "suffixes": [],
-                    "final_pos": "noun",
-                })
-                no_suffix_words += 1
-                continue
-
-            # Closed-class words route to CC entries directly. Pronouns stay
-            # closed-class even when they are inflected; we do not want
-            # words.txt-style noun analyses for pronoun paradigms.
-            if not word["is_mwt"] and head_upos in UPOS_TO_CC_CATEGORY:
-                cc_category = UPOS_TO_CC_CATEGORY[head_upos]
-                entry = _build_cc_entry(surface_lower, cc_category)
-                if entry:
-                    word_entries.append(entry)
-                    matched_words += 1
-                    sentence_has_any = True
-                    trainable_words_in_sentence += 1
-                else:
-                    bare_root_words.append(surface_lower)
-                    word_entries.append({
-                        "word": surface_lower,
-                        "morphology_string": surface_lower,
-                        "root": surface_lower,
-                        "suffixes": [],
-                        "final_pos": "noun",
-                    })
-                    no_suffix_words += 1
-                continue
-
-            expected_suffixes, unmapped_feats, has_unmappable = \
-                features_to_suffix_names(word, unmapped_features)
-
-            if has_unmappable:
-                unmappable_words += 1
-                sentence_all_matched = False
-                sentence_unmappable.append({
-                    "surface": surface_lower,
-                    "lemma": lemma,
-                    "feature_layers": [
-                        {"upos": l["upos"], "xpos": l["xpos"], "features": l["features"]}
-                        for l in word["feature_layers"]
-                    ],
-                    "unmapped": list(unmapped_feats),
-                })
-                unmatched_log.append({
-                    "surface": surface_lower,
-                    "lemma": lemma,
-                    "feature_layers": [
-                        {"upos": l["upos"], "xpos": l["xpos"], "features": l["features"]}
-                        for l in word["feature_layers"]
-                    ],
-                    "reason": "unmappable_features",
-                    "detail": f"unmapped: {unmapped_feats}",
-                })
-                word_entries.append({
-                    "word": surface_lower,
-                    "morphology_string": surface_lower,
-                    "root": surface_lower,
-                    "suffixes": [],
-                    "final_pos": "noun",
-                })
-                bare_root_words.append(surface_lower)
-                continue
-
-            if not expected_suffixes:
-                no_suffix_words += 1
-                bare_root_words.append(surface_lower)
-                word_entries.append({
-                    "word": surface_lower,
-                    "morphology_string": surface_lower,
-                    "root": surface_lower,
-                    "suffixes": [],
-                    "final_pos": "noun",
-                })
-                continue
-
-            entry = build_treebank_forced_entry(surface_lower, lemma, expected_suffixes)
-            word_entries.append(entry)
-            matched_words += 1
-            sentence_has_any = True
-            trainable_words_in_sentence += 1
-
-        if word_entries:
-            decomposed_parts = [we["morphology_string"] for we in word_entries]
-            output_entries.append({
-                "type": "sentence",
-                "original_sentence": original_sentence,
-                "decomposed_sentence": " ".join(decomposed_parts),
-                "words": word_entries,
-            })
-            if sentence_all_matched and sentence_has_any:
-                matched_sentences += 1
-            elif sentence_has_any:
-                partial_sentences += 1
-                sentence_diagnostics.append({
-                    "sentence_index": sent_idx,
-                    "original_sentence": original_sentence,
-                    "diagnostic_type": "partially_trainable_sentence",
-                    "why": "At least one token was trainable, but one or more tokens had unmappable features or had to remain bare roots.",
-                    "how_to_fix": "Inspect the unmappable token list first. If it is empty, this sentence is only partially trainable because some tokens are bare roots or skipped POS.",
-                    "trainable_word_count": trainable_words_in_sentence,
-                    "bare_root_words": bare_root_words,
-                    "skipped_words": skipped_words,
-                    "unmappable_tokens": sentence_unmappable,
-                })
-            else:
-                failed_sentences += 1
-                diagnostic_type = "non_trainable_sentence"
-                why = "No token in the sentence produced a trainable suffix sequence."
-                how_to_fix = (
-                    "Usually not an adapter bug. These are often suffixless fragments, titles, numeric snippets, or unmappable tokens."
-                )
-                if sentence_unmappable:
-                    diagnostic_type = "non_trainable_due_to_unmappable_tokens"
-                    why = "No token was trainable and at least one token has unmappable treebank features."
-                    how_to_fix = "Add the missing treebank→Savyar mapping for the listed unmappable tokens."
-                sentence_diagnostics.append({
-                    "sentence_index": sent_idx,
-                    "original_sentence": original_sentence,
-                    "diagnostic_type": diagnostic_type,
-                    "why": why,
-                    "how_to_fix": how_to_fix,
-                    "trainable_word_count": trainable_words_in_sentence,
-                    "bare_root_words": bare_root_words,
-                    "skipped_words": skipped_words,
-                    "unmappable_tokens": sentence_unmappable,
-                })
-
-    # ── Write outputs ──
-    print(f"\nWriting {len(output_entries)} sentences to {output_path}")
-    with open(output_path, "w", encoding="utf-8") as f:
-        for entry in output_entries:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-    if unmatched_path is None:
-        unmatched_path = output_path.replace(".jsonl", "_unmatched.jsonl")
-    with open(unmatched_path, "w", encoding="utf-8") as f:
-        for entry in unmatched_log:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-    if sentence_diagnostics_path is None:
-        sentence_diagnostics_path = output_path.replace(".jsonl", "_sentence_diagnostics.jsonl")
-    with open(sentence_diagnostics_path, "w", encoding="utf-8") as f:
-        for entry in sentence_diagnostics:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-    unmapped_sorted = {}
-    for fkey in sorted(unmapped_features.keys()):
-        by_val = unmapped_features[fkey]
-        unmapped_sorted[fkey] = dict(sorted(
-            by_val.items(), key=lambda kv: -kv[1]["count"]
-        ))
-
-    if unmapped_path is None:
-        unmapped_path = os.path.join(os.path.dirname(output_path), "unmapped_features.json")
-    with open(unmapped_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "_header": (
-                "Each feature value here was not mapped to a Savyar suffix. "
-                "Fill in the mapping by editing the corresponding *_MAP / combo "
-                "function at the top of treebank_adapter.py."
-            ),
-            "unmapped": unmapped_sorted,
-        }, f, indent=2, ensure_ascii=False)
-
-    trainable_words = matched_words + forced_words
-    stats = {
-        "input_files":                      [str(p) for p in conllu_paths],
-        "total_sentences":                  len(all_sentences),
-        "total_words":                      total_words,
-        "translated_words (treebank-authoritative)": matched_words,
-        "compat_words (legacy-forced)":         forced_words,
-        "trainable_words (total)":              trainable_words,
-        "unmappable_words":                     unmappable_words,
-        "no_suffix_words":                      no_suffix_words,
-        "trainable_rate":
-            f"{trainable_words / max(total_words - no_suffix_words, 1) * 100:.1f}%",
-        "fully_trainable_sentences":     matched_sentences,
-        "partially_trainable_sentences": partial_sentences,
-        "non_trainable_sentences":       failed_sentences,
-        "sentence_diagnostics_count":    len(sentence_diagnostics),
-        "unmapped_feature_value_count":  sum(len(v) for v in unmapped_features.values()),
-    }
-
-    print("\n=== ADAPTATION STATS ===")
-    for k, v in stats.items():
-        print(f"  {k}: {v}")
-
-    if stats_path:
-        with open(stats_path, "w", encoding="utf-8") as f:
-            json.dump(stats, f, indent=2, ensure_ascii=False)
-
-    if unmatched_log:
-        decomp_mismatches = [e for e in unmatched_log if e.get("reason") not in (None, "", "unmappable_features")]
-        unmappable_entries = [e for e in unmatched_log if e.get("reason") == "unmappable_features"]
-
-        print(f"\n=== UNMAPPABLE WORDS ({len(unmappable_entries)}) ===")
-        feat_counts = Counter()
-        for e in unmappable_entries:
-            detail = e.get("detail", "")
-            for f in detail.replace("unmapped: ", "").strip("[]").split(","):
-                s = f.strip().strip("'\"")
-                if s:
-                    feat_counts[s] += 1
-        for feat, n in feat_counts.most_common(30):
-            print(f"  {n:4d}x  {feat}")
-
-        print(f"\n=== DECOMPOSER MISMATCH BREAKDOWN ({len(decomp_mismatches)}) ===")
-        reason_counts = Counter(e["reason"] for e in decomp_mismatches)
-        for reason, count in reason_counts.most_common():
-            print(f"  {count:4d}x  {reason}")
-
-    print(f"\nUnmapped feature VALUES recorded in: {unmapped_path}")
-    return stats
+    return adapt_normalized_treebank(
+        conllu_paths,
+        output_path,
+        parse_sentences=parse_boun_conllu,
+        words_from_sentence=merge_mwt_words,
+        translate_word=features_to_suffix_names,
+        should_skip_word=should_skip_word,
+        closed_class_category=closed_class_category,
+        stats_path=stats_path,
+        unmatched_path=unmatched_path,
+        unmapped_path=unmapped_path,
+        sentence_diagnostics_path=sentence_diagnostics_path,
+        include_input_files_in_stats=True,
+        include_unmapped_feature_value_count=True,
+        unmapped_header=(
+            "Each feature value here was not mapped to a Savyar suffix. "
+            "Fill in the mapping by editing the corresponding *_MAP / combo "
+            "function at the top of treebank_adapter.py."
+        ),
+    )
 
 
 if __name__ == "__main__":

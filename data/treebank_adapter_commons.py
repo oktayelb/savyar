@@ -320,6 +320,9 @@ def adapt_normalized_treebank(
     parsed_message="  -> {count} sentences",
     stats_sentence_count=None,
     summary_unmappable_label="UNMAPPABLE WORDS",
+    write_unmatched_log=True,
+    write_sentence_diagnostics=True,
+    write_unmapped_report=True,
 ):
     input_paths = normalize_input_paths(input_paths)
     all_sentences = []
@@ -463,15 +466,17 @@ def adapt_normalized_treebank(
     print(f"\nWriting {len(output_entries)} sentences to {output_path}")
     write_jsonl(output_path, output_entries)
 
-    if unmatched_path is None:
-        unmatched_path = output_path.replace(".jsonl", "_unmatched.jsonl")
-    write_jsonl(unmatched_path, unmatched_log)
+    if write_unmatched_log:
+        if unmatched_path is None:
+            unmatched_path = output_path.replace(".jsonl", "_unmatched.jsonl")
+        write_jsonl(unmatched_path, unmatched_log)
 
-    if sentence_diagnostics_path is None:
-        sentence_diagnostics_path = output_path.replace(".jsonl", "_sentence_diagnostics.jsonl")
-    write_jsonl(sentence_diagnostics_path, sentence_diagnostics)
+    if write_sentence_diagnostics:
+        if sentence_diagnostics_path is None:
+            sentence_diagnostics_path = output_path.replace(".jsonl", "_sentence_diagnostics.jsonl")
+        write_jsonl(sentence_diagnostics_path, sentence_diagnostics)
 
-    if unmapped_header is not None:
+    if write_unmapped_report and unmapped_header is not None:
         if unmapped_path is None:
             unmapped_path = os.path.join(os.path.dirname(output_path), "unmapped_features.json")
         write_unmapped_features(unmapped_path, unmapped_features, unmapped_header)
@@ -511,7 +516,7 @@ def adapt_normalized_treebank(
         label=summary_unmappable_label,
     )
 
-    if unmapped_header is not None:
+    if write_unmapped_report and unmapped_header is not None:
         print(f"\nUnmapped feature VALUES recorded in: {unmapped_path}")
 
     return stats

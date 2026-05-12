@@ -110,36 +110,11 @@ class DataManager:
                 continue
         return entries
 
-    def get_validation_entries(self) -> List[Dict]:
-        """Load the validation-set entries (same schema as get_valid_decomps).
-
-        If the adapted JSONL is missing but the raw .connlu exists, run the
-        Google-treebank adapter once to materialise it — this keeps the
-        validation pipeline idempotent without requiring a manual step.
-        """
-        adapted_path = self.paths.validation_adapted_path
-        conllu_path  = self.paths.validation_conllu_path
-
-        if not os.path.exists(adapted_path) and os.path.exists(conllu_path):
-            try:
-                from data.google_treebank.treebank_adapter import adapt_treebank
-                print(f"Adapting validation set: {conllu_path} -> {adapted_path}")
-                adapt_treebank(
-                    conllu_path,
-                    output_path=adapted_path,
-                    stats_path=None,
-                    unmatched_path=adapted_path.replace('.jsonl', '_unmatched.jsonl'),
-                    unmapped_path=os.path.join(
-                        os.path.dirname(adapted_path), 'unmapped_features.json'
-                    ),
-                )
-            except Exception as e:
-                print(f"Could not adapt validation conllu: {e}")
-                return []
-
+    def get_test_entries(self) -> List[Dict]:
+        """Load the adapted TRMor2018 gold test JSONL."""
         entries = []
         try:
-            with open(adapted_path, 'r', encoding='utf-8') as f:
+            with open(self.paths.test_adapted_path, 'r', encoding='utf-8') as f:
                 for line in f:
                     if line.strip():
                         try:

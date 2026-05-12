@@ -28,6 +28,7 @@ class AppCLI:
         print("  - 'eval <word>' - Evaluate model on a word")
         print("  - 'relearn' - Train on all logged decompositions")
         print("  - 'curriculum' - Train with dynamic hard-negative mining")
+        print("  - 'test' - Evaluate current model on the TRMor2018 gold test set")
         print("  - '10FKV' - 10-fold cross-validation with 95% CI")
         print("  - 'stats' - Show training statistics")
         print("  - 'sample' - Analyze a text word by word.")
@@ -96,6 +97,27 @@ class AppCLI:
     def show_auto_summary(self, processed: int, skipped: int):
         print(f"\n{'='*70}\nAUTO MODE SUMMARY\n{'='*70}")
         print(f" Processed: {processed}\n Skipped: {skipped}\n{'='*70}\n")
+
+    def show_test_report(self, report: Dict[str, Any]):
+        metrics = report.get('metrics')
+        print("\n Test Set:")
+        print(f"  Entries:   {report.get('entries', 0)}")
+        print(f"  Sequences: {report.get('sequences', 0)}")
+        print(f"  Words:     {report.get('words', 0)}")
+        print(f"  Skipped:   {report.get('skipped', 0)}")
+        if not metrics:
+            print("  No test metrics available.")
+            return
+        print("\n Test Metrics:")
+        print(f"  Rank loss:        {metrics.get('loss', 0.0):.4f}")
+        print(f"  Rank accuracy:    {metrics.get('rank_acc', 0.0):.4f}")
+        print(f"  Top-2 accuracy:   {metrics.get('top2_acc', 0.0):.4f}")
+        print(f"  Top-3 accuracy:   {metrics.get('top3_acc', 0.0):.4f}")
+        print(f"  Suffix accuracy:  {metrics.get('suff_acc', 0.0):.4f}")
+        print(f"  Suffix precision: {metrics.get('suff_precision', 0.0):.4f}")
+        print(f"  Suffix recall:    {metrics.get('suff_recall', 0.0):.4f}")
+        print(f"  Suffix F1:        {metrics.get('suff_f1', 0.0):.4f}")
+        print(f"  Margin:           {metrics.get('margin', 0.0):.4f}")
 
     def get_user_choices(self, num_options: int) -> Optional[List[int]]:
         while True:
@@ -327,6 +349,8 @@ class AppCLI:
                 elif cmd == 'curriculum':
                     stats = self.engine.train_curriculum()
                     self.show_message(f"\n  Curriculum trained on {stats['trained_words']} words across {stats['generations']} mined generations, skipped {stats['skipped']}.")
+                elif cmd == 'test':
+                    self.show_test_report(self.engine.test_model())
                 elif cmd == '10fkv':
                     self.engine.run_kfold_cv(k=10)
                 elif cmd.startswith('eval sentence '):

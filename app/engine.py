@@ -511,13 +511,6 @@ class WorkflowEngine:
             except Exception: skipped += 1
         return all_seqs, total_words, skipped
 
-    def _load_validation_sequences(self) -> List[Any]:
-        entries = self.data_manager.get_validation_entries()
-        if not entries: return []
-        val_seqs, val_words, _ = self._entries_to_sequences(entries)
-        if val_seqs: print(f"   Validation set loaded: {len(val_seqs)} sequences ({val_words} words)")
-        return val_seqs
-
     def _split_train_validation_sequences(self, all_seqs: List[Any]) -> Tuple[List[Any], List[Any]]:
         if len(all_seqs) < 10 or config.validation_split <= 0.0: return all_seqs, []
         data = list(all_seqs)
@@ -533,9 +526,7 @@ class WorkflowEngine:
     def relearn_all(self) -> Tuple[int, int]:
         entries = self.data_manager.get_valid_decomps()
         all_seqs, total_words, skipped = self._entries_to_sequences(entries)
-        val_seqs = self._load_validation_sequences()
-        train_seqs = all_seqs
-        if not val_seqs: train_seqs, val_seqs = self._split_train_validation_sequences(all_seqs)
+        train_seqs, val_seqs = self._split_train_validation_sequences(all_seqs)
         if train_seqs:
             print(f"   Bulk training on {len(train_seqs)} sequences ({total_words} words)...")
             self.trainer.train_bulk(train_seqs, validation_seqs=val_seqs)
@@ -550,9 +541,9 @@ class WorkflowEngine:
         if mining_epochs is None: mining_epochs = config.curriculum_mining_epochs
         entries = self.data_manager.get_valid_decomps()
         if not entries: return {'trained_words': 0, 'skipped': 0, 'generations': 0}
-        val_seqs = self._load_validation_sequences()
         train_entries = list(entries)
-        if not val_seqs and len(entries) >= 10 and config.validation_split > 0.0:
+        val_seqs = []
+        if len(entries) >= 10 and config.validation_split > 0.0:
             shuffled = list(entries)
             random.Random(config.validation_seed).shuffle(shuffled)
             val_count = max(1, int(round(len(shuffled) * config.validation_split)))
@@ -613,6 +604,26 @@ class WorkflowEngine:
             try: shutil.rmtree(tmp_dir, ignore_errors=True)
             except Exception: pass
         return result
+
+    def test_model(self) -> Dict[str, Any]:
+        entries = self.data_manager.get_test_entries()
+        if not entries:
+            return {
+                'entries': 0,
+                'sequences': 0,
+                'words': 0,
+                'skipped': 0,
+                'metrics': None,
+            }
+        test_seqs, total_words, skipped = self._entries_to_sequences(entries)
+        metrics = self.trainer.validate(test_seqs) if test_seqs else None
+        return {
+            'entries': len(entries),
+            'sequences': len(test_seqs),
+            'words': total_words,
+            'skipped': skipped,
+            'metrics': metrics,
+        }
 
     def sample_text(self, filename: str) -> bool:
         text = self.data_manager.get_text_tokenized(filename)

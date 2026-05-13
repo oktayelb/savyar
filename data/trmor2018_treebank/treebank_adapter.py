@@ -16,6 +16,21 @@ The common treebank pipeline handles formatting, JSONL writing, stats,
 diagnostics, closed-class entries, and treebank-forced Savyar word entries.
 """
 
+"""
+@article{DBLP:journals/corr/abs-1805-07946,
+  author    = {Erenay Dayanik and Ekin Aky{\"{u}}rek and Deniz Yuret},
+  title     = {MorphNet: {A} sequence-to-sequence model that combines morphological analysis and disambiguation},
+  journal   = {CoRR},
+  volume    = {abs/1805.07946},
+  year      = {2018},
+  url       = {http://arxiv.org/abs/1805.07946},
+  archivePrefix = {arXiv},
+  eprint    = {1805.07946},
+  timestamp = {Mon, 13 Aug 2018 16:47:09 +0200},
+  biburl    = {https://dblp.org/rec/bib/journals/corr/abs-1805-07946},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+"""
 import os
 import sys
 

@@ -14,6 +14,19 @@ This gives us correct surface forms from the decomposer (no guessing morpheme bo
 
 """
 
+
+"""
+
+Gülşen Eryiğit, Tugay İlbay, Ozan Arkan Can. Multiword Expressions in Statistical Dependency Parsing, In Proceedings of the Workshop on Statistical Parsing of Morphologically-Rich Languages SPRML at IWPT, Dublin, October 2011. (bibtex) (pdf)
+
+Kemal Oflazer, Bilge Say, Dilek Zeynep Hakkani-Tür, Gökhan Tür,"Building a Turkish Treebank", Invited chapter in "Building and Exploiting Syntactically-annotated Corpora", Anne Abeille Editor, Kluwer Academic Publishers, 2003.
+
+Nart B. Atalay, Kemal Oflazer, Bilge Say, "The Annotation Process in the Turkish Treebank", in "Proceedings of the EACL Workshop on Linguistically Interpreted Corpora - LINC", April 13-14, 2003, Budapest, Hungary
+"""
+
+
+
+
 import sys
 import os
 

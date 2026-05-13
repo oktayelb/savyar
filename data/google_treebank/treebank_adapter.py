@@ -40,6 +40,25 @@ Whenever a feature isn't confidently mappable it is recorded in
 unmapped_features.json instead of silently being given a wrong mapping.
 """
 
+
+"""
+
+@inproceedings{kayadelen-ozturel-bohnet:2020:LREC,
+  author = {Kayadelen, Tolga  and  \"{O}zt\"{u}rel, Adnan  and  Bohnet, Bernd},
+  title = {A Gold Standard Dependency Treebank for Turkish},
+  booktitle = {Proceedings of The 12th Language Resources and Evaluation
+    Conference},
+  month = {May},
+  year = {2020},
+  address = {Marseille, France},
+  publisher = {European Language Resources Association},
+  pages = {5158--5165},
+  url = {https://www.aclweb.org/anthology/2020.lrec-1.634}
+}
+
+"""
+
+
 import sys
 import os
 

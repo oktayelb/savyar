@@ -198,51 +198,6 @@ class WorkflowEngine:
         self.training_count = self.data_manager.load_training_count()
         self.decomp_cache = {}
 
-        if not self.trainer.replay_buffer:
-            self._preload_replay_buffer()
-
-    def _preload_replay_buffer(self) -> None:
-        entries = self.data_manager.get_valid_decomps()
-        loaded = 0
-        for entry in entries:
-            try:
-                if entry.get('type') == 'sentence':
-                    chains = []
-                    for word_entry in entry.get('words', []):
-                        decomps = self.get_decompositions(word_entry['word'])
-                        matched = nlp.match_decompositions([word_entry], decomps)
-                        if matched:
-                            chain = [chain for _, _, chain, _ in decomps][matched[0]]
-                            chains.append(nlp.encode_suffix_chain(chain))
-                        else:
-                            sfx_dicts = word_entry.get('suffixes', [])
-                            if sfx_dicts:
-                                chains.append(nlp.encode_suffix_names(sfx_dicts))
-                    if chains:
-                        sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final = build_sentence_sequence(chains)
-                        if len(sids) >= 2:
-                            self.trainer._add_to_replay(sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final)
-                            loaded += 1
-                else:
-                    decomps = self.get_decompositions(entry['word'])
-                    matched = nlp.match_decompositions([entry], decomps)
-                    if matched:
-                        chain = [c for _, _, c, _ in decomps][matched[0]]
-                        encoded = nlp.encode_suffix_chain(chain)
-                    else:
-                        sfx_dicts = entry.get('suffixes', [])
-                        encoded = nlp.encode_suffix_names(sfx_dicts) if sfx_dicts else []
-                    if encoded:
-                        sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final = build_sentence_sequence([encoded])
-                        if len(sids) >= 2:
-                            self.trainer._add_to_replay(sids, cids, gids, comes_to_ids, makes_ids, word_pos_ids, word_final)
-                            loaded += 1
-            except Exception:
-                continue
-        if loaded:
-            random.shuffle(self.trainer.replay_buffer)
-            print(f"Replay buffer pre-loaded with {loaded} past examples.")
-
     def get_decompositions(self, word: str) -> List[Tuple]:
         word = word.replace("'", "")
         if word not in self.decomp_cache:

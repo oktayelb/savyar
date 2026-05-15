@@ -1,7 +1,8 @@
 import os
 import json
 import re
-from typing import List, Optional, Dict
+from pathlib import Path
+from typing import Iterator, List, Optional, Dict
 
 from app.file_paths import FilePaths
 import util.word_methods as wrd
@@ -88,14 +89,34 @@ class DataManager:
         except Exception:
             return ""
 
+    def get_treebank_adapted_paths(self) -> List[str]:
+        data_dir = Path(self.paths.data_dir)
+        if not data_dir.exists():
+            return []
+
+        test_path = Path(self.paths.test_adapted_path)
+        try:
+            test_path = test_path.resolve()
+        except OSError:
+            pass
+
+        treebank_paths = []
+        for path in sorted(data_dir.rglob("treebank_adapted.jsonl")):
+            try:
+                if path.resolve() == test_path:
+                    continue
+            except OSError:
+                pass
+            treebank_paths.append(str(path))
+        return treebank_paths
+
     def get_valid_decomps(self) -> List[Dict]:
-        entries = []
+        return list(self.iter_valid_decomps())
+
+    def iter_valid_decomps(self) -> Iterator[Dict]:
         paths_to_load = [
             self.paths.valid_decompositions_path,
-            self.paths.metu_treebank_adapted_path,
-            self.paths.google_treebank_adapted_path,
-            self.paths.boun_treebank_adapted_path,
-            self.paths.trmor2018_treebank_adapted_path,
+            *self.get_treebank_adapted_paths(),
         ]
         for path in paths_to_load:
             try:
@@ -103,12 +124,11 @@ class DataManager:
                     for line in f:
                         if line.strip():
                             try:
-                                entries.append(json.loads(line))
+                                yield json.loads(line)
                             except Exception:
                                 continue
             except FileNotFoundError:
                 continue
-        return entries
 
     def get_test_entries(self) -> List[Dict]:
         """Load the adapted TRMor2018 gold test JSONL."""

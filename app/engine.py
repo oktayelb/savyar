@@ -2,6 +2,8 @@
 Combines the Workflow Engine, Sequence Matching, and K-Fold Cross Validation.
 """
 from __future__ import annotations
+import hashlib
+import json
 import os
 import re
 import math
@@ -20,6 +22,8 @@ import app.nlp_pipeline as nlp
 from ml.ml_ranking_model import SentenceDisambiguator, Trainer, build_sentence_sequence, resolve_torch_device
 from ml.config import config
 from util.words.closed_class import CLOSED_CLASS_TOKEN_SPECS
+
+STATIC_PREPROCESS_CACHE_VERSION = 1
 
 # --------------------------------------------------------------------------- #
 # K-Fold Cross Validation Logic
@@ -457,6 +461,125 @@ class WorkflowEngine:
             flush=True,
         )
 
+    @staticmethod
+    def _json_digest(payload: Any) -> str:
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def _entries_digest(cls, entries: List[Dict]) -> str:
+        digest = hashlib.sha256()
+        for entry in entries:
+            digest.update(
+                json.dumps(
+                    entry,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            digest.update(b"\n")
+        return digest.hexdigest()
+
+    def _static_sequence_cache_metadata(
+        self,
+        scope: str,
+        entries: Optional[List[Dict]] = None,
+    ) -> Dict[str, Any]:
+        metadata: Dict[str, Any] = {
+            "cache_version": STATIC_PREPROCESS_CACHE_VERSION,
+            "scope": scope,
+            "sources": self.data_manager.get_preprocess_source_signature(),
+            "suffix_inventory": [suffix.name for suffix in sfx.ALL_SUFFIXES],
+            "closed_class_inventory": [list(spec) for spec in CLOSED_CLASS_TOKEN_SPECS],
+            "config": {
+                "max_negative_candidates": int(config.max_negative_candidates),
+                "max_sequence_length": int(config.max_sequence_length),
+            },
+        }
+        if entries is not None:
+            metadata["entries"] = {
+                "count": len(entries),
+                "digest": self._entries_digest(entries),
+            }
+        metadata["cache_key"] = self._json_digest(metadata)
+        return metadata
+
+    def _load_static_sequence_cache(
+        self,
+        scope: str,
+        *,
+        entries: Optional[List[Dict]] = None,
+        label: str = "Preprocessing",
+    ) -> Optional[Tuple[List[List[Any]], int, int]]:
+        metadata = self._static_sequence_cache_metadata(scope, entries)
+        cached = self.data_manager.load_preprocessed_sequences_cache(metadata["cache_key"], metadata)
+        if cached is None:
+            return None
+        all_seqs, total_words, skipped = cached
+        cache_path = self.data_manager.preprocessed_sequences_cache_path(metadata["cache_key"])
+        print(
+            f"   Loaded cached {label}: {len(all_seqs)} candidate sets, "
+            f"{total_words} words, {skipped} skipped ({cache_path})",
+            flush=True,
+        )
+        return cached
+
+    def _save_static_sequence_cache(
+        self,
+        scope: str,
+        entries: Optional[List[Dict]],
+        all_seqs: List[List[Any]],
+        total_words: int,
+        skipped: int,
+        *,
+        label: str = "Preprocessing",
+    ) -> None:
+        metadata = self._static_sequence_cache_metadata(scope, entries)
+        if self.data_manager.save_preprocessed_sequences_cache(metadata, all_seqs, total_words, skipped):
+            cache_path = self.data_manager.preprocessed_sequences_cache_path(metadata["cache_key"])
+            print(f"   Saved cached {label} to {cache_path}", flush=True)
+
+    def _load_or_build_static_sequences(
+        self,
+        entries: List[Dict],
+        *,
+        scope: str,
+        log_progress: bool = False,
+        label: str = "Preprocessing",
+    ) -> Tuple[List[List[Any]], int, int]:
+        cached = self._load_static_sequence_cache(scope, entries=entries, label=label)
+        if cached is not None:
+            return cached
+        all_seqs, total_words, skipped = self._entries_to_sequences(
+            entries,
+            log_progress=log_progress,
+            label=label,
+        )
+        self._save_static_sequence_cache(scope, entries, all_seqs, total_words, skipped, label=label)
+        return all_seqs, total_words, skipped
+
+    def _load_training_entries_with_progress(self) -> List[Dict]:
+        entries = []
+        load_started_at = time.monotonic()
+        load_interval = max(1, int(config.relearn_preprocess_log_interval))
+        for idx, entry in enumerate(self.data_manager.iter_valid_decomps(), start=1):
+            entries.append(entry)
+            if idx == 1 or idx % load_interval == 0:
+                elapsed = max(time.monotonic() - load_started_at, 1e-6)
+                print(f"   Loading training entries: {idx} entries ({idx / elapsed:.1f}/s)", flush=True)
+        print(
+            f"   Loaded {len(entries)} training entries | "
+            f"device={self.device} | {self.trainer.cuda_memory_report()}",
+            flush=True,
+        )
+        return entries
+
     def _entries_to_sequences(
         self,
         entries: List[Dict],
@@ -547,24 +670,27 @@ class WorkflowEngine:
     def relearn_all(self) -> Tuple[int, int]:
         started_at = time.monotonic()
         print("\n=== Relearn started ===", flush=True)
-        entries = []
-        load_started_at = time.monotonic()
-        load_interval = max(1, int(config.relearn_preprocess_log_interval))
-        for idx, entry in enumerate(self.data_manager.iter_valid_decomps(), start=1):
-            entries.append(entry)
-            if idx == 1 or idx % load_interval == 0:
-                elapsed = max(time.monotonic() - load_started_at, 1e-6)
-                print(f"   Loading training entries: {idx} entries ({idx / elapsed:.1f}/s)", flush=True)
-        print(
-            f"   Loaded {len(entries)} training entries | "
-            f"device={self.device} | {self.trainer.cuda_memory_report()}",
-            flush=True,
-        )
-        all_seqs, total_words, skipped = self._entries_to_sequences(
-            entries,
-            log_progress=True,
+        cached = self._load_static_sequence_cache(
+            "training-all",
             label="Relearn preprocessing",
         )
+        if cached is None:
+            entries = self._load_training_entries_with_progress()
+            all_seqs, total_words, skipped = self._entries_to_sequences(
+                entries,
+                log_progress=True,
+                label="Relearn preprocessing",
+            )
+            self._save_static_sequence_cache(
+                "training-all",
+                None,
+                all_seqs,
+                total_words,
+                skipped,
+                label="Relearn preprocessing",
+            )
+        else:
+            all_seqs, total_words, skipped = cached
         print(
             f"   Relearn preprocessing complete: {len(all_seqs)} candidate sets, "
             f"{total_words} words, {skipped} skipped in {time.monotonic() - started_at:.1f}s",
@@ -599,11 +725,19 @@ class WorkflowEngine:
             if val_count >= len(shuffled): val_count = len(shuffled) - 1
             val_entries = shuffled[:val_count]
             train_entries = shuffled[val_count:]
-            val_seqs, _, _ = self._entries_to_sequences(val_entries)
+            val_seqs, _, _ = self._load_or_build_static_sequences(
+                val_entries,
+                scope="curriculum-validation",
+                label="Curriculum validation preprocessing",
+            )
         total_trained_words = 0
         total_skipped = 0
         if warmup_epochs > 0:
-            warmup_seqs, warmup_words, skipped = self._entries_to_sequences(train_entries)
+            warmup_seqs, warmup_words, skipped = self._load_or_build_static_sequences(
+                train_entries,
+                scope="curriculum-warmup",
+                label="Curriculum warm-up preprocessing",
+            )
             total_skipped += skipped
             if warmup_seqs:
                 print(f"   Curriculum warm-up: {len(warmup_seqs)} static candidate sets ({warmup_words} words), {warmup_epochs} epochs")
@@ -627,8 +761,26 @@ class WorkflowEngine:
         return {'trained_words': total_trained_words, 'skipped': total_skipped, 'generations': completed_generations}
 
     def run_kfold_cv(self, k: int = 10, seed: int = 42) -> Optional[Dict[str, Any]]:
-        entries = self.data_manager.get_valid_decomps()
-        all_seqs, total_words, skipped = self._entries_to_sequences(entries)
+        cached = self._load_static_sequence_cache(
+            "training-all",
+            label="K-fold preprocessing",
+        )
+        if cached is None:
+            entries = self.data_manager.get_valid_decomps()
+            all_seqs, total_words, skipped = self._entries_to_sequences(
+                entries,
+                label="K-fold preprocessing",
+            )
+            self._save_static_sequence_cache(
+                "training-all",
+                None,
+                all_seqs,
+                total_words,
+                skipped,
+                label="K-fold preprocessing",
+            )
+        else:
+            all_seqs, total_words, skipped = cached
         if len(all_seqs) < k: return None
         print(f"   Running {k}-fold CV on {len(all_seqs)} sequences ({total_words} words, {skipped} skipped).")
         tmp_dir = tempfile.mkdtemp(prefix="savyar_kfold_")

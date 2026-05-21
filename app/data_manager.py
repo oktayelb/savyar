@@ -1,8 +1,9 @@
 import os
 import json
+import pickle
 import re
 from pathlib import Path
-from typing import Iterator, List, Optional, Dict
+from typing import Any, Iterator, List, Optional, Dict, Tuple
 
 from app.file_paths import FilePaths
 import util.word_methods as wrd
@@ -134,6 +135,106 @@ class DataManager:
                     pass
                 treebank_paths.append(str(path))
         return treebank_paths
+
+    @staticmethod
+    def _path_signature(path: Path) -> Dict[str, Any]:
+        normalized = str(path)
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return {"path": normalized, "exists": False}
+        return {
+            "path": normalized,
+            "exists": True,
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+        }
+
+    def get_preprocess_source_signature(self) -> Dict[str, List[Dict[str, Any]]]:
+        entry_paths = [
+            Path(self.paths.valid_decompositions_path),
+            *[Path(path) for path in self.get_treebank_adapted_paths()],
+        ]
+        dependency_paths = [
+            Path(self.paths.words_path),
+            Path(self.paths.verbs_path),
+            Path(self.paths.unsuffixable_words_path),
+        ]
+        code_paths = sorted({
+            Path("app/nlp_pipeline.py"),
+            Path("ml/ml_ranking_model.py"),
+            Path("util/decomposer.py"),
+            Path("util/suffix.py"),
+            Path("util/word_methods.py"),
+            *Path("util/words").rglob("*.py"),
+            *Path("util/suffixes").rglob("*.py"),
+        })
+        return {
+            "entries": [self._path_signature(path) for path in entry_paths],
+            "dependencies": [self._path_signature(path) for path in dependency_paths],
+            "code": [self._path_signature(path) for path in code_paths],
+        }
+
+    def preprocessed_sequences_cache_path(self, cache_key: str) -> Path:
+        return Path(self.paths.preprocessed_sequences_cache_dir) / f"{cache_key}.pkl"
+
+    def load_preprocessed_sequences_cache(
+        self,
+        cache_key: str,
+        expected_metadata: Dict[str, Any],
+    ) -> Optional[Tuple[List[List[Any]], int, int]]:
+        path = self.preprocessed_sequences_cache_path(cache_key)
+        try:
+            with open(path, "rb") as f:
+                payload = pickle.load(f)
+        except FileNotFoundError:
+            return None
+        except Exception:
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+        if payload.get("metadata") != expected_metadata:
+            return None
+
+        all_seqs = payload.get("all_seqs")
+        total_words = payload.get("total_words")
+        skipped = payload.get("skipped")
+        if not isinstance(all_seqs, list) or not isinstance(total_words, int) or not isinstance(skipped, int):
+            return None
+        return all_seqs, total_words, skipped
+
+    def save_preprocessed_sequences_cache(
+        self,
+        metadata: Dict[str, Any],
+        all_seqs: List[List[Any]],
+        total_words: int,
+        skipped: int,
+    ) -> bool:
+        cache_key = str(metadata.get("cache_key", ""))
+        if not cache_key:
+            return False
+        path = self.preprocessed_sequences_cache_path(cache_key)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        payload = {
+            "metadata": metadata,
+            "all_seqs": all_seqs,
+            "total_words": total_words,
+            "skipped": skipped,
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(tmp_path, "wb") as f:
+                pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp_path, path)
+            return True
+        except Exception:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except Exception:
+                pass
+            return False
 
     def get_valid_decomps(self) -> List[Dict]:
         return list(self.iter_valid_decomps())

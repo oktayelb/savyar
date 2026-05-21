@@ -182,5 +182,6 @@ gold vs generated negatives training
 
 - `decomp_cache`: workflow-level word-to-decompositions cache.
 - `decompose()` LRU cache: decomposer-level cache reused across calls.
+- `data/preprocessed_sequence_cache/`: persistent static candidate-set cache for the CPU-heavy preprocessing used by `relearn`, curriculum warm-up/validation, and k-fold runs. Cache keys include training source file stats, dictionary file stats, decomposer/encoding code stats, suffix/closed-class inventories, and preprocessing-sensitive config.
 
-Both remain useful because ranking training repeatedly asks the decomposer for candidate sets when building negatives.
+The in-memory caches still help interactive work, while the persistent cache avoids rebuilding the same static training candidate sets across process runs.

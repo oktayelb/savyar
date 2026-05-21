@@ -874,11 +874,16 @@ class Trainer:
 
         flat_count = sum(len(cands) for cands in candidate_sets)
         max_len = max((len(seq[0]) for cands in candidate_sets for seq in cands), default=0)
+        
+        oom_occurred = False
         try:
             return self._ranking_step_once(candidate_sets)
         except RuntimeError as exc:
             if not _is_cuda_oom(exc):
                 raise
+            oom_occurred = True
+            
+        if oom_occurred:
             self._release_cuda_after_oom()
             self._shrink_adaptive_cuda_limits(flat_count, max_len)
             print(

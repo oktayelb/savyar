@@ -371,6 +371,7 @@ class Trainer:
         self._adaptive_max_candidate_sequences = max(1, int(config.max_candidate_sequences_per_batch))
         self._adaptive_max_padded_tokens = max(1, int(config.max_batch_padded_tokens))
         self._adaptive_max_attention_cells = max(1, int(config.max_batch_attention_cells))
+        self._last_gpu_budget_bytes = 0
 
         try:
             self.load_checkpoint(self.path)
@@ -379,6 +380,8 @@ class Trainer:
             print(f"Starting fresh (no checkpoint found at {self.path})")
         except Exception as e:
             print(f"Could not load checkpoint: {e}")
+
+        self._autosize_cuda_batch_limits()
 
         if _debug_gpu_enabled():
             print(
@@ -446,6 +449,69 @@ class Trainer:
         self.optimizer.zero_grad(set_to_none=True)
         if self.device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    def _autosize_cuda_batch_limits(self) -> None:
+        if (
+            not config.auto_gpu_batch_sizing
+            or self.device.type != "cuda"
+            or not torch.cuda.is_available()
+        ):
+            return
+
+        try:
+            with torch.cuda.device(self.device):
+                free_bytes, total_bytes = torch.cuda.mem_get_info()
+        except Exception:
+            return
+
+        target_ratio = min(max(float(config.gpu_memory_target_ratio), 0.1), 0.95)
+        safety_margin = max(0, int(config.gpu_memory_safety_margin_bytes))
+        budget_bytes = int(min(total_bytes * target_ratio, max(0, free_bytes - safety_margin)))
+        if budget_bytes <= 0:
+            return
+
+        layers = max(1, int(config.num_layers))
+        heads = max(1, int(config.num_heads))
+        attention_cell_bytes = max(1, int(config.gpu_attention_cell_bytes))
+        token_bytes = max(1, int(config.gpu_token_bytes))
+        sequence_bytes = max(1, int(config.gpu_sequence_bytes))
+
+        seq_limit = min(
+            max(1, int(config.max_auto_candidate_sequences)),
+            max(self._adaptive_max_candidate_sequences, budget_bytes // sequence_bytes),
+        )
+        token_limit = min(
+            max(1, int(config.max_auto_padded_tokens)),
+            max(self._adaptive_max_padded_tokens, budget_bytes // token_bytes),
+        )
+        attention_limit = min(
+            max(1, int(config.max_auto_attention_cells)),
+            max(
+                self._adaptive_max_attention_cells,
+                budget_bytes // (layers * heads * attention_cell_bytes),
+            ),
+        )
+
+        changed = (
+            seq_limit != self._adaptive_max_candidate_sequences
+            or token_limit != self._adaptive_max_padded_tokens
+            or attention_limit != self._adaptive_max_attention_cells
+        )
+        self._adaptive_max_candidate_sequences = int(seq_limit)
+        self._adaptive_max_padded_tokens = int(token_limit)
+        self._adaptive_max_attention_cells = int(attention_limit)
+        self._last_gpu_budget_bytes = budget_bytes
+
+        if changed:
+            print(
+                "   CUDA auto batch budget: "
+                f"target={self._format_bytes(budget_bytes)} "
+                f"max_sequences={self._adaptive_max_candidate_sequences} "
+                f"max_padded_tokens={self._adaptive_max_padded_tokens} "
+                f"max_attention_cells={self._adaptive_max_attention_cells} "
+                f"({self.cuda_memory_report()})",
+                flush=True,
+            )
 
     def _shrink_adaptive_cuda_limits(self, flat_count: int, max_len: int) -> None:
         old_seq = self._adaptive_max_candidate_sequences
@@ -1137,6 +1203,19 @@ class Trainer:
                 self._add_to_replay(*cands[0])
 
         trainable_sets = self._budget_candidate_sets([cands for cands in candidate_sets if len(cands) >= 2])
+
+        if config.auto_gpu_batch_sizing and self.device.type == "cuda" and trainable_sets:
+            avg_candidates = sum(len(cands) for cands in trainable_sets) / max(len(trainable_sets), 1)
+            auto_batch_size = max(1, int(self._adaptive_max_candidate_sequences / max(avg_candidates, 1.0)))
+            auto_batch_size = min(max(1, int(config.max_auto_bulk_batch_size)), auto_batch_size)
+            if auto_batch_size > batch_size:
+                print(
+                    "   CUDA auto batch budget: "
+                    f"increasing bulk_batch_size from {batch_size} to {auto_batch_size} "
+                    f"(avg_candidates={avg_candidates:.1f}).",
+                    flush=True,
+                )
+                batch_size = auto_batch_size
 
         if _debug_gpu_enabled():
             total_candidates = sum(len(cands) for cands in candidate_sets)

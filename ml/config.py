@@ -60,12 +60,22 @@ class MLConfig:
 
     # --- Bulk-training defaults ---
     bulk_epochs: int = 11
-    bulk_batch_size: int = 32
+    bulk_batch_size: int = 128
     bulk_batch_log_interval: int = 1
     relearn_preprocess_log_interval: int = 1000
     max_batch_padded_tokens: int = 8192
     max_batch_attention_cells: int = 2_000_000
     cuda_oom_retries: int = 8
+    auto_gpu_batch_sizing: bool = True
+    gpu_memory_target_ratio: float = 0.85
+    gpu_memory_safety_margin_bytes: int = 1_073_741_824
+    gpu_attention_cell_bytes: int = 16
+    gpu_token_bytes: int = 4096
+    gpu_sequence_bytes: int = 1_048_576
+    max_auto_candidate_sequences: int = 4096
+    max_auto_padded_tokens: int = 1_048_576
+    max_auto_attention_cells: int = 64_000_000
+    max_auto_bulk_batch_size: int = 512
 
     # --- LR Schedule ---
     warmup_steps: int = 1000

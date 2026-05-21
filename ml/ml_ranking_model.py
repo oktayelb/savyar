@@ -1,6 +1,7 @@
 import math
 import os
 import random
+import time
 import warnings
 
 warnings.filterwarnings(
@@ -42,6 +43,13 @@ def _env_flag(name: str) -> bool:
 def _debug_gpu_enabled() -> bool:
     """Enable with SAVYAR_DEBUG_GPU=1 to print GPU/batch diagnostics."""
     return _env_flag("SAVYAR_DEBUG_GPU")
+
+
+def _is_cuda_oom(exc: BaseException) -> bool:
+    if isinstance(exc, torch.cuda.OutOfMemoryError):
+        return True
+    message = str(exc).lower()
+    return "cuda" in message and "out of memory" in message
 
 
 def resolve_torch_device(device: Optional[Any] = None) -> torch.device:
@@ -176,6 +184,7 @@ class SentenceDisambiguator(nn.Module):
             super().__init__()
             self.embed_dim = config.embed_dim
             self.vocab_size = SUFFIX_OFFSET + suffix_vocab_size + closed_class_vocab_size
+            self.max_sequence_length = int(config.max_sequence_length)
 
             self.suffix_embed = nn.Embedding(self.vocab_size, self.embed_dim, padding_idx=SPECIAL_PAD)
 
@@ -186,7 +195,7 @@ class SentenceDisambiguator(nn.Module):
             self.wordpos_embed = nn.Embedding(64, config.wordpos_embed_dim)
             self.wordfinal_embed = nn.Embedding(2, config.wordfinal_embed_dim)
 
-            self.pos_embed = nn.Embedding(512, self.embed_dim)
+            self.pos_embed = nn.Embedding(self.max_sequence_length, self.embed_dim)
 
             feature_width = (
                 self.embed_dim * 2 +
@@ -244,6 +253,10 @@ class SentenceDisambiguator(nn.Module):
         pad_mask:     Optional[torch.Tensor] = None,  
     ) -> torch.Tensor:
         B, L = suffix_ids.shape
+        if L > self.max_sequence_length:
+            raise ValueError(
+                f"Sequence length {L} exceeds model max_sequence_length={self.max_sequence_length}"
+            )
         pos = torch.arange(L, device=suffix_ids.device).unsqueeze(0).expand(B, L)
 
         x = torch.cat([
@@ -273,6 +286,10 @@ class SentenceDisambiguator(nn.Module):
         pad_mask:     Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         B, L = suffix_ids.shape
+        if L > self.max_sequence_length:
+            raise ValueError(
+                f"Sequence length {L} exceeds model max_sequence_length={self.max_sequence_length}"
+            )
         pos = torch.arange(L, device=suffix_ids.device).unsqueeze(0).expand(B, L)
 
         x = torch.cat([
@@ -351,6 +368,9 @@ class Trainer:
 
         self.replay_buffer: List[FlatSequence] = []
         self._class_weight_cache: Optional[torch.Tensor] = None
+        self._adaptive_max_candidate_sequences = max(1, int(config.max_candidate_sequences_per_batch))
+        self._adaptive_max_padded_tokens = max(1, int(config.max_batch_padded_tokens))
+        self._adaptive_max_attention_cells = max(1, int(config.max_batch_attention_cells))
 
         try:
             self.load_checkpoint(self.path)
@@ -397,6 +417,136 @@ class Trainer:
 
     def _get_best_index(self, scores: List[float]) -> int:
         return int(max(range(len(scores)), key=lambda i: scores[i]))
+
+    @staticmethod
+    def _format_bytes(num_bytes: int) -> str:
+        value = float(num_bytes)
+        for unit in ("B", "KiB", "MiB", "GiB"):
+            if value < 1024.0 or unit == "GiB":
+                return f"{value:.1f}{unit}"
+            value /= 1024.0
+        return f"{value:.1f}GiB"
+
+    def cuda_memory_report(self) -> str:
+        if self.device.type != "cuda" or not torch.cuda.is_available():
+            return f"device={self.device}"
+        try:
+            with torch.cuda.device(self.device):
+                free_bytes, total_bytes = torch.cuda.mem_get_info()
+            allocated = torch.cuda.memory_allocated(self.device)
+            reserved = torch.cuda.memory_reserved(self.device)
+            return (
+                f"gpu_free={self._format_bytes(free_bytes)}/{self._format_bytes(total_bytes)} "
+                f"allocated={self._format_bytes(allocated)} reserved={self._format_bytes(reserved)}"
+            )
+        except Exception:
+            return f"device={self.device}"
+
+    def _release_cuda_after_oom(self) -> None:
+        self.optimizer.zero_grad(set_to_none=True)
+        if self.device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def _shrink_adaptive_cuda_limits(self, flat_count: int, max_len: int) -> None:
+        old_seq = self._adaptive_max_candidate_sequences
+        old_tokens = self._adaptive_max_padded_tokens
+        old_cells = self._adaptive_max_attention_cells
+
+        if flat_count > 1:
+            self._adaptive_max_candidate_sequences = max(1, min(old_seq, max(1, flat_count // 2)))
+        if max_len > 0:
+            current_tokens = max(1, flat_count * max_len)
+            current_cells = max(1, flat_count * max_len * max_len)
+            self._adaptive_max_padded_tokens = max(max_len, min(old_tokens, max(1, current_tokens // 2)))
+            self._adaptive_max_attention_cells = max(
+                max_len * max_len,
+                min(old_cells, max(1, current_cells // 2)),
+            )
+
+        if (
+            old_seq != self._adaptive_max_candidate_sequences
+            or old_tokens != self._adaptive_max_padded_tokens
+            or old_cells != self._adaptive_max_attention_cells
+        ):
+            print(
+                "   CUDA OOM guard: shrinking future batches to "
+                f"max_sequences={self._adaptive_max_candidate_sequences}, "
+                f"max_padded_tokens={self._adaptive_max_padded_tokens}, "
+                f"max_attention_cells={self._adaptive_max_attention_cells}.",
+                flush=True,
+            )
+
+    @staticmethod
+    def _empty_step_result() -> Dict[str, Any]:
+        return {
+            'loss_sum': 0.0,
+            'rank_loss_sum': 0.0,
+            'optimizer_steps': 0,
+            'candidate_sets': 0,
+            'correct': 0,
+            'top2': 0,
+            'top3': 0,
+            'margin_sum': 0.0,
+            'margin_count': 0,
+            'skipped': 0,
+            'adaptive_splits': 0,
+        }
+
+    @classmethod
+    def _merge_step_results(cls, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        merged = cls._empty_step_result()
+        for result in results:
+            for key in merged:
+                merged[key] += result.get(key, 0)
+        return merged
+
+    @staticmethod
+    def _candidate_set_max_len(cands: List[FlatSequence]) -> int:
+        return max((len(seq[0]) for seq in cands), default=0)
+
+    def _candidate_set_exceeds_budget(self, cands: List[FlatSequence]) -> bool:
+        if not cands:
+            return False
+        seq_count = len(cands)
+        max_len = self._candidate_set_max_len(cands)
+        return (
+            seq_count > self._adaptive_max_candidate_sequences
+            or seq_count * max_len > self._adaptive_max_padded_tokens
+            or seq_count * max_len * max_len > self._adaptive_max_attention_cells
+        )
+
+    def _split_candidate_set_by_budget(self, cands: List[FlatSequence]) -> List[List[FlatSequence]]:
+        if len(cands) <= 2 or not self._candidate_set_exceeds_budget(cands):
+            return [cands]
+
+        gold = cands[0]
+        groups: List[List[FlatSequence]] = []
+        current: List[FlatSequence] = [gold]
+        for neg in cands[1:]:
+            proposed = current + [neg]
+            if len(current) > 1 and self._candidate_set_exceeds_budget(proposed):
+                groups.append(current)
+                current = [gold, neg]
+            else:
+                current = proposed
+        if len(current) >= 2:
+            groups.append(current)
+        return groups or [cands]
+
+    def _budget_candidate_sets(self, candidate_sets: List[List[FlatSequence]]) -> List[List[FlatSequence]]:
+        budgeted: List[List[FlatSequence]] = []
+        split_count = 0
+        for cands in candidate_sets:
+            groups = self._split_candidate_set_by_budget(cands)
+            split_count += max(0, len(groups) - 1)
+            budgeted.extend(groups)
+        if split_count:
+            print(
+                f"   CUDA OOM guard: split {split_count} oversized candidate-set chunks "
+                "before training.",
+                flush=True,
+            )
+        return budgeted
 
     def _add_to_replay(
         self,
@@ -541,10 +691,10 @@ class Trainer:
     def _sequence_from_chains(self, word_chains: List[List[EncodedToken]]) -> FlatSequence:
         return build_sentence_sequence(word_chains)
 
-    def _ranking_step(self, candidate_sets: List[List[FlatSequence]]) -> Tuple[float, float]:
+    def _ranking_step_once(self, candidate_sets: List[List[FlatSequence]]) -> Dict[str, Any]:
         candidate_sets = [cands for cands in candidate_sets if len(cands) >= 2]
         if not candidate_sets:
-            return 0.0, 0.0
+            return self._empty_step_result()
 
         flat: List[FlatSequence] = []
         sizes: List[int] = []
@@ -552,127 +702,200 @@ class Trainer:
             sizes.append(len(cands))
             flat.extend(cands)
 
-        try:
-            s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(flat)
+        s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(flat)
 
-            if _debug_gpu_enabled():
+        if _debug_gpu_enabled():
+            print(
+                "[GPU DEBUG] training batch:",
+                f"sets={len(candidate_sets)}",
+                f"flat_sequences={len(flat)}",
+                f"tensor_shape={tuple(s_t.shape)}",
+                f"device={s_t.device}",
+                f"global_step={self.global_step}",
+                flush=True,
+            )
+
+        self.model.train()
+        self.optimizer.zero_grad(set_to_none=True)
+        use_amp = self.device.type == 'cuda'
+        temperature = max(float(config.ranking_temperature), 1e-6)
+        mlm_weight = float(config.mlm_weight)
+
+        with torch.amp.autocast('cuda', enabled=use_amp):
+            # 1. Contrastive Ranking Loss
+            scores = self.model.rank_scores(s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
+            losses = []
+            correct = 0
+            top2 = 0
+            top3 = 0
+            margin_sum = 0.0
+            margin_count = 0
+            gold_indices = []
+            offset = 0
+            for size in sizes:
+                gold_indices.append(offset)
+                group = scores[offset:offset + size]
+                logits = (group / temperature).unsqueeze(0)
+                target = torch.zeros(1, dtype=torch.long, device=self.device)
+                losses.append(F.cross_entropy(logits, target))
+
+                detached_group = group.detach()
+                best_idx = int(torch.argmax(detached_group).item())
+                if best_idx == 0:
+                    correct += 1
+                if self._topk_hit_tensor(detached_group, 2):
+                    top2 += 1
+                if self._topk_hit_tensor(detached_group, 3):
+                    top3 += 1
+                if detached_group.numel() > 1:
+                    margin_sum += float((detached_group[0] - detached_group[1:].max()).item())
+                    margin_count += 1
+                offset += size
+            rank_loss = torch.stack(losses).mean()
+
+            # 2. Masked Language Modeling Loss (on the gold sequences only)
+            gold_s_t = s_t[gold_indices]
+            gold_p_mask = p_mask[gold_indices]
+
+            masked_s, mlm_target = self._mlm_mask_batch(gold_s_t, gold_p_mask)
+
+            mlm_logits = self.model(
+                masked_s,
+                c_t[gold_indices],
+                g_t[gold_indices],
+                ct_t[gold_indices],
+                m_t[gold_indices],
+                wp_t[gold_indices],
+                wf_t[gold_indices],
+                pad_mask=gold_p_mask
+            )
+
+            mlm_loss = self._compute_focal_loss(mlm_logits, mlm_target)
+
+            # 3. Joint Objective
+            total_loss = rank_loss + (mlm_weight * mlm_loss)
+
+        final_loss = float(total_loss.item())
+        final_rank = float(rank_loss.item())
+        self.scaler.scale(total_loss).backward()
+        self.scaler.unscale_(self.optimizer)
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+        scaler_scale = self.scaler.get_scale()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        if not use_amp or self.scaler.get_scale() >= scaler_scale:
+            self.scheduler.step()
+        self.global_step += 1
+
+        result = self._empty_step_result()
+        result.update({
+            'loss_sum': final_loss,
+            'rank_loss_sum': final_rank,
+            'optimizer_steps': 1,
+            'candidate_sets': len(candidate_sets),
+            'correct': correct,
+            'top2': top2,
+            'top3': top3,
+            'margin_sum': margin_sum,
+            'margin_count': margin_count,
+        })
+        return result
+
+    def _ranking_step(self, candidate_sets: List[List[FlatSequence]], oom_depth: int = 0) -> Dict[str, Any]:
+        candidate_sets = [cands for cands in candidate_sets if len(cands) >= 2]
+        if not candidate_sets:
+            return self._empty_step_result()
+
+        flat_count = sum(len(cands) for cands in candidate_sets)
+        max_len = max((len(seq[0]) for cands in candidate_sets for seq in cands), default=0)
+        try:
+            return self._ranking_step_once(candidate_sets)
+        except RuntimeError as exc:
+            if not _is_cuda_oom(exc):
+                raise
+            self._release_cuda_after_oom()
+            self._shrink_adaptive_cuda_limits(flat_count, max_len)
+            print(
+                "   CUDA OOM guard: training batch did not fit "
+                f"(sets={len(candidate_sets)}, seqs={flat_count}, max_len={max_len}, "
+                f"{self.cuda_memory_report()}); retrying smaller.",
+                flush=True,
+            )
+
+            max_retries = max(1, int(config.cuda_oom_retries))
+            if oom_depth >= max_retries:
                 print(
-                    "[GPU DEBUG] training batch:",
-                    f"sets={len(candidate_sets)}",
-                    f"flat_sequences={len(flat)}",
-                    f"tensor_shape={tuple(s_t.shape)}",
-                    f"device={s_t.device}",
-                    f"global_step={self.global_step}",
+                    "   CUDA OOM guard: retry limit reached; skipping "
+                    f"{len(candidate_sets)} candidate sets.",
                     flush=True,
                 )
+                skipped = self._empty_step_result()
+                skipped['skipped'] = len(candidate_sets)
+                return skipped
 
-            self.model.train()
-            self.optimizer.zero_grad()
-            use_amp = self.device.type == 'cuda'
-            
-            temperature = config.ranking_temperature
-            mlm_weight = config.mlm_weight
+            if len(candidate_sets) > 1:
+                mid = max(1, len(candidate_sets) // 2)
+                result = self._merge_step_results([
+                    self._ranking_step(candidate_sets[:mid], oom_depth + 1),
+                    self._ranking_step(candidate_sets[mid:], oom_depth + 1),
+                ])
+                result['adaptive_splits'] += 1
+                return result
 
-            with torch.amp.autocast('cuda', enabled=use_amp):
-                # 1. Contrastive Ranking Loss
-                scores = self.model.rank_scores(s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
-                losses = []
-                offset = 0
-                for size in sizes:
-                    # Apply temperature scaling to the logits
-                    logits = (scores[offset:offset + size] / temperature).unsqueeze(0)
-                    target = torch.zeros(1, dtype=torch.long, device=self.device)
-                    losses.append(F.cross_entropy(logits, target))
-                    offset += size
-                rank_loss = torch.stack(losses).mean()
+            cands = candidate_sets[0]
+            if len(cands) > 2:
+                negs = cands[1:]
+                mid = max(1, len(negs) // 2)
+                parts = [
+                    [cands[0]] + negs[:mid],
+                    [cands[0]] + negs[mid:],
+                ]
+                parts = [part for part in parts if len(part) >= 2]
+                result = self._merge_step_results([
+                    self._ranking_step([part], oom_depth + 1)
+                    for part in parts
+                ])
+                result['adaptive_splits'] += 1
+                return result
 
-                # 2. Masked Language Modeling Loss (on the gold sequences only)
-                gold_indices = [sum(sizes[:i]) for i in range(len(sizes))]
-                gold_s_t = s_t[gold_indices]
-                gold_p_mask = p_mask[gold_indices]
-                
-                masked_s, mlm_target = self._mlm_mask_batch(gold_s_t, gold_p_mask)
-                
-                mlm_logits = self.model(
-                    masked_s, 
-                    c_t[gold_indices], 
-                    g_t[gold_indices], 
-                    ct_t[gold_indices], 
-                    m_t[gold_indices], 
-                    wp_t[gold_indices], 
-                    wf_t[gold_indices], 
-                    pad_mask=gold_p_mask
-                )
-                
-                mlm_loss = self._compute_focal_loss(mlm_logits, mlm_target)
+            print(
+                "   CUDA OOM guard: skipping one candidate set that does not fit even "
+                f"as gold-vs-one-negative (max_len={max_len}).",
+                flush=True,
+            )
+            skipped = self._empty_step_result()
+            skipped['skipped'] = 1
+            return skipped
 
-                # 3. Joint Objective
-                total_loss = rank_loss + (mlm_weight * mlm_loss)
+    def _candidate_batch_count(self, candidate_sets: List[List[FlatSequence]], batch_size: int) -> int:
+        return len(self._candidate_batches(candidate_sets, batch_size))
 
-            final_loss = total_loss.item()
-            final_rank = rank_loss.item()
-            self.scaler.scale(total_loss).backward()
-            self.scaler.unscale_(self.optimizer)
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            scaler_scale = self.scaler.get_scale()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-            if not use_amp or self.scaler.get_scale() >= scaler_scale:
-                self.scheduler.step()
-            self.global_step += 1
-            return final_loss, final_rank
-            
-        except torch.cuda.OutOfMemoryError:
-            self.optimizer.zero_grad(set_to_none=True)
-            if self.device.type == 'cuda':
-                torch.cuda.empty_cache()
-            if len(candidate_sets) <= 1:
-                raise
-            mid = len(candidate_sets) // 2
-            left_loss, left_rank = self._ranking_step(candidate_sets[:mid])
-            right_loss, right_rank = self._ranking_step(candidate_sets[mid:])
-            return (left_loss + right_loss) / 2.0, (left_rank + right_rank) / 2.0
-
-    @staticmethod
-    def _candidate_batch_count(candidate_sets: List[List[FlatSequence]], batch_size: int) -> int:
-        count = 0
-        current_sets = 0
-        current_sequences = 0
-        max_sequences = max(1, int(config.max_candidate_sequences_per_batch))
-
-        for cands in candidate_sets:
-            cand_count = len(cands)
-            would_exceed_sets = current_sets >= batch_size
-            would_exceed_sequences = current_sets > 0 and current_sequences + cand_count > max_sequences
-            if would_exceed_sets or would_exceed_sequences:
-                count += 1
-                current_sets = 0
-                current_sequences = 0
-            current_sets += 1
-            current_sequences += cand_count
-
-        return count + (1 if current_sets else 0)
-
-    @staticmethod
-    def _candidate_batches(
-        candidate_sets: List[List[FlatSequence]],
-        batch_size: int,
-    ) -> List[List[List[FlatSequence]]]:
+    def _candidate_batches(self, candidate_sets: List[List[FlatSequence]], batch_size: int) -> List[List[List[FlatSequence]]]:
         batches: List[List[List[FlatSequence]]] = []
         current: List[List[FlatSequence]] = []
         current_sequences = 0
-        max_sequences = max(1, int(config.max_candidate_sequences_per_batch))
+        current_max_len = 0
+        max_sequences = max(1, self._adaptive_max_candidate_sequences)
+        max_tokens = max(1, self._adaptive_max_padded_tokens)
+        max_attention_cells = max(1, self._adaptive_max_attention_cells)
 
         for cands in candidate_sets:
             cand_count = len(cands)
+            cand_max_len = self._candidate_set_max_len(cands)
+            next_sequences = current_sequences + cand_count
+            next_max_len = max(current_max_len, cand_max_len)
             would_exceed_sets = len(current) >= batch_size
-            would_exceed_sequences = current and current_sequences + cand_count > max_sequences
-            if would_exceed_sets or would_exceed_sequences:
+            would_exceed_sequences = bool(current) and next_sequences > max_sequences
+            would_exceed_tokens = bool(current) and next_sequences * next_max_len > max_tokens
+            would_exceed_attention = bool(current) and next_sequences * next_max_len * next_max_len > max_attention_cells
+            if would_exceed_sets or would_exceed_sequences or would_exceed_tokens or would_exceed_attention:
                 batches.append(current)
                 current = []
                 current_sequences = 0
+                current_max_len = 0
             current.append(cands)
             current_sequences += cand_count
+            current_max_len = max(current_max_len, cand_max_len)
 
         if current:
             batches.append(current)
@@ -852,13 +1075,21 @@ class Trainer:
         gold_seq = self._sequence_from_chains(word_chains)
         if len(gold_seq[0]) < 2:
             return 0.0
+        max_len = int(config.max_sequence_length)
+        if len(gold_seq[0]) > max_len:
+            print(
+                f"   Skipping training example: sequence length {len(gold_seq[0])} "
+                f"exceeds max_sequence_length={max_len}.",
+                flush=True,
+            )
+            return 0.0
 
         self._add_to_replay(*gold_seq)
         negatives = negative_word_chains or []
         candidate_set = [gold_seq]
         for neg in negatives:
             neg_seq = self._sequence_from_chains(neg)
-            if neg_seq != gold_seq:
+            if neg_seq != gold_seq and len(neg_seq[0]) <= max_len:
                 candidate_set.append(neg_seq)
 
         if len(candidate_set) < 2:
@@ -867,7 +1098,9 @@ class Trainer:
         print(f"   Ranking gold against {len(candidate_set) - 1} negatives...", end="", flush=True)
         final_loss = 0.0
         for _ in range(config.steps_per_update):
-            final_loss, _ = self._ranking_step([candidate_set])
+            result = self._ranking_step([candidate_set])
+            if result['optimizer_steps']:
+                final_loss = result['loss_sum'] / result['optimizer_steps']
         print(f" loss={final_loss:.4f}")
 
         self.train_history.append(final_loss)
@@ -903,7 +1136,7 @@ class Trainer:
             if cands:
                 self._add_to_replay(*cands[0])
 
-        trainable_sets = [cands for cands in candidate_sets if len(cands) >= 2]
+        trainable_sets = self._budget_candidate_sets([cands for cands in candidate_sets if len(cands) >= 2])
 
         if _debug_gpu_enabled():
             total_candidates = sum(len(cands) for cands in candidate_sets)
@@ -918,7 +1151,9 @@ class Trainer:
                 f"total_candidate_sequences={total_candidates}",
                 f"trainable_candidate_sequences={trainable_candidates}",
                 f"batch_size={batch_size}",
-                f"max_candidate_sequences_per_batch={config.max_candidate_sequences_per_batch}",
+                f"max_candidate_sequences_per_batch={self._adaptive_max_candidate_sequences}",
+                f"max_batch_padded_tokens={self._adaptive_max_padded_tokens}",
+                f"max_batch_attention_cells={self._adaptive_max_attention_cells}",
                 flush=True,
             )
 
@@ -946,6 +1181,15 @@ class Trainer:
 
         final_loss = 0.0
         data = list(trainable_sets)
+        print(
+            "   Bulk training plan: "
+            f"sets={len(data)}, epochs={epochs}, batch_size={batch_size}, "
+            f"max_sequences={self._adaptive_max_candidate_sequences}, "
+            f"max_padded_tokens={self._adaptive_max_padded_tokens}, "
+            f"max_attention_cells={self._adaptive_max_attention_cells}, "
+            f"{self.cuda_memory_report()}",
+            flush=True,
+        )
         for epoch in range(epochs):
             random.shuffle(data)
             epoch_loss = 0.0
@@ -955,30 +1199,70 @@ class Trainer:
             top2 = 0
             top3 = 0
             total = 0
-            margins: List[float] = []
+            margin_sum = 0.0
+            margin_count = 0
+            skipped = 0
+            epoch_start = time.monotonic()
+            batches = self._candidate_batches(data, batch_size)
+            log_interval = max(1, int(config.bulk_batch_log_interval))
 
-            for batch_sets in self._candidate_batches(data, batch_size):
-                loss_value, rank_loss_value = self._ranking_step(batch_sets)
-                if loss_value == 0.0 and rank_loss_value == 0.0:
+            batch_idx = 0
+            while batch_idx < len(batches):
+                batch_sets = batches[batch_idx]
+                batch_idx += 1
+                batch_start = time.monotonic()
+                result = self._ranking_step(batch_sets)
+                if result['optimizer_steps'] == 0:
+                    skipped += result.get('skipped', 0)
+                    if result.get('adaptive_splits'):
+                        remaining = [cands for batch in batches[batch_idx:] for cands in batch]
+                        batches = batches[:batch_idx] + self._candidate_batches(remaining, batch_size)
                     continue
-                epoch_loss += loss_value
-                epoch_rank_loss += rank_loss_value
-                n_batches += 1
+                epoch_loss += result['loss_sum']
+                epoch_rank_loss += result['rank_loss_sum']
+                n_batches += result['optimizer_steps']
+                correct += result['correct']
+                top2 += result['top2']
+                top3 += result['top3']
+                total += result['candidate_sets']
+                margin_sum += result['margin_sum']
+                margin_count += result['margin_count']
+                skipped += result.get('skipped', 0)
 
-                with torch.no_grad():
-                    for cands in batch_sets:
-                        scores = self.score_flat_sequences(cands)
-                        if not scores:
-                            continue
-                        total += 1
-                        if self._topk_hit(scores, 1):
-                            correct += 1
-                        if self._topk_hit(scores, 2):
-                            top2 += 1
-                        if self._topk_hit(scores, 3):
-                            top3 += 1
-                        if len(scores) > 1:
-                            margins.append(scores[0] - max(scores[1:]))
+                if result.get('adaptive_splits'):
+                    remaining = [cands for batch in batches[batch_idx:] for cands in batch]
+                    batches = batches[:batch_idx] + self._candidate_batches(remaining, batch_size)
+
+                if batch_idx == 1 or batch_idx == len(batches) or batch_idx % log_interval == 0:
+                    batch_loss = result['loss_sum'] / max(result['optimizer_steps'], 1)
+                    batch_rank = result['rank_loss_sum'] / max(result['optimizer_steps'], 1)
+                    batch_total = max(result['candidate_sets'], 1)
+                    batch_acc = result['correct'] / batch_total
+                    batch_top2 = result['top2'] / batch_total
+                    batch_top3 = result['top3'] / batch_total
+                    batch_margin = (
+                        result['margin_sum'] / result['margin_count']
+                        if result['margin_count']
+                        else 0.0
+                    )
+                    flat_sequences = sum(len(cands) for cands in batch_sets)
+                    max_len = max((len(seq[0]) for cands in batch_sets for seq in cands), default=0)
+                    elapsed = time.monotonic() - batch_start
+                    lr = self.optimizer.param_groups[0].get('lr', 0.0)
+                    split_note = (
+                        f" splits={result['adaptive_splits']}"
+                        if result.get('adaptive_splits')
+                        else ""
+                    )
+                    print(
+                        f"   Epoch {epoch + 1}/{epochs} batch {batch_idx}/{len(batches)}: "
+                        f"loss={batch_loss:.4f} rank_loss={batch_rank:.4f} "
+                        f"RankAcc={batch_acc:.4f} Top2={batch_top2:.4f} Top3={batch_top3:.4f} "
+                        f"margin={batch_margin:.4f} sets={result['candidate_sets']} "
+                        f"seqs={flat_sequences} max_len={max_len} steps={result['optimizer_steps']}"
+                        f"{split_note} lr={lr:.2e} time={elapsed:.1f}s {self.cuda_memory_report()}",
+                        flush=True,
+                    )
 
             if n_batches:
                 avg = epoch_loss / n_batches
@@ -987,7 +1271,7 @@ class Trainer:
                 acc = correct / total if total else 0.0
                 top2_acc = top2 / total if total else 0.0
                 top3_acc = top3 / total if total else 0.0
-                mean_margin = sum(margins) / len(margins) if margins else 0.0
+                mean_margin = margin_sum / margin_count if margin_count else 0.0
                 self.last_train_stats = {
                     'loss': avg,
                     'rank_acc': acc,
@@ -996,11 +1280,13 @@ class Trainer:
                     'margin': mean_margin,
                     'n_batches': n_batches,
                     'total': total,
+                    'skipped': skipped,
                 }
                 print(
                     f"   Bulk epoch {epoch+1}/{epochs}: loss={avg:.4f} | rank_loss={avg_rank:.4f} | "
                     f"RankAcc={acc:.4f} | Top2={top2_acc:.4f} | Top3={top3_acc:.4f} | margin={mean_margin:.4f} "
-                    f"({n_batches} batches, {total} candidate sets)"
+                    f"({n_batches} optimizer steps, {len(batches)} logged batches, {total} candidate sets, "
+                    f"{skipped} skipped, {time.monotonic() - epoch_start:.1f}s)"
                 )
 
             if validation_seqs:
@@ -1201,14 +1487,41 @@ class Trainer:
         if not seqs:
             return torch.empty(0, dtype=torch.float, device=self.device)
         self.model.eval()
-        chunk_size = max(1, int(config.max_candidate_sequences_per_batch))
+        chunk_size = max(1, self._adaptive_max_candidate_sequences)
         chunks: List[torch.Tensor] = []
         with torch.no_grad():
-            for start in range(0, len(seqs), chunk_size):
-                chunk = seqs[start:start + chunk_size]
-                s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(chunk)
-                scores = self.model.rank_scores(s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
-                chunks.append(scores.detach())
+            start = 0
+            while start < len(seqs):
+                current_size = min(chunk_size, len(seqs) - start)
+                chunk = seqs[start:start + current_size]
+                max_len = max((len(seq[0]) for seq in chunk), default=0)
+                while current_size > 1 and (
+                    current_size * max_len > self._adaptive_max_padded_tokens
+                    or current_size * max_len * max_len > self._adaptive_max_attention_cells
+                ):
+                    current_size = max(1, current_size // 2)
+                    chunk = seqs[start:start + current_size]
+                    max_len = max((len(seq[0]) for seq in chunk), default=0)
+                try:
+                    s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, p_mask = self._build_padded_batch(chunk)
+                    scores = self.model.rank_scores(s_t, c_t, g_t, ct_t, m_t, wp_t, wf_t, pad_mask=p_mask)
+                    chunks.append(scores.detach())
+                    start += current_size
+                except RuntimeError as exc:
+                    if not _is_cuda_oom(exc):
+                        raise
+                    self._release_cuda_after_oom()
+                    self._shrink_adaptive_cuda_limits(current_size, max_len)
+                    if current_size <= 1:
+                        print(
+                            "   CUDA OOM guard: one sequence could not be scored; assigning a low score "
+                            f"(max_len={max_len}, {self.cuda_memory_report()}).",
+                            flush=True,
+                        )
+                        chunks.append(torch.full((1,), -1e4, dtype=torch.float, device=self.device))
+                        start += 1
+                    else:
+                        chunk_size = max(1, current_size // 2)
         return torch.cat(chunks) if chunks else torch.empty(0, dtype=torch.float, device=self.device)
 
     def predict(

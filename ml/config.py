@@ -42,10 +42,11 @@ class MLConfig:
     focal_gamma: float = 0.0
 
     # --- Ranking Objective ---
-    max_negative_candidates: int = 10
-    max_candidate_sequences_per_batch: int = 128
+    max_negative_candidates: int = 8
+    max_candidate_sequences_per_batch: int = 64
+    max_sequence_length: int = 512
     use_torch_compile: bool = False
-    hard_negative_count: int = 6
+    hard_negative_count: int = 4
     medium_negative_count: int = 2
     easy_negative_count: int = 2
     dynamic_negative_pool_size: int = 100
@@ -59,7 +60,12 @@ class MLConfig:
 
     # --- Bulk-training defaults ---
     bulk_epochs: int = 11
-    bulk_batch_size: int = 128
+    bulk_batch_size: int = 32
+    bulk_batch_log_interval: int = 1
+    relearn_preprocess_log_interval: int = 1000
+    max_batch_padded_tokens: int = 8192
+    max_batch_attention_cells: int = 2_000_000
+    cuda_oom_retries: int = 8
 
     # --- LR Schedule ---
     warmup_steps: int = 1000

@@ -8,6 +8,7 @@ import math
 import random
 import tempfile
 import shutil
+import time
 import torch
 from typing import List, Optional, Tuple, Dict, Any, Callable, Sequence
 
@@ -411,9 +412,14 @@ class WorkflowEngine:
         if parts is None: return None
         gold_chains, candidate_lists, gold_indices, word_count = parts
         gold_seq = build_sentence_sequence(gold_chains)
+        if len(gold_seq[0]) > int(config.max_sequence_length): return None
         negatives = self._single_substitution_negatives(gold_chains, candidate_lists, gold_indices, limit=config.dynamic_negative_pool_size)
         if not negatives: return None
-        negative_seqs = [build_sentence_sequence(neg) for neg in negatives]
+        negative_seqs = [
+            seq for seq in (build_sentence_sequence(neg) for neg in negatives)
+            if len(seq[0]) <= int(config.max_sequence_length)
+        ]
+        if not negative_seqs: return None
         scores = self.trainer.score_flat_sequences(negative_seqs)
         selected = self._select_dynamic_negatives(list(zip(scores, negative_seqs)), rng)
         if not selected: return None
@@ -428,42 +434,102 @@ class WorkflowEngine:
         candidate_set = [gold_seq] + [build_sentence_sequence(neg) for neg in negatives]
         return candidate_set, word_count
 
-    def _entries_to_sequences(self, entries: List[Dict]) -> Tuple[List[List[Any]], int, int]:
+    def _candidate_set_fits_model(self, candidate_set: List[Any]) -> bool:
+        max_len = int(config.max_sequence_length)
+        return all(len(seq[0]) <= max_len for seq in candidate_set)
+
+    @staticmethod
+    def _log_relearn_progress(
+        label: str,
+        processed: int,
+        total: int,
+        built: int,
+        words: int,
+        skipped: int,
+        started_at: float,
+    ) -> None:
+        elapsed = max(time.monotonic() - started_at, 1e-6)
+        rate = processed / elapsed
+        print(
+            f"   {label}: {processed}/{total} entries | "
+            f"candidate_sets={built} words={words} skipped={skipped} "
+            f"rate={rate:.1f}/s elapsed={elapsed:.1f}s",
+            flush=True,
+        )
+
+    def _entries_to_sequences(
+        self,
+        entries: List[Dict],
+        *,
+        log_progress: bool = False,
+        label: str = "Preprocessing",
+    ) -> Tuple[List[List[Any]], int, int]:
         all_seqs = []
         skipped = 0
         total_words = 0
-        for entry in entries:
+        started_at = time.monotonic()
+        total_entries = len(entries)
+        interval = max(1, int(config.relearn_preprocess_log_interval))
+        if log_progress:
+            print(f"   {label}: preparing candidate sets for {total_entries} entries...", flush=True)
+        for idx, entry in enumerate(entries, start=1):
             try:
                 if entry.get('type') == 'sentence': result = self._candidate_set_from_word_entries(entry.get('words', []))
                 else: result = self._candidate_set_from_word_entries([entry])
                 if result is None:
                     skipped += 1
+                    if log_progress and (idx == 1 or idx == total_entries or idx % interval == 0):
+                        self._log_relearn_progress(label, idx, total_entries, len(all_seqs), total_words, skipped, started_at)
                     continue
                 candidate_set, word_count = result
                 if len(candidate_set) >= 2:
-                    all_seqs.append(candidate_set)
-                    total_words += word_count
+                    if self._candidate_set_fits_model(candidate_set):
+                        all_seqs.append(candidate_set)
+                        total_words += word_count
+                    else:
+                        skipped += 1
                 else: skipped += 1
             except Exception: skipped += 1
+            if log_progress and (idx == 1 or idx == total_entries or idx % interval == 0):
+                self._log_relearn_progress(label, idx, total_entries, len(all_seqs), total_words, skipped, started_at)
         return all_seqs, total_words, skipped
 
-    def _entries_to_dynamic_sequences(self, entries: List[Dict], rng: random.Random) -> Tuple[List[List[Any]], int, int]:
+    def _entries_to_dynamic_sequences(
+        self,
+        entries: List[Dict],
+        rng: random.Random,
+        *,
+        log_progress: bool = False,
+        label: str = "Dynamic preprocessing",
+    ) -> Tuple[List[List[Any]], int, int]:
         all_seqs = []
         skipped = 0
         total_words = 0
-        for entry in entries:
+        started_at = time.monotonic()
+        total_entries = len(entries)
+        interval = max(1, int(config.relearn_preprocess_log_interval))
+        if log_progress:
+            print(f"   {label}: preparing candidate sets for {total_entries} entries...", flush=True)
+        for idx, entry in enumerate(entries, start=1):
             try:
                 if entry.get('type') == 'sentence': result = self._dynamic_candidate_set_from_word_entries(entry.get('words', []), rng)
                 else: result = self._dynamic_candidate_set_from_word_entries([entry], rng)
                 if result is None:
                     skipped += 1
+                    if log_progress and (idx == 1 or idx == total_entries or idx % interval == 0):
+                        self._log_relearn_progress(label, idx, total_entries, len(all_seqs), total_words, skipped, started_at)
                     continue
                 candidate_set, word_count = result
                 if len(candidate_set) >= 2:
-                    all_seqs.append(candidate_set)
-                    total_words += word_count
+                    if self._candidate_set_fits_model(candidate_set):
+                        all_seqs.append(candidate_set)
+                        total_words += word_count
+                    else:
+                        skipped += 1
                 else: skipped += 1
             except Exception: skipped += 1
+            if log_progress and (idx == 1 or idx == total_entries or idx % interval == 0):
+                self._log_relearn_progress(label, idx, total_entries, len(all_seqs), total_words, skipped, started_at)
         return all_seqs, total_words, skipped
 
     def _split_train_validation_sequences(self, all_seqs: List[Any]) -> Tuple[List[Any], List[Any]]:
@@ -479,15 +545,43 @@ class WorkflowEngine:
         return train_seqs, val_seqs
 
     def relearn_all(self) -> Tuple[int, int]:
-        entries = self.data_manager.get_valid_decomps()
-        all_seqs, total_words, skipped = self._entries_to_sequences(entries)
+        started_at = time.monotonic()
+        print("\n=== Relearn started ===", flush=True)
+        entries = []
+        load_started_at = time.monotonic()
+        load_interval = max(1, int(config.relearn_preprocess_log_interval))
+        for idx, entry in enumerate(self.data_manager.iter_valid_decomps(), start=1):
+            entries.append(entry)
+            if idx == 1 or idx % load_interval == 0:
+                elapsed = max(time.monotonic() - load_started_at, 1e-6)
+                print(f"   Loading training entries: {idx} entries ({idx / elapsed:.1f}/s)", flush=True)
+        print(
+            f"   Loaded {len(entries)} training entries | "
+            f"device={self.device} | {self.trainer.cuda_memory_report()}",
+            flush=True,
+        )
+        all_seqs, total_words, skipped = self._entries_to_sequences(
+            entries,
+            log_progress=True,
+            label="Relearn preprocessing",
+        )
+        print(
+            f"   Relearn preprocessing complete: {len(all_seqs)} candidate sets, "
+            f"{total_words} words, {skipped} skipped in {time.monotonic() - started_at:.1f}s",
+            flush=True,
+        )
         train_seqs, val_seqs = self._split_train_validation_sequences(all_seqs)
         if train_seqs:
-            print(f"   Bulk training on {len(train_seqs)} sequences ({total_words} words)...")
+            print(
+                f"   Bulk training on {len(train_seqs)} train sets and {len(val_seqs)} validation sets "
+                f"({total_words} words)...",
+                flush=True,
+            )
             self.trainer.train_bulk(train_seqs, validation_seqs=val_seqs)
             self._save_final_suffix_metrics()
         self.training_count += total_words
         self.save()
+        print(f"=== Relearn finished in {time.monotonic() - started_at:.1f}s ===", flush=True)
         return total_words, skipped
 
     def train_curriculum(self, generations: Optional[int] = None, warmup_epochs: Optional[int] = None, mining_epochs: Optional[int] = None) -> Dict[str, Any]:

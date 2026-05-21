@@ -12,6 +12,24 @@ class DataManager:
     def __init__(self):
         self.paths = FilePaths()
 
+    @staticmethod
+    def _numbered_jsonl_key(path: Path) -> int:
+        match = re.search(r"_(\d+)\.jsonl$", path.name)
+        return int(match.group(1)) if match else 0
+
+    @classmethod
+    def _jsonl_shards_for(cls, base_path: Path) -> List[Path]:
+        parent = base_path.parent
+        stem = base_path.stem
+        numbered_re = re.compile(rf"^{re.escape(stem)}_\d+\.jsonl$")
+        numbered = [
+            path for path in parent.glob(f"{stem}_*.jsonl")
+            if numbered_re.fullmatch(path.name)
+        ]
+        if numbered:
+            return sorted(numbered, key=lambda path: (cls._numbered_jsonl_key(path), path.name))
+        return [base_path] if base_path.exists() else []
+
     def load_training_count(self) -> int:
         try:
             if os.path.exists(self.paths.training_count_path):
@@ -100,14 +118,21 @@ class DataManager:
         except OSError:
             pass
 
+        treebank_dirs = set()
+        adapted_name_re = re.compile(r"^treebank_adapted(?:_\d+)?\.jsonl$")
+        for path in data_dir.rglob("treebank_adapted*.jsonl"):
+            if adapted_name_re.fullmatch(path.name):
+                treebank_dirs.add(path.parent)
+
         treebank_paths = []
-        for path in sorted(data_dir.rglob("treebank_adapted.jsonl")):
-            try:
-                if path.resolve() == test_path:
-                    continue
-            except OSError:
-                pass
-            treebank_paths.append(str(path))
+        for parent in sorted(treebank_dirs):
+            for path in self._jsonl_shards_for(parent / "treebank_adapted.jsonl"):
+                try:
+                    if path.resolve() == test_path:
+                        continue
+                except OSError:
+                    pass
+                treebank_paths.append(str(path))
         return treebank_paths
 
     def get_valid_decomps(self) -> List[Dict]:
@@ -133,16 +158,17 @@ class DataManager:
     def get_test_entries(self) -> List[Dict]:
         """Load the adapted TRMor2018 gold test JSONL."""
         entries = []
-        try:
-            with open(self.paths.test_adapted_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if line.strip():
-                        try:
-                            entries.append(json.loads(line))
-                        except Exception:
-                            continue
-        except FileNotFoundError:
-            return []
+        for path in self._jsonl_shards_for(Path(self.paths.test_adapted_path)):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if line.strip():
+                            try:
+                                entries.append(json.loads(line))
+                            except Exception:
+                                continue
+            except FileNotFoundError:
+                continue
         return entries
 
     def log_decompositions(self, log_entries: List[Dict]) -> bool:

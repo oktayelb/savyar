@@ -806,7 +806,212 @@ class WorkflowEngine:
             except Exception: pass
         return result
 
-    def test_model(self) -> Dict[str, Any]:
+    @staticmethod
+    def _encoded_chain_suffix_names(chain: List) -> List[Optional[str]]:
+        return [Trainer._suffix_name_for_token_id(tok[0]) for tok in chain]
+
+    @staticmethod
+    def _gold_entry_display(word_entry: Dict[str, Any]) -> str:
+        suffixes = word_entry.get("suffixes", [])
+        if not suffixes:
+            return str(word_entry.get("root") or word_entry.get("word") or "")
+        suffix_names = "+".join(sd.get("name", "?") for sd in suffixes)
+        return f"{word_entry.get('root', word_entry.get('word', ''))}+{suffix_names}"
+
+    def _candidate_diagnostics_from_word_entries(
+        self,
+        word_entries: List[Dict],
+        entry: Dict[str, Any],
+    ) -> Optional[Tuple[List[Any], Dict[str, Any]]]:
+        gold_chains = []
+        candidate_lists = []
+        gold_indices = []
+        candidate_displays = []
+
+        for word_entry in word_entries:
+            sfx_dicts = word_entry.get("suffixes", [])
+            if not sfx_dicts:
+                continue
+            encoded_gold = nlp.encode_suffix_names(sfx_dicts)
+            if not encoded_gold:
+                continue
+
+            try:
+                word_analysis = nlp.analyze_word(word_entry["word"], include_closed_class=True)
+                matched = nlp.match_decompositions([word_entry], word_analysis["decomps"])
+            except Exception:
+                word_analysis = None
+                matched = []
+
+            if matched and word_analysis is not None:
+                gold_idx = matched[0]
+                candidates = word_analysis["encoded_chains"]
+                displays = [
+                    nlp.format_detailed_decomp(decomp)
+                    for decomp in word_analysis["decomps"]
+                ]
+                gold_chain = candidates[gold_idx]
+            else:
+                gold_idx = 0
+                gold_chain = encoded_gold
+                candidates = [encoded_gold]
+                displays = [self._gold_entry_display(word_entry)]
+
+            gold_chains.append(gold_chain)
+            candidate_lists.append(candidates)
+            gold_indices.append(gold_idx)
+            candidate_displays.append(displays)
+
+        if not gold_chains:
+            return None
+
+        candidate_set = [build_sentence_sequence(gold_chains)]
+        combos = [list(gold_indices)]
+        seen = {tuple(tuple(tok[0] for tok in chain) for chain in gold_chains)}
+        max_candidate_set_size = 1 + max(0, int(config.max_negative_candidates))
+
+        for word_idx, candidates in enumerate(candidate_lists):
+            gold_idx = gold_indices[word_idx]
+            for cand_idx, candidate in enumerate(candidates):
+                if cand_idx == gold_idx:
+                    continue
+                neg_chains = list(gold_chains)
+                neg_chains[word_idx] = candidate
+                signature = tuple(tuple(tok[0] for tok in chain) for chain in neg_chains)
+                if signature in seen:
+                    continue
+                seen.add(signature)
+                candidate_set.append(build_sentence_sequence(neg_chains))
+                combo = list(gold_indices)
+                combo[word_idx] = cand_idx
+                combos.append(combo)
+                if len(candidate_set) >= max_candidate_set_size:
+                    break
+            if len(candidate_set) >= max_candidate_set_size:
+                break
+
+        if len(candidate_set) < 2:
+            return None
+
+        return candidate_set, {
+            "entry": entry,
+            "word_entries": word_entries,
+            "gold_chains": gold_chains,
+            "candidate_lists": candidate_lists,
+            "gold_indices": gold_indices,
+            "candidate_displays": candidate_displays,
+            "combos": combos,
+        }
+
+    def _collect_test_detail(
+        self,
+        entries: List[Dict],
+        suffix_metrics: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        worst_suffixes = [
+            (name, metrics)
+            for name, metrics in suffix_metrics.items()
+            if (int(metrics.get("fp", 0)) + int(metrics.get("fn", 0))) > 0
+        ]
+        worst_suffixes.sort(
+            key=lambda item: (
+                float(item[1].get("f1", 0.0)),
+                -int(item[1].get("fp", 0)) - int(item[1].get("fn", 0)),
+                item[0],
+            )
+        )
+        worst_names = [name for name, _ in worst_suffixes[:20]]
+        examples_by_suffix: Dict[str, List[Dict[str, Any]]] = {
+            name: [] for name in worst_names
+        }
+
+        diagnostic_sets: List[Tuple[List[Any], Dict[str, Any]]] = []
+        skipped = 0
+        for entry in entries:
+            word_entries = entry.get("words", []) if entry.get("type") == "sentence" else [entry]
+            try:
+                result = self._candidate_diagnostics_from_word_entries(word_entries, entry)
+                if result is None:
+                    skipped += 1
+                    continue
+                candidate_set, meta = result
+                if self._candidate_set_fits_model(candidate_set):
+                    diagnostic_sets.append((candidate_set, meta))
+                else:
+                    skipped += 1
+            except Exception:
+                skipped += 1
+
+        batch_size = 64
+        for start in range(0, len(diagnostic_sets), batch_size):
+            batch = diagnostic_sets[start:start + batch_size]
+            flat = [seq for candidate_set, _meta in batch for seq in candidate_set]
+            sizes = [len(candidate_set) for candidate_set, _meta in batch]
+            scores = self.trainer.score_flat_sequences(flat)
+            offset = 0
+            for (candidate_set, meta), size in zip(batch, sizes):
+                group = scores[offset:offset + size]
+                offset += size
+                if not group:
+                    continue
+                best_idx = max(range(len(group)), key=lambda i: group[i])
+                if best_idx == 0:
+                    continue
+
+                pred_combo = meta["combos"][best_idx]
+                gold_indices = meta["gold_indices"]
+                for word_idx, (gold_idx, pred_idx) in enumerate(zip(gold_indices, pred_combo)):
+                    if gold_idx == pred_idx:
+                        continue
+
+                    gold_chain = meta["candidate_lists"][word_idx][gold_idx]
+                    pred_chain = meta["candidate_lists"][word_idx][pred_idx]
+                    gold_names = self._encoded_chain_suffix_names(gold_chain)
+                    pred_names = self._encoded_chain_suffix_names(pred_chain)
+                    max_len = max(len(gold_names), len(pred_names))
+
+                    word_entry = meta["word_entries"][word_idx]
+                    example_base = {
+                        "sentence": meta["entry"].get("original_sentence") or word_entry.get("word", ""),
+                        "word": word_entry.get("word", ""),
+                        "gold": meta["candidate_displays"][word_idx][gold_idx],
+                        "predicted": meta["candidate_displays"][word_idx][pred_idx],
+                        "gold_score": group[0],
+                        "pred_score": group[best_idx],
+                    }
+
+                    for pos in range(max_len):
+                        gold_name = gold_names[pos] if pos < len(gold_names) else None
+                        pred_name = pred_names[pos] if pos < len(pred_names) else None
+                        if gold_name == pred_name:
+                            continue
+
+                        if gold_name in examples_by_suffix and len(examples_by_suffix[gold_name]) < 10:
+                            examples_by_suffix[gold_name].append({
+                                **example_base,
+                                "failure": "missed",
+                                "expected": gold_name,
+                                "got": pred_name or "(none)",
+                            })
+                        if pred_name in examples_by_suffix and len(examples_by_suffix[pred_name]) < 10:
+                            examples_by_suffix[pred_name].append({
+                                **example_base,
+                                "failure": "false_positive",
+                                "expected": gold_name or "(none)",
+                                "got": pred_name,
+                            })
+
+        return {
+            "worst_suffixes": [
+                {"name": name, **metrics}
+                for name, metrics in worst_suffixes[:20]
+            ],
+            "examples": examples_by_suffix,
+            "diagnostic_sequences": len(diagnostic_sets),
+            "diagnostic_skipped": skipped,
+        }
+
+    def test_model(self, detailed: bool = False) -> Dict[str, Any]:
         entries = self.data_manager.get_test_entries()
         if not entries:
             return {
@@ -818,13 +1023,19 @@ class WorkflowEngine:
             }
         test_seqs, total_words, skipped = self._entries_to_sequences(entries)
         metrics = self.trainer.validate(test_seqs) if test_seqs else None
-        return {
+        report = {
             'entries': len(entries),
             'sequences': len(test_seqs),
             'words': total_words,
             'skipped': skipped,
             'metrics': metrics,
         }
+        if detailed and metrics:
+            report["detail"] = self._collect_test_detail(
+                entries,
+                metrics.get("suffix_metrics", {}),
+            )
+        return report
 
     def sample_text(self, filename: str) -> bool:
         text = self.data_manager.get_text_tokenized(filename)

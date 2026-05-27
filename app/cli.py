@@ -29,6 +29,7 @@ class AppCLI:
         print("  - 'relearn' - Train on all logged decompositions")
         print("  - 'curriculum' - Train with dynamic hard-negative mining")
         print("  - 'test' - Evaluate current model on the TRMor2018 gold test set")
+        print("  - 'test detail' - Test plus worst suffixes and failure examples")
         print("  - '10FKV' - 10-fold cross-validation with 95% CI")
         print("  - 'stats' - Show training statistics")
         print("  - 'sample' - Analyze a text word by word.")
@@ -118,6 +119,52 @@ class AppCLI:
         print(f"  Suffix recall:    {metrics.get('suff_recall', 0.0):.4f}")
         print(f"  Suffix F1:        {metrics.get('suff_f1', 0.0):.4f}")
         print(f"  Margin:           {metrics.get('margin', 0.0):.4f}")
+
+        detail = report.get('detail')
+        if not detail:
+            return
+
+        worst_suffixes = detail.get('worst_suffixes', [])
+        examples = detail.get('examples', {})
+        print("\n Worst Performing Suffixes:")
+        print(f"  Diagnostic sequences: {detail.get('diagnostic_sequences', 0)}")
+        print(f"  Diagnostic skipped:   {detail.get('diagnostic_skipped', 0)}")
+        if not worst_suffixes:
+            print("  No suffix failures found.")
+            return
+
+        for idx, suffix in enumerate(worst_suffixes, 1):
+            name = suffix.get('name', '?')
+            print(
+                f"\n {idx:>2}. {name} "
+                f"F1={suffix.get('f1', 0.0):.4f} "
+                f"P={suffix.get('precision', 0.0):.4f} "
+                f"R={suffix.get('recall', 0.0):.4f} "
+                f"TP={int(suffix.get('tp', 0))} "
+                f"FP={int(suffix.get('fp', 0))} "
+                f"FN={int(suffix.get('fn', 0))} "
+                f"Gold={int(suffix.get('gold_count', 0))} "
+                f"Pred={int(suffix.get('pred_count', 0))}"
+            )
+            suffix_examples = examples.get(name, [])
+            if not suffix_examples:
+                print("     No captured examples for this suffix.")
+                continue
+            for ex_idx, ex in enumerate(suffix_examples[:10], 1):
+                print(
+                    f"     [{ex_idx}] {ex.get('failure', '?')}: "
+                    f"expected {ex.get('expected', '?')} -> got {ex.get('got', '?')}"
+                )
+                print(f"         word: {ex.get('word', '')}")
+                print(f"         gold: {ex.get('gold', '')}")
+                print(f"         pred: {ex.get('predicted', '')}")
+                print(
+                    f"         scores: gold={ex.get('gold_score', 0.0):.4f} "
+                    f"pred={ex.get('pred_score', 0.0):.4f}"
+                )
+                sentence = ex.get('sentence', '')
+                if sentence:
+                    print(f"         sentence: {sentence}")
 
     def get_user_choices(self, num_options: int) -> Optional[List[int]]:
         while True:
@@ -351,6 +398,8 @@ class AppCLI:
                     self.show_message(f"\n  Curriculum trained on {stats['trained_words']} words across {stats['generations']} mined generations, skipped {stats['skipped']}.")
                 elif cmd == 'test':
                     self.show_test_report(self.engine.test_model())
+                elif cmd == 'test detail':
+                    self.show_test_report(self.engine.test_model(detailed=True))
                 elif cmd == '10fkv':
                     self.engine.run_kfold_cv(k=10)
                 elif cmd.startswith('eval sentence '):

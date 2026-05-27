@@ -9031,7 +9031,6 @@ habbe
 haber
 haberdar
 haberleşilmek
-habersizce
 habeş
 habip
 habis
@@ -10927,7 +10926,6 @@ ivmeyazar
 ivmeölçer
 iye
 iyi
-iyice
 iyicene
 iyilikbilir
 iyilikbilmez
@@ -13800,7 +13798,6 @@ kırat
 kıray
 kıraç
 kırağı
-kırba
 kırbacık
 kırbaç
 kırca

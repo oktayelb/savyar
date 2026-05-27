@@ -17,8 +17,8 @@ class MLConfig:
     
     # --- Model Architecture ---
     # Vocab size is dynamic (passed at runtime), others are static
-    embed_dim: int = 384        # Main suffix identity dimension (Increased from 256)
-    num_layers: int = 4         
+    embed_dim: int = 384        # Main suffix identity dimension
+    num_layers: int = 6         # Increased from 4 for 90k dataset capacity
     num_heads: int = 8          
     dropout: float = 0.3        
 
@@ -59,7 +59,7 @@ class MLConfig:
     mlm_weight: float = 0.2
 
     # --- Bulk-training defaults ---
-    bulk_epochs: int = 11
+    bulk_epochs: int = 5               # Decreased from 11 due to larger dataset
     bulk_batch_size: int = 128
     bulk_batch_log_interval: int = 1
     relearn_preprocess_log_interval: int = 1000
@@ -78,16 +78,16 @@ class MLConfig:
     max_auto_bulk_batch_size: int = 512
 
     # --- LR Schedule ---
-    warmup_steps: int = 1000
+    warmup_steps: int = 350            # Decreased from 1000 to match new epoch steps
     lr_eta_min_ratio: float = 0.01
 
     # --- Experience Replay ---
-    replay_buffer_size: int = 22000
+    replay_buffer_size: int = 100000   # Increased to fit 90k dataset
     replay_k: int = 64
     steps_per_update: int = 4
 
     # --- Interactive/Loop Settings ---
-    checkpoint_frequency: int = 1000
+    checkpoint_frequency: int = 2500   # Increased from 1000 to avoid excessive I/O overhead
     bare_root_prior_logprob: float = -0.75
     validation_split: float = 0.1
     validation_seed: int = 42

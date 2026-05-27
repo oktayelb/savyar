@@ -91,10 +91,13 @@ def resolve_torch_device(device: Optional[Any] = None) -> torch.device:
 SPECIAL_PAD           = 0
 SPECIAL_WORD_SEP      = 1
 SPECIAL_BOS           = 2          
-SPECIAL_MASK          = 3          
-SUFFIX_OFFSET         = 4          
-CATEGORY_SPECIAL      = 2          
-CATEGORY_CLOSED_CLASS = 3          
+SPECIAL_MASK          = 3
+SUFFIX_OFFSET         = 4
+ROOT_TOKEN_COUNT      = 2
+NOUN_ROOT_INDEX       = 0
+VERB_ROOT_INDEX       = 1
+CATEGORY_SPECIAL      = 2
+CATEGORY_CLOSED_CLASS = 3
 
 SPECIAL_FEATURE_ID    = 0
 WORD_FINAL_NO         = 0
@@ -183,7 +186,12 @@ class SentenceDisambiguator(nn.Module):
         with torch.device(target_device):
             super().__init__()
             self.embed_dim = config.embed_dim
-            self.vocab_size = SUFFIX_OFFSET + suffix_vocab_size + closed_class_vocab_size
+            self.vocab_size = (
+                SUFFIX_OFFSET
+                + suffix_vocab_size
+                + ROOT_TOKEN_COUNT
+                + closed_class_vocab_size
+            )
             self.max_sequence_length = int(config.max_sequence_length)
 
             self.suffix_embed = nn.Embedding(self.vocab_size, self.embed_dim, padding_idx=SPECIAL_PAD)
@@ -1018,6 +1026,15 @@ class Trainer:
             return suffixes[suffix_idx].name
         return None
 
+    @staticmethod
+    def _is_root_token_id(token_id: int) -> bool:
+        root_offset = SUFFIX_OFFSET + len(_get_all_suffixes())
+        return root_offset <= token_id < root_offset + ROOT_TOKEN_COUNT
+
+    @classmethod
+    def _is_bare_root_chain(cls, chain: List[EncodedToken]) -> bool:
+        return len(chain) == 1 and cls._is_root_token_id(chain[0][0])
+
     @classmethod
     def _update_suffix_metric_buckets(
         cls,
@@ -1537,7 +1554,7 @@ class Trainer:
         bare_indices: List[int] = []
         for idx, chain in enumerate(candidates):
             cand_s, cand_c, cand_g, cand_ct, cand_m, cand_wp, cand_wf = _chain_tokens([chain])
-            if len(cand_s) <= 1:
+            if self._is_bare_root_chain(chain):
                 bare_indices.append(idx)
             flat_sequences.append((
                 prefix_s + cand_s + right_s,
@@ -1556,7 +1573,7 @@ class Trainer:
 
     def score_sentence_chains(self, word_chains: List[List[EncodedToken]]) -> float:
         full_sequence = build_sentence_sequence(word_chains)
-        bare_root_count = sum(1 for chain in word_chains if not chain)
+        bare_root_count = sum(1 for chain in word_chains if self._is_bare_root_chain(chain))
         prior = bare_root_count * float(config.bare_root_prior_logprob)
         if len(full_sequence[0]) < 2:
             return prior

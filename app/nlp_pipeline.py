@@ -12,6 +12,9 @@ from util.suffix import  Type
 from util.words.closed_class import ClosedClassMarker, CLOSED_CLASS_TOKEN_SPECS
 from ml.ml_ranking_model import (
     SUFFIX_OFFSET,
+    ROOT_TOKEN_COUNT,
+    NOUN_ROOT_INDEX,
+    VERB_ROOT_INDEX,
     CATEGORY_CLOSED_CLASS,
     GROUP_TO_ID,
     TYPE_TO_ID,
@@ -40,7 +43,12 @@ def sanitize_sentence(raw: str) -> List[str]:
 def _build_caches():
     suffix_to_id = {s.name: idx + SUFFIX_OFFSET for idx, s in enumerate(sfx.ALL_SUFFIXES)}
     suffix_by_name = {s.name: s for s in sfx.ALL_SUFFIXES}
-    cc_offset = SUFFIX_OFFSET + len(sfx.ALL_SUFFIXES)
+    root_offset = SUFFIX_OFFSET + len(sfx.ALL_SUFFIXES)
+    root_token_to_id = {
+        "NOUN_ROOT": root_offset + NOUN_ROOT_INDEX,
+        "VERB_ROOT": root_offset + VERB_ROOT_INDEX,
+    }
+    cc_offset = root_offset + ROOT_TOKEN_COUNT
     cc_surface_to_id = {
         (category, surface): cc_offset + idx
         for idx, (category, surface) in enumerate(CLOSED_CLASS_TOKEN_SPECS)
@@ -50,9 +58,53 @@ def _build_caches():
         name = f"cc_{category}"
         if name not in cc_name_to_default_id:
             cc_name_to_default_id[name] = cc_offset + idx
-    return suffix_to_id, suffix_by_name, cc_surface_to_id, cc_name_to_default_id, cc_offset
+    return suffix_to_id, suffix_by_name, root_token_to_id, cc_surface_to_id, cc_name_to_default_id, cc_offset
 
-_SUFFIX_TO_ID, _SUFFIX_BY_NAME, _CC_SURFACE_TO_ID, _CC_NAME_TO_DEFAULT_ID, _CC_OFFSET = _build_caches()
+(
+    _SUFFIX_TO_ID,
+    _SUFFIX_BY_NAME,
+    _ROOT_TOKEN_TO_ID,
+    _CC_SURFACE_TO_ID,
+    _CC_NAME_TO_DEFAULT_ID,
+    _CC_OFFSET,
+) = _build_caches()
+
+
+def root_token_names() -> List[str]:
+    return ["NOUN_ROOT", "VERB_ROOT"]
+
+
+def root_pos_for_word_entry(word_entry: Dict[str, Any]) -> Optional[str]:
+    if any(sd.get("name", "").startswith("cc_") for sd in word_entry.get("suffixes", [])):
+        return None
+    root = tr_lower(str(word_entry.get("root") or ""))
+    if root and sfx.wrd.can_be_verb(root) and not sfx.wrd.can_be_noun(root):
+        return "verb"
+    return "noun"
+
+
+def _root_token(root_pos: Optional[str], is_final: bool) -> Optional[Tuple[int, int, int, int, int, int, int]]:
+    if root_pos == "verb":
+        return (
+            _ROOT_TOKEN_TO_ID["VERB_ROOT"],
+            1,
+            SPECIAL_FEATURE_ID,
+            SPECIAL_FEATURE_ID,
+            TYPE_TO_ID.get(Type.VERB, SPECIAL_FEATURE_ID),
+            0,
+            WORD_FINAL_YES if is_final else WORD_FINAL_NO,
+        )
+    if root_pos == "noun":
+        return (
+            _ROOT_TOKEN_TO_ID["NOUN_ROOT"],
+            0,
+            SPECIAL_FEATURE_ID,
+            SPECIAL_FEATURE_ID,
+            TYPE_TO_ID.get(Type.NOUN, SPECIAL_FEATURE_ID),
+            0,
+            WORD_FINAL_YES if is_final else WORD_FINAL_NO,
+        )
+    return None
 
 
 def _expand_legacy_suffix_dicts(suffix_dicts: List[Dict]) -> List[Dict]:
@@ -125,7 +177,10 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
     return suffix_info
 
 
-def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, int, int, int, int]]:
+def encode_suffix_names(
+    suffix_dicts: List[Dict],
+    root_pos: Optional[str] = None,
+) -> List[Tuple[int, int, int, int, int, int, int]]:
     """Encode suffix chain directly from JSONL suffix dicts (name/makes strings)."""
     category_to_id = {'NOUN': 0, 'VERB': 1, 'noun': 0, 'verb': 1, 'Noun': 0, 'Verb': 1}
     type_name_to_enum = {
@@ -135,6 +190,9 @@ def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, i
     }
     encoded = []
     suffix_dicts = _expand_legacy_suffix_dicts(suffix_dicts)
+    root_tok = _root_token(root_pos, is_final=(len(suffix_dicts) == 0))
+    if root_tok is not None:
+        encoded.append(root_tok)
     last_idx = len(suffix_dicts) - 1
     for idx, sd in enumerate(suffix_dicts):
         name = sd['name']
@@ -165,11 +223,19 @@ def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, i
     return encoded
 
 
-def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int, int, int, int, int]]:
+def encode_suffix_chain(
+    suffix_chain: List,
+    root_pos: Optional[str] = None,
+) -> List[Tuple[int, int, int, int, int, int, int]]:
     """Encodes a suffix chain into (token_id, category_id) pairs for the ML model."""
-    if not suffix_chain:
-        return []
+    if suffix_chain and isinstance(suffix_chain[0], ClosedClassMarker):
+        root_pos = None
     encoded = []
+    root_tok = _root_token(root_pos, is_final=(len(suffix_chain) == 0))
+    if root_tok is not None:
+        encoded.append(root_tok)
+    if not suffix_chain:
+        return encoded
     last_idx = len(suffix_chain) - 1
     for idx, s in enumerate(suffix_chain):
         if isinstance(s, ClosedClassMarker):
@@ -355,8 +421,8 @@ def analyze_word(word: str, *, include_closed_class: bool = True) -> Dict[str, A
     typing_strings: List[str] = []
 
     for decomp in decomps:
-        root, _, chain, _ = decomp
-        encoded_chains.append(encode_suffix_chain(chain))
+        root, pos, chain, _ = decomp
+        encoded_chains.append(encode_suffix_chain(chain, root_pos=pos))
         vm = reconstruct_morphology(word, decomp)
         vms.append(vm)
         if vm.get('has_chain'):

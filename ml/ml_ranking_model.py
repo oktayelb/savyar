@@ -989,15 +989,18 @@ class Trainer:
         return matches / denom
 
     @staticmethod
-    def _suffix_token_stats(gold: FlatSequence, pred: FlatSequence) -> Tuple[int, int, int]:
-        gold_tokens = [
-            tok for tok in gold[0]
-            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
-        ]
-        pred_tokens = [
-            tok for tok in pred[0]
-            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
-        ]
+    def _is_suffix_token_id(token_id: int) -> bool:
+        suffix_count = len(_get_all_suffixes())
+        return SUFFIX_OFFSET <= token_id < SUFFIX_OFFSET + suffix_count
+
+    @classmethod
+    def _suffix_tokens_from_sequence(cls, seq: FlatSequence) -> List[int]:
+        return [tok for tok in seq[0] if cls._is_suffix_token_id(tok)]
+
+    @classmethod
+    def _suffix_token_stats(cls, gold: FlatSequence, pred: FlatSequence) -> Tuple[int, int, int]:
+        gold_tokens = cls._suffix_tokens_from_sequence(gold)
+        pred_tokens = cls._suffix_tokens_from_sequence(pred)
         matches = sum(
             1 for gold_tok, pred_tok in zip(gold_tokens, pred_tokens)
             if gold_tok == pred_tok
@@ -1481,14 +1484,8 @@ class Trainer:
                         suff_matches += matches
                         suff_gold_total += gold_count
                         suff_pred_total += pred_count
-                        gold_tokens = [
-                            tok for tok in gold_seq[0]
-                            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
-                        ]
-                        pred_tokens = [
-                            tok for tok in pred_seq[0]
-                            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
-                        ]
+                        gold_tokens = self._suffix_tokens_from_sequence(gold_seq)
+                        pred_tokens = self._suffix_tokens_from_sequence(pred_seq)
                         self._update_suffix_metric_buckets(suffix_buckets, gold_tokens, pred_tokens)
                         if group.numel() > 1:
                             margins.append(float((group[0] - group[1:].max()).item()))

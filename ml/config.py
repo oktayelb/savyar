@@ -20,7 +20,7 @@ class MLConfig:
     embed_dim: int = 384        # Main suffix identity dimension
     num_layers: int = 6         # Increased from 4 for 90k dataset capacity
     num_heads: int = 8          
-    dropout: float = 0.3        
+    dropout: float = 0.2        
 
     # Feature embedding dimensions scaled by cardinality to prevent overfitting
     category_embed_dim: int = 4
@@ -59,7 +59,7 @@ class MLConfig:
     mlm_weight: float = 0.2
 
     # --- Bulk-training defaults ---
-    bulk_epochs: int = 5               # Decreased from 11 due to larger dataset
+    bulk_epochs: int = 8               # Decreased from 11 due to larger dataset
     bulk_batch_size: int = 128
     bulk_batch_log_interval: int = 1
     relearn_preprocess_log_interval: int = 1000

@@ -186,9 +186,12 @@ class SentenceDisambiguator(nn.Module):
         with torch.device(target_device):
             super().__init__()
             self.embed_dim = config.embed_dim
+            self.suffix_vocab_size = int(suffix_vocab_size)
+            self.root_token_offset = SUFFIX_OFFSET + self.suffix_vocab_size
+            self.closed_class_offset = self.root_token_offset + ROOT_TOKEN_COUNT
             self.vocab_size = (
                 SUFFIX_OFFSET
-                + suffix_vocab_size
+                + self.suffix_vocab_size
                 + ROOT_TOKEN_COUNT
                 + closed_class_vocab_size
             )
@@ -239,6 +242,37 @@ class SentenceDisambiguator(nn.Module):
             )
 
             self._init_weights()
+
+    def _rank_pool_weights(
+        self,
+        suffix_ids: torch.Tensor,
+        pad_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        weights = torch.full(
+            suffix_ids.shape,
+            float(config.rank_pool_special_weight),
+            dtype=torch.float,
+            device=suffix_ids.device,
+        )
+
+        suffix_mask = (
+            (suffix_ids >= SUFFIX_OFFSET)
+            & (suffix_ids < self.root_token_offset)
+        )
+        root_mask = (
+            (suffix_ids >= self.root_token_offset)
+            & (suffix_ids < self.closed_class_offset)
+        )
+        closed_class_mask = suffix_ids >= self.closed_class_offset
+
+        weights = weights.masked_fill(suffix_mask, float(config.rank_pool_suffix_weight))
+        weights = weights.masked_fill(root_mask, float(config.rank_pool_root_weight))
+        weights = weights.masked_fill(closed_class_mask, float(config.rank_pool_closed_class_weight))
+
+        if pad_mask is not None:
+            weights = weights.masked_fill(pad_mask, 0.0)
+
+        return weights
 
     def _init_weights(self):
         for name, p in self.named_parameters():
@@ -314,11 +348,8 @@ class SentenceDisambiguator(nn.Module):
         x = self.input_proj(x)
         x = self.transformer(x, src_key_padding_mask=pad_mask)
 
-        if pad_mask is None:
-            pooled = x.mean(dim=1)
-        else:
-            valid = (~pad_mask).unsqueeze(-1).to(x.dtype)
-            pooled = (x * valid).sum(dim=1) / valid.sum(dim=1).clamp_min(1.0)
+        pool_weights = self._rank_pool_weights(suffix_ids, pad_mask=pad_mask).unsqueeze(-1).to(x.dtype)
+        pooled = (x * pool_weights).sum(dim=1) / pool_weights.sum(dim=1).clamp_min(1.0)
         return self.rank_head(pooled).squeeze(-1)
 
 

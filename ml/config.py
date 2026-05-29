@@ -56,7 +56,14 @@ class MLConfig:
     
     # Dual Objective Weights
     ranking_temperature: float = 0.1
-    mlm_weight: float = 0.2
+    mlm_weight: float = 0.20
+
+    # Rank pooling weights. Roots stay visible to attention, but suffixes should
+    # dominate the final candidate score.
+    rank_pool_suffix_weight: float = 1.0
+    rank_pool_root_weight: float = 0.25
+    rank_pool_closed_class_weight: float = 0.5
+    rank_pool_special_weight: float = 0.0
 
     # --- Bulk-training defaults ---
     bulk_epochs: int = 8               # Decreased from 11 due to larger dataset

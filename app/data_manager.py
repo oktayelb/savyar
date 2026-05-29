@@ -12,6 +12,7 @@ from util.word_methods import tr_lower
 class DataManager:
     def __init__(self):
         self.paths = FilePaths()
+        self.last_preprocessed_sequences_cache_path: Optional[Path] = None
 
     @staticmethod
     def _numbered_jsonl_key(path: Path) -> int:
@@ -69,6 +70,7 @@ class DataManager:
                     "rank_accuracy": float(validation.get("rank_acc", 0.0)),
                     "top2_accuracy": float(validation.get("top2_acc", 0.0)),
                     "top3_accuracy": float(validation.get("top3_acc", 0.0)),
+                    "word_accuracy": float(validation.get("word_acc", 0.0)),
                     "validation_loss": float(validation.get("loss", 0.0)),
                     "margin": float(validation.get("margin", 0.0)),
                     "n_batches": int(validation.get("n_batches", 0)),
@@ -150,7 +152,7 @@ class DataManager:
             "mtime_ns": stat.st_mtime_ns,
         }
 
-    def get_preprocess_source_signature(self) -> Dict[str, List[Dict[str, Any]]]:
+    def get_preprocess_source_signature(self, *, include_code: bool = True) -> Dict[str, List[Dict[str, Any]]]:
         entry_paths = [
             Path(self.paths.valid_decompositions_path),
             *[Path(path) for path in self.get_treebank_adapted_paths()],
@@ -169,11 +171,13 @@ class DataManager:
             *Path("util/words").rglob("*.py"),
             *Path("util/suffixes").rglob("*.py"),
         })
-        return {
+        signature = {
             "entries": [self._path_signature(path) for path in entry_paths],
             "dependencies": [self._path_signature(path) for path in dependency_paths],
-            "code": [self._path_signature(path) for path in code_paths],
         }
+        if include_code:
+            signature["code"] = [self._path_signature(path) for path in code_paths]
+        return signature
 
     def preprocessed_sequences_cache_path(self, cache_key: str) -> Path:
         return Path(self.paths.preprocessed_sequences_cache_dir) / f"{cache_key}.pkl"
@@ -184,6 +188,59 @@ class DataManager:
         expected_metadata: Dict[str, Any],
     ) -> Optional[Tuple[List[List[Any]], int, int]]:
         path = self.preprocessed_sequences_cache_path(cache_key)
+        self.last_preprocessed_sequences_cache_path = None
+        loaded = self._load_preprocessed_sequences_cache_path(path, expected_metadata, exact=True)
+        if loaded is not None:
+            self.last_preprocessed_sequences_cache_path = path
+            return loaded
+
+        cache_dir = Path(self.paths.preprocessed_sequences_cache_dir)
+        try:
+            candidates = sorted(
+                cache_dir.glob("*.pkl"),
+                key=lambda candidate: candidate.stat().st_mtime_ns,
+                reverse=True,
+            )
+        except OSError:
+            return None
+
+        for candidate in candidates:
+            if candidate == path:
+                continue
+            loaded = self._load_preprocessed_sequences_cache_path(candidate, expected_metadata, exact=False)
+            if loaded is not None:
+                self.last_preprocessed_sequences_cache_path = candidate
+                return loaded
+        return None
+
+    @staticmethod
+    def _metadata_compatible(actual: Dict[str, Any], expected: Dict[str, Any]) -> bool:
+        for key in (
+            "cache_version",
+            "scope",
+            "suffix_inventory",
+            "root_inventory",
+            "closed_class_inventory",
+            "config",
+            "entries",
+        ):
+            if actual.get(key) != expected.get(key):
+                return False
+
+        actual_sources = actual.get("sources", {})
+        expected_sources = expected.get("sources", {})
+        for key in ("entries", "dependencies"):
+            if actual_sources.get(key) != expected_sources.get(key):
+                return False
+        return True
+
+    def _load_preprocessed_sequences_cache_path(
+        self,
+        path: Path,
+        expected_metadata: Dict[str, Any],
+        *,
+        exact: bool,
+    ) -> Optional[Tuple[List[List[Any]], int, int]]:
         try:
             with open(path, "rb") as f:
                 payload = pickle.load(f)
@@ -194,7 +251,13 @@ class DataManager:
 
         if not isinstance(payload, dict):
             return None
-        if payload.get("metadata") != expected_metadata:
+        metadata = payload.get("metadata")
+        if not isinstance(metadata, dict):
+            return None
+        if exact:
+            if metadata != expected_metadata:
+                return None
+        elif not self._metadata_compatible(metadata, expected_metadata):
             return None
 
         all_seqs = payload.get("all_seqs")

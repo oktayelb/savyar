@@ -496,7 +496,7 @@ class WorkflowEngine:
         metadata: Dict[str, Any] = {
             "cache_version": STATIC_PREPROCESS_CACHE_VERSION,
             "scope": scope,
-            "sources": self.data_manager.get_preprocess_source_signature(),
+            "sources": self.data_manager.get_preprocess_source_signature(include_code=False),
             "suffix_inventory": [suffix.name for suffix in sfx.ALL_SUFFIXES],
             "root_inventory": nlp.root_token_names(),
             "closed_class_inventory": [list(spec) for spec in CLOSED_CLASS_TOKEN_SPECS],
@@ -525,7 +525,10 @@ class WorkflowEngine:
         if cached is None:
             return None
         all_seqs, total_words, skipped = cached
-        cache_path = self.data_manager.preprocessed_sequences_cache_path(metadata["cache_key"])
+        cache_path = (
+            self.data_manager.last_preprocessed_sequences_cache_path
+            or self.data_manager.preprocessed_sequences_cache_path(metadata["cache_key"])
+        )
         print(
             f"   Loaded cached {label}: {len(all_seqs)} candidate sets, "
             f"{total_words} words, {skipped} skipped ({cache_path})",

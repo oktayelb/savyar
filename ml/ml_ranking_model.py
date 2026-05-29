@@ -1019,6 +1019,10 @@ class Trainer:
             return 1.0
         return matches / denom
 
+    @classmethod
+    def _suffix_word_accuracy(cls, gold: FlatSequence, pred: FlatSequence) -> float:
+        return 1.0 if cls._suffix_tokens_from_sequence(gold) == cls._suffix_tokens_from_sequence(pred) else 0.0
+
     @staticmethod
     def _is_suffix_token_id(token_id: int) -> bool:
         suffix_count = len(_get_all_suffixes())
@@ -1437,6 +1441,7 @@ class Trainer:
                     f"Top2={val_stats['top2_acc']:.4f} | "
                     f"Top3={val_stats['top3_acc']:.4f} | "
                     f"SuffAcc={val_stats['suff_acc']:.4f} | "
+                    f"WordAcc={val_stats['word_acc']:.4f} | "
                     f"SuffPrecision={val_stats['suff_precision']:.4f} | "
                     f"SuffRecall={val_stats['suff_recall']:.4f} | "
                     f"SuffF1={val_stats['suff_f1']:.4f} | "
@@ -1459,6 +1464,7 @@ class Trainer:
             'top2_acc': 0.0,
             'top3_acc': 0.0,
             'suff_acc': 0.0,
+            'word_acc': 0.0,
             'suff_precision': 0.0,
             'suff_recall': 0.0,
             'suff_f1': 0.0,
@@ -1479,6 +1485,7 @@ class Trainer:
         top3 = 0
         total = 0
         suff_acc_total = 0.0
+        word_acc_total = 0.0
         suff_matches = 0
         suff_gold_total = 0
         suff_pred_total = 0
@@ -1511,6 +1518,7 @@ class Trainer:
                         gold_seq = batch_sets[set_idx][0]
                         pred_seq = batch_sets[set_idx][best_idx]
                         suff_acc_total += self._suffix_token_accuracy(gold_seq, pred_seq)
+                        word_acc_total += self._suffix_word_accuracy(gold_seq, pred_seq)
                         matches, gold_count, pred_count = self._suffix_token_stats(gold_seq, pred_seq)
                         suff_matches += matches
                         suff_gold_total += gold_count
@@ -1544,6 +1552,7 @@ class Trainer:
             'top2_acc':    top2 / total if total else 0.0,
             'top3_acc':    top3 / total if total else 0.0,
             'suff_acc':    suff_acc_total / total if total else 0.0,
+            'word_acc':    word_acc_total / total if total else 0.0,
             'suff_precision': suff_precision,
             'suff_recall': suff_recall,
             'suff_f1':     suff_f1,

@@ -16,8 +16,6 @@ from ml.ml_ranking_model import (
     GROUP_TO_ID,
     TYPE_TO_ID,
     SPECIAL_FEATURE_ID,
-    WORD_FINAL_NO,
-    WORD_FINAL_YES,
 )
 
 _APOSTROPHE_RE = re.compile(r"['’‘]")
@@ -125,7 +123,7 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
     return suffix_info
 
 
-def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, int, int, int, int]]:
+def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, int, int]]:
     """Encode suffix chain directly from JSONL suffix dicts (name/makes strings)."""
     category_to_id = {'NOUN': 0, 'VERB': 1, 'noun': 0, 'verb': 1, 'Noun': 0, 'Verb': 1}
     type_name_to_enum = {
@@ -135,7 +133,6 @@ def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, i
     }
     encoded = []
     suffix_dicts = _expand_legacy_suffix_dicts(suffix_dicts)
-    last_idx = len(suffix_dicts) - 1
     for idx, sd in enumerate(suffix_dicts):
         name = sd['name']
         makes = sd.get('makes', 'NOUN')
@@ -148,29 +145,25 @@ def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, i
             )
             encoded.append((
                 token_id, CATEGORY_CLOSED_CLASS, SPECIAL_FEATURE_ID,
-                SPECIAL_FEATURE_ID, SPECIAL_FEATURE_ID, idx + 1,
-                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
+                SPECIAL_FEATURE_ID, idx + 1,
             ))
         else:
             token_id = _SUFFIX_TO_ID.get(name, SUFFIX_OFFSET)
             cat_id = category_to_id.get(makes, 0)
             suffix_obj = _SUFFIX_BY_NAME.get(name)
             group_id = GROUP_TO_ID.get(getattr(suffix_obj, 'group', None), SPECIAL_FEATURE_ID)
-            comes_to_id = TYPE_TO_ID.get(getattr(suffix_obj, 'comes_to', None), SPECIAL_FEATURE_ID)
             makes_id = TYPE_TO_ID.get(type_name_to_enum.get(makes), SPECIAL_FEATURE_ID)
             encoded.append((
-                token_id, cat_id, group_id, comes_to_id, makes_id, idx + 1,
-                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
+                token_id, cat_id, group_id, makes_id, idx + 1,
             ))
     return encoded
 
 
-def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int, int, int, int, int]]:
-    """Encodes a suffix chain into (token_id, category_id) pairs for the ML model."""
+def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int, int, int]]:
+    """Encodes a suffix chain into ML token feature tuples."""
     if not suffix_chain:
         return []
     encoded = []
-    last_idx = len(suffix_chain) - 1
     for idx, s in enumerate(suffix_chain):
         if isinstance(s, ClosedClassMarker):
             token_id = _CC_SURFACE_TO_ID.get(
@@ -179,8 +172,7 @@ def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int, int, in
             )
             encoded.append((
                 token_id, CATEGORY_CLOSED_CLASS, SPECIAL_FEATURE_ID,
-                SPECIAL_FEATURE_ID, SPECIAL_FEATURE_ID, idx + 1,
-                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
+                SPECIAL_FEATURE_ID, idx + 1,
             ))
         else:
             token_id = _SUFFIX_TO_ID.get(s.name, SUFFIX_OFFSET)
@@ -189,10 +181,8 @@ def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int, int, in
                 token_id,
                 cat_id,
                 GROUP_TO_ID.get(getattr(s, 'group', None), SPECIAL_FEATURE_ID),
-                TYPE_TO_ID.get(getattr(s, 'comes_to', None), SPECIAL_FEATURE_ID),
                 TYPE_TO_ID.get(getattr(s, 'makes', None), SPECIAL_FEATURE_ID),
                 idx + 1,
-                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
             ))
     return encoded
 

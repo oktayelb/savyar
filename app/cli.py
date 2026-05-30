@@ -115,6 +115,7 @@ class AppCLI:
         print(f"  Top-2 accuracy:   {metrics.get('top2_acc', 0.0):.4f}")
         print(f"  Top-3 accuracy:   {metrics.get('top3_acc', 0.0):.4f}")
         print(f"  Suffix accuracy:  {metrics.get('suff_acc', 0.0):.4f}")
+        print(f"  Word accuracy:    {metrics.get('word_acc', 0.0):.4f}")
         print(f"  Suffix precision: {metrics.get('suff_precision', 0.0):.4f}")
         print(f"  Suffix recall:    {metrics.get('suff_recall', 0.0):.4f}")
         print(f"  Suffix F1:        {metrics.get('suff_f1', 0.0):.4f}")

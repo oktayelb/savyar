@@ -12,6 +12,7 @@ from util.word_methods import tr_lower
 class DataManager:
     def __init__(self):
         self.paths = FilePaths()
+        self.last_preprocessed_sequences_cache_path: Optional[Path] = None
 
     @staticmethod
     def _numbered_jsonl_key(path: Path) -> int:
@@ -63,6 +64,7 @@ class DataManager:
                 },
                 "validation": {
                     "suffix_accuracy": float(validation.get("suff_acc", 0.0)),
+                    "word_accuracy": float(validation.get("word_acc", 0.0)),
                     "suffix_precision": float(validation.get("suff_precision", 0.0)),
                     "suffix_recall": float(validation.get("suff_recall", 0.0)),
                     "suffix_f1": float(validation.get("suff_f1", 0.0)),
@@ -150,7 +152,7 @@ class DataManager:
             "mtime_ns": stat.st_mtime_ns,
         }
 
-    def get_preprocess_source_signature(self) -> Dict[str, List[Dict[str, Any]]]:
+    def get_preprocess_source_signature(self, *, include_code: bool = True) -> Dict[str, List[Dict[str, Any]]]:
         entry_paths = [
             Path(self.paths.valid_decompositions_path),
             *[Path(path) for path in self.get_treebank_adapted_paths()],
@@ -160,20 +162,22 @@ class DataManager:
             Path(self.paths.verbs_path),
             Path(self.paths.unsuffixable_words_path),
         ]
-        code_paths = sorted({
-            Path("app/nlp_pipeline.py"),
-            Path("ml/ml_ranking_model.py"),
-            Path("util/decomposer.py"),
-            Path("util/suffix.py"),
-            Path("util/word_methods.py"),
-            *Path("util/words").rglob("*.py"),
-            *Path("util/suffixes").rglob("*.py"),
-        })
-        return {
+        signature = {
             "entries": [self._path_signature(path) for path in entry_paths],
             "dependencies": [self._path_signature(path) for path in dependency_paths],
-            "code": [self._path_signature(path) for path in code_paths],
         }
+        if include_code:
+            code_paths = sorted({
+                Path("app/nlp_pipeline.py"),
+                Path("ml/ml_ranking_model.py"),
+                Path("util/decomposer.py"),
+                Path("util/suffix.py"),
+                Path("util/word_methods.py"),
+                *Path("util/words").rglob("*.py"),
+                *Path("util/suffixes").rglob("*.py"),
+            })
+            signature["code"] = [self._path_signature(path) for path in code_paths]
+        return signature
 
     def preprocessed_sequences_cache_path(self, cache_key: str) -> Path:
         return Path(self.paths.preprocessed_sequences_cache_dir) / f"{cache_key}.pkl"
@@ -183,7 +187,44 @@ class DataManager:
         cache_key: str,
         expected_metadata: Dict[str, Any],
     ) -> Optional[Tuple[List[List[Any]], int, int]]:
+        self.last_preprocessed_sequences_cache_path = None
         path = self.preprocessed_sequences_cache_path(cache_key)
+        exact = self._load_preprocessed_sequences_cache_path(path, expected_metadata, exact=True)
+        if exact is not None:
+            self.last_preprocessed_sequences_cache_path = path
+            return exact
+
+        cache_dir = Path(self.paths.preprocessed_sequences_cache_dir)
+        try:
+            candidates = sorted(
+                cache_dir.glob("*.pkl"),
+                key=lambda candidate: candidate.stat().st_mtime_ns,
+                reverse=True,
+            )
+        except OSError:
+            return None
+
+        for candidate in candidates:
+            if candidate == path:
+                continue
+            compatible = self._load_preprocessed_sequences_cache_path(
+                candidate,
+                expected_metadata,
+                exact=False,
+            )
+            if compatible is not None:
+                self.last_preprocessed_sequences_cache_path = candidate
+                return compatible
+        return None
+
+    @classmethod
+    def _load_preprocessed_sequences_cache_path(
+        cls,
+        path: Path,
+        expected_metadata: Dict[str, Any],
+        *,
+        exact: bool,
+    ) -> Optional[Tuple[List[List[Any]], int, int]]:
         try:
             with open(path, "rb") as f:
                 payload = pickle.load(f)
@@ -194,7 +235,14 @@ class DataManager:
 
         if not isinstance(payload, dict):
             return None
-        if payload.get("metadata") != expected_metadata:
+        metadata = payload.get("metadata")
+        if not isinstance(metadata, dict):
+            return None
+        if exact:
+            metadata_ok = metadata == expected_metadata
+        else:
+            metadata_ok = cls._metadata_compatible(metadata, expected_metadata)
+        if not metadata_ok:
             return None
 
         all_seqs = payload.get("all_seqs")
@@ -203,6 +251,49 @@ class DataManager:
         if not isinstance(all_seqs, list) or not isinstance(total_words, int) or not isinstance(skipped, int):
             return None
         return all_seqs, total_words, skipped
+
+    @staticmethod
+    def _metadata_compatible(actual: Dict[str, Any], expected: Dict[str, Any]) -> bool:
+        if ("root_inventory" in actual) != ("root_inventory" in expected):
+            return False
+
+        for key in (
+            "cache_version",
+            "scope",
+            "suffix_inventory",
+            "closed_class_inventory",
+            "config",
+            "entries",
+            "root_inventory",
+        ):
+            if actual.get(key) != expected.get(key):
+                return False
+
+        actual_sources = actual.get("sources", {})
+        expected_sources = expected.get("sources", {})
+        if not isinstance(actual_sources, dict) or not isinstance(expected_sources, dict):
+            return False
+        for key in ("entries", "dependencies"):
+            if not DataManager._source_signatures_compatible(
+                actual_sources.get(key),
+                expected_sources.get(key),
+            ):
+                return False
+        return True
+
+    @staticmethod
+    def _source_signatures_compatible(actual: Any, expected: Any) -> bool:
+        if not isinstance(actual, list) or not isinstance(expected, list):
+            return False
+        if len(actual) != len(expected):
+            return False
+        for actual_item, expected_item in zip(actual, expected):
+            if not isinstance(actual_item, dict) or not isinstance(expected_item, dict):
+                return False
+            for key in ("path", "exists", "size"):
+                if actual_item.get(key) != expected_item.get(key):
+                    return False
+        return True
 
     def save_preprocessed_sequences_cache(
         self,

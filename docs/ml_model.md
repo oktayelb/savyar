@@ -26,7 +26,7 @@ Each normal suffix token is encoded as:
 
 Meaning:
 
-- `token_id`: suffix identity, starting at ID `4`.
+- `token_id`: suffix identity, starting at ID `5`.
 - `group_id`: suffix group ID from `SuffixGroup`, or `0` for missing/special.
 - `position_in_word`: one-based position inside the current word's suffix chain.
 
@@ -53,14 +53,15 @@ From `ml/ml_ranking_model.py`:
 1 = WORD_SEP
 2 = BOS
 3 = MASK
-4 = first suffix token
+4 = EOS
+5 = first suffix token
 ```
 
 Current inventory sizes in this repository:
 
 - `98` suffix tokens from `util.decomposer.ALL_SUFFIXES`
 - `88` closed-class tokens from `CLOSED_CLASS_TOKEN_SPECS`
-- total model vocabulary size: `4 + suffix_count + closed_class_count`
+- total model vocabulary size: `5 + suffix_count + closed_class_count`
 
 These counts are dynamic at runtime. They change if suffix or closed-class inventories change.
 
@@ -77,10 +78,16 @@ word_chains = [
 ]
 ```
 
-The suffix-ID stream becomes:
+Before adding the terminal sentence marker, the word-level stream is:
 
 ```text
 [BOS, plural_ler, ablative_den, WORD_SEP, pasttense_di, conjugation_1sg, WORD_SEP]
+```
+
+With the explicit sentence terminator included, the actual stream is:
+
+```text
+[BOS, plural_ler, ablative_den, WORD_SEP, pasttense_di, conjugation_1sg, WORD_SEP, EOS]
 ```
 
 Every feature stream has the same length:
@@ -97,7 +104,9 @@ For each word:
 
 1. Append all suffix or closed-class tokens in that word.
 2. Append `WORD_SEP`.
-3. After all words are processed, prepend `BOS` to every feature stream with special feature values.
+3. After all words are processed, prepend `BOS`.
+4. Append `EOS`.
+5. The `group_ids` and `word_pos_ids` values for `BOS`, `WORD_SEP`, `EOS`, and padding are all the special feature value `0`.
 
 For a bare-root word:
 
@@ -105,10 +114,16 @@ For a bare-root word:
 [] -> WORD_SEP
 ```
 
-So a one-word bare-root candidate becomes:
+So before adding the terminal marker, a one-word bare-root candidate is:
 
 ```text
 [BOS, WORD_SEP]
+```
+
+With `EOS`, the full model sequence is:
+
+```text
+[BOS, WORD_SEP, EOS]
 ```
 
 There is still no root identity in that sequence.
@@ -238,16 +253,13 @@ The full Cartesian product of all word candidates is not built.
 1. Converts the gold word chains into a flat sequence.
 2. Skips the item if sequence length is less than `2`.
 3. Skips the item if sequence length exceeds `config.max_sequence_length`.
-4. Adds the gold sequence to the checkpoint replay buffer.
-5. Converts each negative word-chain list into a flat sequence.
-6. Drops duplicate negatives equal to the gold sequence.
-7. Drops negatives that exceed `max_sequence_length`.
-8. If fewer than two sequences remain, returns `0.0`.
-9. Runs `_ranking_step([candidate_set])` `config.steps_per_update` times.
+4. Converts each negative word-chain list into a flat sequence.
+5. Drops duplicate negatives equal to the gold sequence.
+6. Drops negatives that exceed `max_sequence_length`.
+7. If fewer than two sequences remain, returns `0.0`.
+8. Runs `_ranking_step([candidate_set])` `config.steps_per_update` times.
    - Current default: `steps_per_update = 4`.
-10. Appends the final loss to `train_history`.
-
-The replay buffer is not sampled back into the training step. It is stored and saved, but the active optimizer step uses the current candidate set only.
+9. Appends the final loss to `train_history`.
 
 ## Bulk Training
 
@@ -256,18 +268,17 @@ The replay buffer is not sampled back into the training step. It is stored and s
 Flow:
 
 1. Normalize each item into a candidate set.
-2. Add each gold sequence to the replay buffer.
-3. Keep only candidate sets with at least two sequences.
-4. Split oversized candidate sets if they exceed adaptive CUDA budget limits.
-5. Optionally increase batch size based on current GPU memory.
-6. Build a bulk learning-rate schedule matched to total planned steps.
-7. Shuffle candidate sets each epoch.
-8. Build adaptive batches constrained by:
+2. Keep only candidate sets with at least two sequences.
+3. Split oversized candidate sets if they exceed adaptive CUDA budget limits.
+4. Optionally increase batch size based on current GPU memory.
+5. Build a bulk learning-rate schedule matched to total planned steps.
+6. Shuffle candidate sets each epoch.
+7. Build adaptive batches constrained by:
    - number of candidate sequences,
    - padded token count,
    - approximate attention-cell count.
-9. Run `_ranking_step()` for each batch.
-10. Validate after each epoch when validation sets are provided.
+8. Run `_ranking_step()` for each batch.
+9. Validate after each epoch when validation sets are provided.
 
 Default bulk values:
 
@@ -314,6 +325,7 @@ Eligible tokens are:
 - not `PAD`,
 - not `WORD_SEP`,
 - not `BOS`,
+- not `EOS`,
 - not padding by mask.
 
 With current defaults:
@@ -417,7 +429,7 @@ The selection order in code is hard first, easy second, medium third, then fill 
 In the current engine, isolated word prediction passes no context. It scores each candidate as:
 
 ```text
-BOS + candidate_chain + WORD_SEP
+BOS + candidate_chain + WORD_SEP + EOS
 ```
 
 Bare-root candidates receive:
@@ -472,7 +484,7 @@ Metrics:
 - `suffix_metrics`: per-suffix precision/recall/F1 and counts.
 - `suffix_group_metrics`: suffix metrics aggregated by suffix group.
 
-`suff_acc` and `word_acc` compare morphology tokens after removing `PAD`, `WORD_SEP`, and `BOS`. Closed-class tokens can therefore affect those sequence-level metrics.
+`suff_acc` and `word_acc` compare morphology tokens after removing `PAD`, `WORD_SEP`, `BOS`, and `EOS`. Closed-class tokens can therefore affect those sequence-level metrics.
 
 Per-suffix buckets use `_suffix_name_for_token_id()`, which maps only normal suffix IDs. Closed-class IDs do not become per-suffix names.
 
@@ -487,20 +499,18 @@ Per-suffix buckets use `_suffix_name_for_token_id()`, which maps only normal suf
 - validation history,
 - best validation loss,
 - global step,
-- replay buffer,
-- suffix inventory.
+- suffix inventory,
+- feature schema version.
 
 `load_checkpoint()`:
 
 1. Loads the checkpoint on the resolved device.
 2. Compares saved suffix inventory with the current suffix inventory.
 3. Loads only model tensors whose names exist and shapes match.
-4. Loads optimizer and scheduler state only if suffix inventory matches.
+4. Loads optimizer and scheduler state only if suffix inventory and feature schema both match.
 5. Restores histories and global step.
-6. Restores replay buffer only if suffix inventory matches.
-7. Upgrades old replay entries with two, five, or seven streams into the current three-stream format.
 
-If the suffix inventory changed, optimizer state and replay buffer are discarded.
+If the suffix inventory or feature schema changed, optimizer state is discarded.
 
 ## Current Non-Features and Caveats
 
@@ -508,12 +518,9 @@ If the suffix inventory changed, optimizer state and replay buffer are discarded
 - Surface characters are not included in ML input.
 - Surface suffix allomorphs are not included in ML input.
 - The model cannot distinguish two candidates that differ only by root if their encoded suffix/closed-class streams are identical.
-- The previous coarse category/output-type streams are no longer encoded; final/output-type information is left to `token_id`, `group_id`, sequence position, and `WORD_SEP`.
+- The previous coarse category/output-type streams are no longer encoded; final/output-type information is left to `token_id`, `group_id`, sequence position, `WORD_SEP`, and `EOS`.
 - Direct log encoding does not fail on an unknown suffix name; it maps that name to `SUFFIX_OFFSET`, the first suffix-token slot.
 - Full Cartesian sentence candidate products are not generated for training.
-- The replay buffer is saved but not sampled during training.
-- `config.use_class_weights` exists but is not used by the active ranking or MLM losses.
-- `config.replay_k` exists but is not used by the active training loop.
 - Validation loss does not include the MLM auxiliary objective.
 - Per-suffix metrics do not give named buckets for closed-class token IDs.
 - Isolated word scoring does not use right context and currently receives no left context from the engine.

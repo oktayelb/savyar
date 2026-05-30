@@ -90,12 +90,13 @@ def resolve_torch_device(device: Optional[Any] = None) -> torch.device:
 
 SPECIAL_PAD           = 0
 SPECIAL_WORD_SEP      = 1
-SPECIAL_BOS           = 2          
-SPECIAL_MASK          = 3          
-SUFFIX_OFFSET         = 4
+SPECIAL_BOS           = 2
+SPECIAL_MASK          = 3
+SPECIAL_EOS           = 4
+SUFFIX_OFFSET         = 5
 
 SPECIAL_FEATURE_ID    = 0
-FEATURE_SCHEMA_VERSION = 3
+FEATURE_SCHEMA_VERSION = 4
 
 GROUP_TO_ID = {None: SPECIAL_FEATURE_ID}
 for idx, group in enumerate(SuffixGroup):
@@ -136,9 +137,9 @@ def build_sentence_sequence(
 ) -> FlatSequence:
     s, g, p = _chain_tokens(word_chains)
     return (
-        [SPECIAL_BOS] + s,
-        [SPECIAL_FEATURE_ID] + g,
-        [SPECIAL_FEATURE_ID] + p,
+        [SPECIAL_BOS] + s + [SPECIAL_EOS],
+        [SPECIAL_FEATURE_ID] + g + [SPECIAL_FEATURE_ID],
+        [SPECIAL_FEATURE_ID] + p + [SPECIAL_FEATURE_ID],
     )
 
 
@@ -208,7 +209,7 @@ class SentenceDisambiguator(nn.Module):
             elif 'bias' in name:
                 nn.init.zeros_(p)
 
-    def forward(
+    def _encode(
         self,
         suffix_ids:   torch.Tensor,
         group_ids:    torch.Tensor,
@@ -230,8 +231,16 @@ class SentenceDisambiguator(nn.Module):
         ], dim=-1)
 
         x = self.input_proj(x)
-        x = self.transformer(x, src_key_padding_mask=pad_mask)
-        return self.lm_head(x)
+        return self.transformer(x, src_key_padding_mask=pad_mask)
+
+    def forward(
+        self,
+        suffix_ids:   torch.Tensor,
+        group_ids:    torch.Tensor,
+        word_pos_ids: torch.Tensor,
+        pad_mask:     Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        return self.lm_head(self._encode(suffix_ids, group_ids, word_pos_ids, pad_mask))
 
     def rank_scores(
         self,
@@ -240,22 +249,7 @@ class SentenceDisambiguator(nn.Module):
         word_pos_ids: torch.Tensor,
         pad_mask:     Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        B, L = suffix_ids.shape
-        if L > self.max_sequence_length:
-            raise ValueError(
-                f"Sequence length {L} exceeds model max_sequence_length={self.max_sequence_length}"
-            )
-        pos = torch.arange(L, device=suffix_ids.device).unsqueeze(0).expand(B, L)
-
-        x = torch.cat([
-            self.suffix_embed(suffix_ids),
-            self.group_embed(group_ids),
-            self.wordpos_embed(word_pos_ids.clamp(max=self.wordpos_embed.num_embeddings - 1)),
-            self.pos_embed(pos),
-        ], dim=-1)
-
-        x = self.input_proj(x)
-        x = self.transformer(x, src_key_padding_mask=pad_mask)
+        x = self._encode(suffix_ids, group_ids, word_pos_ids, pad_mask)
 
         if pad_mask is None:
             pooled = x.mean(dim=1)
@@ -317,12 +311,9 @@ class Trainer:
         self.last_validation_report: Optional[Dict[str, Any]] = None
         self.global_step    = 0
 
-        self.replay_buffer: List[FlatSequence] = []
-        self._class_weight_cache: Optional[torch.Tensor] = None
         self._adaptive_max_candidate_sequences = max(1, int(config.max_candidate_sequences_per_batch))
         self._adaptive_max_padded_tokens = max(1, int(config.max_batch_padded_tokens))
         self._adaptive_max_attention_cells = max(1, int(config.max_batch_attention_cells))
-        self._last_gpu_budget_bytes = 0
 
         try:
             self.load_checkpoint(self.path)
@@ -367,10 +358,6 @@ class Trainer:
             return eta_min + 0.5 * (1.0 - eta_min) * (1.0 + math.cos(math.pi * progress))
 
         return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
-
-
-    def _get_best_index(self, scores: List[float]) -> int:
-        return int(max(range(len(scores)), key=lambda i: scores[i]))
 
     @staticmethod
     def _format_bytes(num_bytes: int) -> str:
@@ -451,7 +438,6 @@ class Trainer:
         self._adaptive_max_candidate_sequences = int(seq_limit)
         self._adaptive_max_padded_tokens = int(token_limit)
         self._adaptive_max_attention_cells = int(attention_limit)
-        self._last_gpu_budget_bytes = budget_bytes
 
         if changed:
             print(
@@ -565,21 +551,6 @@ class Trainer:
             )
         return budgeted
 
-    def _add_to_replay(
-        self,
-        suffix_ids: List[int],
-        group_ids: List[int],
-        word_pos_ids: List[int],
-    ) -> None:
-        self.replay_buffer.append(
-            (suffix_ids, group_ids, word_pos_ids)
-        )
-        if len(self.replay_buffer) > config.replay_buffer_size:
-            evict_idx = random.randrange(len(self.replay_buffer) // 2)
-            self.replay_buffer.pop(evict_idx)
-        self._class_weight_cache = None
-
-
     def _build_padded_batch(
         self, seqs: List[FlatSequence]
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -645,6 +616,7 @@ class Trainer:
             (s_t != SPECIAL_PAD)
             & (s_t != SPECIAL_WORD_SEP)
             & (s_t != SPECIAL_BOS)
+            & (s_t != SPECIAL_EOS)
             & (~p_mask)
         )
 
@@ -688,9 +660,6 @@ class Trainer:
             masked_s[selected] = SPECIAL_MASK
 
         return masked_s, loss_target
-
-    def _sequence_from_chains(self, word_chains: List[List[EncodedToken]]) -> FlatSequence:
-        return build_sentence_sequence(word_chains)
 
     def _ranking_step_once(self, candidate_sets: List[List[FlatSequence]]) -> Dict[str, Any]:
         candidate_sets = [cands for cands in candidate_sets if len(cands) >= 2]
@@ -869,9 +838,6 @@ class Trainer:
             skipped['skipped'] = 1
             return skipped
 
-    def _candidate_batch_count(self, candidate_sets: List[List[FlatSequence]], batch_size: int) -> int:
-        return len(self._candidate_batches(candidate_sets, batch_size))
-
     def _candidate_batches(self, candidate_sets: List[List[FlatSequence]], batch_size: int) -> List[List[List[FlatSequence]]]:
         batches: List[List[List[FlatSequence]]] = []
         current: List[List[FlatSequence]] = []
@@ -921,7 +887,7 @@ class Trainer:
     def _morph_tokens_from_sequence(seq: FlatSequence) -> List[int]:
         return [
             tok for tok in seq[0]
-            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
+            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS, SPECIAL_EOS)
         ]
 
     @classmethod
@@ -933,17 +899,6 @@ class Trainer:
             if gold_tok == pred_tok
         )
         return matches, len(gold_tokens), len(pred_tokens)
-
-    @classmethod
-    def _suffix_tokens_from_sequence(cls, seq: FlatSequence) -> List[int]:
-        return cls._morph_tokens_from_sequence(seq)
-
-    @staticmethod
-    def _topk_hit(scores: List[float], k: int) -> bool:
-        if not scores:
-            return False
-        topk = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:max(1, k)]
-        return 0 in topk
 
     @staticmethod
     def _topk_hit_tensor(scores: torch.Tensor, k: int) -> bool:
@@ -1083,9 +1038,10 @@ class Trainer:
         self,
         word_chains: List[List[EncodedToken]],
         negative_word_chains: Optional[List[List[List[EncodedToken]]]] = None,
-        max_retries: int = None,
     ) -> float:
-        gold_seq = self._sequence_from_chains(word_chains)
+        if not word_chains:
+            return 0.0
+        gold_seq = build_sentence_sequence(word_chains)
         if len(gold_seq[0]) < 2:
             return 0.0
         max_len = int(config.max_sequence_length)
@@ -1097,11 +1053,10 @@ class Trainer:
             )
             return 0.0
 
-        self._add_to_replay(*gold_seq)
         negatives = negative_word_chains or []
         candidate_set = [gold_seq]
         for neg in negatives:
-            neg_seq = self._sequence_from_chains(neg)
+            neg_seq = build_sentence_sequence(neg)
             if neg_seq != gold_seq and len(neg_seq[0]) <= max_len:
                 candidate_set.append(neg_seq)
 
@@ -1140,16 +1095,7 @@ class Trainer:
         for item in all_seqs:
             if not item:
                 continue
-            if isinstance(item, tuple) and len(item) in {2, 3, 5, 7}:
-                upgraded = self._upgrade_replay_entry(item)
-                if upgraded is not None:
-                    candidate_sets.append([upgraded])
-            else:
-                candidate_sets.append(list(item))
-
-        for cands in candidate_sets:
-            if cands:
-                self._add_to_replay(*cands[0])
+            candidate_sets.append(list(item))
 
         trainable_sets = self._budget_candidate_sets([cands for cands in candidate_sets if len(cands) >= 2])
 
@@ -1194,7 +1140,7 @@ class Trainer:
             return 0.0
 
         # Build dynamic learning rate schedule exactly matched to total steps
-        total_steps = epochs * self._candidate_batch_count(trainable_sets, batch_size)
+        total_steps = epochs * len(self._candidate_batches(trainable_sets, batch_size))
         warmup = max(1, int(config.warmup_steps))
         eta_min = float(config.lr_eta_min_ratio)
 
@@ -1412,14 +1358,8 @@ class Trainer:
                         suff_matches += matches
                         suff_gold_total += gold_count
                         suff_pred_total += pred_count
-                        gold_tokens = [
-                            tok for tok in gold_seq[0]
-                            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
-                        ]
-                        pred_tokens = [
-                            tok for tok in pred_seq[0]
-                            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS)
-                        ]
+                        gold_tokens = self._morph_tokens_from_sequence(gold_seq)
+                        pred_tokens = self._morph_tokens_from_sequence(pred_seq)
                         self._update_suffix_metric_buckets(suffix_buckets, gold_tokens, pred_tokens)
                         if group.numel() > 1:
                             margins.append(float((group[0] - group[1:].max()).item()))
@@ -1485,9 +1425,9 @@ class Trainer:
             if len(cand_s) <= 1:
                 bare_indices.append(idx)
             flat_sequences.append((
-                prefix_s + cand_s + right_s,
-                prefix_g + cand_g + right_g,
-                prefix_wp + cand_wp + right_wp,
+                prefix_s + cand_s + right_s + [SPECIAL_EOS],
+                prefix_g + cand_g + right_g + [SPECIAL_FEATURE_ID],
+                prefix_wp + cand_wp + right_wp + [SPECIAL_FEATURE_ID],
             ))
 
         scores = self.score_flat_sequences(flat_sequences)
@@ -1499,7 +1439,7 @@ class Trainer:
         full_sequence = build_sentence_sequence(word_chains)
         bare_root_count = sum(1 for chain in word_chains if not chain)
         prior = bare_root_count * float(config.bare_root_prior_logprob)
-        if len(full_sequence[0]) < 2:
+        if not word_chains or len(full_sequence[0]) < 2:
             return prior
         return self.score_flat_sequences([full_sequence])[0] + prior
 
@@ -1556,7 +1496,7 @@ class Trainer:
     ) -> Tuple[int, List[float]]:
         ctx = context_chains or []
         scores = self.score_candidates(ctx, candidates)
-        best = self._get_best_index(scores)
+        best = int(max(range(len(scores)), key=lambda i: scores[i]))
         return best, scores
 
 
@@ -1569,7 +1509,6 @@ class Trainer:
             'val_history':     self.val_history,
             'best_val_loss':   self.best_val_loss,
             'global_step':     self.global_step,
-            'replay_buffer':   self.replay_buffer,
             'suffix_inventory': [s.name for s in _get_all_suffixes()],
             'feature_schema_version': FEATURE_SCHEMA_VERSION,
         }, self.path)
@@ -1601,57 +1540,8 @@ class Trainer:
         self.val_history    = ckpt.get('val_history',    [])
         self.best_val_loss  = ckpt.get('best_val_loss',  float('inf'))
         self.global_step    = ckpt.get('global_step',    0)
-        raw_replay = ckpt.get('replay_buffer', []) if suffix_inventory_matches else []
-        upgraded_replay = []
-        for entry in raw_replay:
-            upgraded = self._upgrade_replay_entry(entry)
-            if upgraded is not None:
-                upgraded_replay.append(upgraded)
-        self.replay_buffer = upgraded_replay
         if not suffix_inventory_matches:
-            print("Checkpoint suffix inventory changed; replay buffer and optimizer state were discarded.")
+            print("Checkpoint suffix inventory changed; optimizer state was discarded.")
         if not feature_schema_matches:
             print("Checkpoint feature schema changed; optimizer state was discarded.")
-        print(f"Loaded from {path} (step {self.global_step}, {len(self.replay_buffer)} replay entries)")
-
-    def _upgrade_replay_entry(self, entry) -> Optional[FlatSequence]:
-        if not isinstance(entry, (list, tuple)):
-            return None
-        if len(entry) == 3:
-            return tuple(entry)
-        if len(entry) == 5:
-            return (
-                list(entry[0]),
-                list(entry[2]),
-                list(entry[4]),
-            )
-        if len(entry) == 7:
-            return (
-                list(entry[0]),
-                list(entry[2]),
-                list(entry[5]),
-            )
-        if len(entry) != 2:
-            return None
-
-        suffix_ids, legacy_feature_ids = entry
-        if len(suffix_ids) != len(legacy_feature_ids):
-            return None
-
-        group_ids = [SPECIAL_FEATURE_ID] * len(suffix_ids)
-        word_pos_ids = [SPECIAL_FEATURE_ID] * len(suffix_ids)
-
-        current_word_positions: List[int] = []
-        for idx, tok_id in enumerate(suffix_ids):
-            if tok_id in (SPECIAL_BOS, SPECIAL_WORD_SEP):
-                current_word_positions.clear()
-                continue
-
-            current_word_positions.append(len(current_word_positions) + 1)
-            word_pos_ids[idx] = current_word_positions[-1]
-
-        return (
-            list(suffix_ids),
-            group_ids,
-            word_pos_ids,
-        )
+        print(f"Loaded from {path} (step {self.global_step})")

@@ -173,7 +173,7 @@ For every decomposition, `nlp.analyze_word()` builds four aligned lists:
 
 For a normal suffix:
 
-- `token_id = 4 + suffix_index_in_ALL_SUFFIXES`.
+- `token_id = 5 + suffix_index_in_ALL_SUFFIXES`.
 - `group_id` comes from `SuffixGroup`; missing group is `0`.
 - `position_in_word` starts at `1` inside the current word.
 
@@ -538,8 +538,6 @@ Exact cache lookup requires full metadata equality. Compatible fallback can reus
 - Bulk relearn skips logged word entries whose `suffixes` list is empty, so bare-root logged words are not included as context there.
 - Closed-class candidates are used interactively, but logged closed-class entries with empty suffixes are skipped by the current bulk relearn conversion.
 - `is_valid_transition()` currently does not enforce the waterfall rules because it returns `True` at the top of the function.
-- The replay buffer is saved in checkpoints, but the current training code does not sample replay examples back into new optimizer steps.
-- `config.use_class_weights` and `config.replay_k` exist, but the current trainer does not use them in the active loss path.
 - Dictionary cleanup after word commits is effectively inactive because `wrd.delete_word()` always returns `False`.
 - Suffix-derived verb markers in `formation_str` are effectively inactive for the same enum-name reason: the display code checks for `"Verb"`, while current enum names are uppercase.
-- The previous coarse category/output-type streams are no longer encoded for the ML model; suffix identity plus suffix group carry that signal.
+- The previous coarse category/output-type streams are no longer encoded for the ML model; suffix identity, suffix group, sequence position, word separators, and EOS carry that signal.

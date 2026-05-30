@@ -1,17 +1,10 @@
 from pathlib import Path
 from dataclasses import dataclass
 
-# Dynamic Path Resolution
-# Assumes structure: savyar/ml/config.py
-# Base dir becomes:  savyar/
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-
 @dataclass
 class MLConfig:
     # --- File Paths ---
     model_path: Path = "ml/model.pt"
-    training_count_file: Path = DATA_DIR / "training_count.txt"
     device: str = "cuda"
     allow_cpu_fallback: bool = False
     
@@ -28,9 +21,7 @@ class MLConfig:
 
     # --- Training Hyperparameters ---
     learning_rate: float = 3e-4
-    weight_decay: float = 0.05  
-
-    use_class_weights: bool = True
+    weight_decay: float = 0.05
 
     # --- MLM Objective (Reintroduced for Regularization) ---
     mlm_mask_prob: float = 0.20
@@ -78,9 +69,6 @@ class MLConfig:
     warmup_steps: int = 350            # Decreased from 1000 to match new epoch steps
     lr_eta_min_ratio: float = 0.01
 
-    # --- Experience Replay ---
-    replay_buffer_size: int = 100000   # Increased to fit 90k dataset
-    replay_k: int = 64
     steps_per_update: int = 4
 
     # --- Interactive/Loop Settings ---

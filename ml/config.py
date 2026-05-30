@@ -23,9 +23,7 @@ class MLConfig:
     dropout: float = 0.3        
 
     # Feature embedding dimensions scaled by cardinality to prevent overfitting
-    category_embed_dim: int = 4
     group_embed_dim: int = 8
-    makes_embed_dim: int = 2
     wordpos_embed_dim: int = 16
 
     # --- Training Hyperparameters ---

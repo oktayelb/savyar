@@ -23,7 +23,7 @@ from ml.ml_ranking_model import SentenceDisambiguator, Trainer, build_sentence_s
 from ml.config import config
 from util.words.closed_class import CLOSED_CLASS_TOKEN_SPECS
 
-STATIC_PREPROCESS_CACHE_VERSION = 2
+STATIC_PREPROCESS_CACHE_VERSION = 3
 
 # --------------------------------------------------------------------------- #
 # K-Fold Cross Validation Logic

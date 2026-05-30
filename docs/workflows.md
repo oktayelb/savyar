@@ -168,26 +168,19 @@ For every decomposition, `nlp.analyze_word()` builds four aligned lists:
 `encode_suffix_chain(chain)` converts each suffix or closed-class marker into:
 
 ```python
-(token_id, category_id, group_id, makes_id, position_in_word)
+(token_id, group_id, position_in_word)
 ```
 
 For a normal suffix:
 
 - `token_id = 4 + suffix_index_in_ALL_SUFFIXES`.
-- `category_id` is intended to mark noun vs verb output.
-  - In generated decomposer chains, the current code checks `s.makes.name == "Verb"`.
-  - Because `Type` enum names are uppercase (`"NOUN"`, `"VERB"`, `"BOTH"`), generated normal suffix tokens currently get `category_id = 0`.
-  - The actual output-type signal is still present in `makes_id`.
-  - Directly encoded log entries from `encode_suffix_names()` can set `category_id = 1` when the logged `makes` field is `"VERB"`.
 - `group_id` comes from `SuffixGroup`; missing group is `0`.
-- `makes_id` uses the same noun/verb/both mapping.
 - `position_in_word` starts at `1` inside the current word.
 
 For a closed-class marker:
 
 - `token_id` comes after all suffix IDs.
-- `category_id = 3`.
-- group and `makes` are special value `0`.
+- `group_id` is special value `0`.
 - position is still set.
 
 For a bare-root candidate with no suffixes:
@@ -549,3 +542,4 @@ Exact cache lookup requires full metadata equality. Compatible fallback can reus
 - `config.use_class_weights` and `config.replay_k` exist, but the current trainer does not use them in the active loss path.
 - Dictionary cleanup after word commits is effectively inactive because `wrd.delete_word()` always returns `False`.
 - Suffix-derived verb markers in `formation_str` are effectively inactive for the same enum-name reason: the display code checks for `"Verb"`, while current enum names are uppercase.
+- The previous coarse category/output-type streams are no longer encoded for the ML model; suffix identity plus suffix group carry that signal.

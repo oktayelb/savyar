@@ -8,13 +8,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import util.decomposer as sfx
 from util.word_methods import tr_lower
-from util.suffix import  Type
 from util.words.closed_class import ClosedClassMarker, CLOSED_CLASS_TOKEN_SPECS
 from ml.ml_ranking_model import (
     SUFFIX_OFFSET,
-    CATEGORY_CLOSED_CLASS,
     GROUP_TO_ID,
-    TYPE_TO_ID,
     SPECIAL_FEATURE_ID,
 )
 
@@ -123,19 +120,12 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
     return suffix_info
 
 
-def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, int, int]]:
+def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int]]:
     """Encode suffix chain directly from JSONL suffix dicts (name/makes strings)."""
-    category_to_id = {'NOUN': 0, 'VERB': 1, 'noun': 0, 'verb': 1, 'Noun': 0, 'Verb': 1}
-    type_name_to_enum = {
-        'NOUN': Type.NOUN, 'noun': Type.NOUN, 'Noun': Type.NOUN,
-        'VERB': Type.VERB, 'verb': Type.VERB, 'Verb': Type.VERB,
-        'BOTH': Type.BOTH, 'both': Type.BOTH, 'Both': Type.BOTH,
-    }
     encoded = []
     suffix_dicts = _expand_legacy_suffix_dicts(suffix_dicts)
     for idx, sd in enumerate(suffix_dicts):
         name = sd['name']
-        makes = sd.get('makes', 'NOUN')
         if name.startswith('cc_'):
             category = name[3:]
             surface = sd.get('cc_surface') or sd.get('root') or ""
@@ -144,22 +134,19 @@ def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, i
                 _CC_NAME_TO_DEFAULT_ID.get(name, _CC_OFFSET),
             )
             encoded.append((
-                token_id, CATEGORY_CLOSED_CLASS, SPECIAL_FEATURE_ID,
-                SPECIAL_FEATURE_ID, idx + 1,
+                token_id, SPECIAL_FEATURE_ID, idx + 1,
             ))
         else:
             token_id = _SUFFIX_TO_ID.get(name, SUFFIX_OFFSET)
-            cat_id = category_to_id.get(makes, 0)
             suffix_obj = _SUFFIX_BY_NAME.get(name)
             group_id = GROUP_TO_ID.get(getattr(suffix_obj, 'group', None), SPECIAL_FEATURE_ID)
-            makes_id = TYPE_TO_ID.get(type_name_to_enum.get(makes), SPECIAL_FEATURE_ID)
             encoded.append((
-                token_id, cat_id, group_id, makes_id, idx + 1,
+                token_id, group_id, idx + 1,
             ))
     return encoded
 
 
-def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int, int, int]]:
+def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int]]:
     """Encodes a suffix chain into ML token feature tuples."""
     if not suffix_chain:
         return []
@@ -171,17 +158,13 @@ def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int, int, in
                 _CC_NAME_TO_DEFAULT_ID.get(s.name, _CC_OFFSET),
             )
             encoded.append((
-                token_id, CATEGORY_CLOSED_CLASS, SPECIAL_FEATURE_ID,
-                SPECIAL_FEATURE_ID, idx + 1,
+                token_id, SPECIAL_FEATURE_ID, idx + 1,
             ))
         else:
             token_id = _SUFFIX_TO_ID.get(s.name, SUFFIX_OFFSET)
-            cat_id   = 1 if s.makes.name == 'Verb' else 0
             encoded.append((
                 token_id,
-                cat_id,
                 GROUP_TO_ID.get(getattr(s, 'group', None), SPECIAL_FEATURE_ID),
-                TYPE_TO_ID.get(getattr(s, 'makes', None), SPECIAL_FEATURE_ID),
                 idx + 1,
             ))
     return encoded

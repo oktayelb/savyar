@@ -30,7 +30,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, List, Optional, Tuple, Dict
 from .config import config  
-from util.suffix import SuffixGroup, Type
+from util.suffix import SuffixGroup
 
 # Enable cuDNN auto-tuner
 torch.backends.cudnn.benchmark = True
@@ -92,26 +92,17 @@ SPECIAL_PAD           = 0
 SPECIAL_WORD_SEP      = 1
 SPECIAL_BOS           = 2          
 SPECIAL_MASK          = 3          
-SUFFIX_OFFSET         = 4          
-CATEGORY_SPECIAL      = 2          
-CATEGORY_CLOSED_CLASS = 3          
+SUFFIX_OFFSET         = 4
 
 SPECIAL_FEATURE_ID    = 0
-FEATURE_SCHEMA_VERSION = 2
+FEATURE_SCHEMA_VERSION = 3
 
 GROUP_TO_ID = {None: SPECIAL_FEATURE_ID}
 for idx, group in enumerate(SuffixGroup):
     GROUP_TO_ID[group] = idx + 1
 
-TYPE_TO_ID = {
-    None: SPECIAL_FEATURE_ID,
-    Type.NOUN: 1,
-    Type.VERB: 2,
-    Type.BOTH: 3,
-}
-
-EncodedToken = Tuple[int, int, int, int, int]
-FlatSequence = Tuple[List[int], List[int], List[int], List[int], List[int]]
+EncodedToken = Tuple[int, int, int]
+FlatSequence = Tuple[List[int], List[int], List[int]]
 
 # ============================================================================
 # HELPER: encode / decode sentence-level token sequences
@@ -127,34 +118,26 @@ def _chain_tokens(
     word_chains: List[List[EncodedToken]]
 ) -> FlatSequence:
     suffix_ids:   List[int] = []
-    category_ids: List[int] = []
     group_ids:    List[int] = []
-    makes_ids:    List[int] = []
     pos_ids:      List[int] = []
     for chain in word_chains:
-        for (sid, cid, gid, makes_id, pos_in_word) in chain:
+        for (sid, gid, pos_in_word) in chain:
             suffix_ids.append(sid)
-            category_ids.append(cid)
             group_ids.append(gid)
-            makes_ids.append(makes_id)
             pos_ids.append(pos_in_word)
         suffix_ids.append(SPECIAL_WORD_SEP)
-        category_ids.append(CATEGORY_SPECIAL)
         group_ids.append(SPECIAL_FEATURE_ID)
-        makes_ids.append(SPECIAL_FEATURE_ID)
         pos_ids.append(SPECIAL_FEATURE_ID)
-    return suffix_ids, category_ids, group_ids, makes_ids, pos_ids
+    return suffix_ids, group_ids, pos_ids
 
 
 def build_sentence_sequence(
     word_chains: List[List[EncodedToken]]
 ) -> FlatSequence:
-    s, c, g, m, p = _chain_tokens(word_chains)
+    s, g, p = _chain_tokens(word_chains)
     return (
         [SPECIAL_BOS] + s,
-        [CATEGORY_SPECIAL] + c,
         [SPECIAL_FEATURE_ID] + g,
-        [SPECIAL_FEATURE_ID] + m,
         [SPECIAL_FEATURE_ID] + p,
     )
 
@@ -179,18 +162,14 @@ class SentenceDisambiguator(nn.Module):
 
             self.suffix_embed = nn.Embedding(self.vocab_size, self.embed_dim, padding_idx=SPECIAL_PAD)
 
-            self.category_embed = nn.Embedding(4, config.category_embed_dim)
             self.group_embed = nn.Embedding(len(GROUP_TO_ID), config.group_embed_dim)
-            self.makes_embed = nn.Embedding(max(TYPE_TO_ID.values()) + 1, config.makes_embed_dim)
             self.wordpos_embed = nn.Embedding(64, config.wordpos_embed_dim)
 
             self.pos_embed = nn.Embedding(self.max_sequence_length, self.embed_dim)
 
             feature_width = (
                 self.embed_dim * 2 +
-                config.category_embed_dim +
                 config.group_embed_dim +
-                config.makes_embed_dim +
                 config.wordpos_embed_dim
             )
 
@@ -232,9 +211,7 @@ class SentenceDisambiguator(nn.Module):
     def forward(
         self,
         suffix_ids:   torch.Tensor,
-        category_ids: torch.Tensor,
         group_ids:    torch.Tensor,
-        makes_ids:    torch.Tensor,
         word_pos_ids: torch.Tensor,
         pad_mask:     Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
@@ -247,9 +224,7 @@ class SentenceDisambiguator(nn.Module):
 
         x = torch.cat([
             self.suffix_embed(suffix_ids),
-            self.category_embed(category_ids),
             self.group_embed(group_ids),
-            self.makes_embed(makes_ids),
             self.wordpos_embed(word_pos_ids.clamp(max=self.wordpos_embed.num_embeddings - 1)),
             self.pos_embed(pos),
         ], dim=-1)
@@ -261,9 +236,7 @@ class SentenceDisambiguator(nn.Module):
     def rank_scores(
         self,
         suffix_ids:   torch.Tensor,
-        category_ids: torch.Tensor,
         group_ids:    torch.Tensor,
-        makes_ids:    torch.Tensor,
         word_pos_ids: torch.Tensor,
         pad_mask:     Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
@@ -276,9 +249,7 @@ class SentenceDisambiguator(nn.Module):
 
         x = torch.cat([
             self.suffix_embed(suffix_ids),
-            self.category_embed(category_ids),
             self.group_embed(group_ids),
-            self.makes_embed(makes_ids),
             self.wordpos_embed(word_pos_ids.clamp(max=self.wordpos_embed.num_embeddings - 1)),
             self.pos_embed(pos),
         ], dim=-1)
@@ -597,13 +568,11 @@ class Trainer:
     def _add_to_replay(
         self,
         suffix_ids: List[int],
-        category_ids: List[int],
         group_ids: List[int],
-        makes_ids: List[int],
         word_pos_ids: List[int],
     ) -> None:
         self.replay_buffer.append(
-            (suffix_ids, category_ids, group_ids, makes_ids, word_pos_ids)
+            (suffix_ids, group_ids, word_pos_ids)
         )
         if len(self.replay_buffer) > config.replay_buffer_size:
             evict_idx = random.randrange(len(self.replay_buffer) // 2)
@@ -613,31 +582,25 @@ class Trainer:
 
     def _build_padded_batch(
         self, seqs: List[FlatSequence]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         max_len = max(len(seq[0]) for seq in seqs)
 
         suffix_rows: List[List[int]] = []
-        category_rows: List[List[int]] = []
         group_rows: List[List[int]] = []
-        makes_rows: List[List[int]] = []
         word_pos_rows: List[List[int]] = []
         pad_mask_rows: List[List[bool]] = []
 
-        for sids, cids, gids, makes_ids, word_pos_ids in seqs:
+        for sids, gids, word_pos_ids in seqs:
             L = len(sids)
             pad_count = max_len - L
             suffix_rows.append(list(sids) + [SPECIAL_PAD] * pad_count)
-            category_rows.append(list(cids) + [CATEGORY_SPECIAL] * pad_count)
             group_rows.append(list(gids) + [SPECIAL_FEATURE_ID] * pad_count)
-            makes_rows.append(list(makes_ids) + [SPECIAL_FEATURE_ID] * pad_count)
             word_pos_rows.append(list(word_pos_ids) + [SPECIAL_FEATURE_ID] * pad_count)
             pad_mask_rows.append([False] * L + [True] * pad_count)
 
         return (
             torch.tensor(suffix_rows, dtype=torch.long, device=self.device),
-            torch.tensor(category_rows, dtype=torch.long, device=self.device),
             torch.tensor(group_rows, dtype=torch.long, device=self.device),
-            torch.tensor(makes_rows, dtype=torch.long, device=self.device),
             torch.tensor(word_pos_rows, dtype=torch.long, device=self.device),
             torch.tensor(pad_mask_rows, dtype=torch.bool, device=self.device),
         )
@@ -740,7 +703,7 @@ class Trainer:
             sizes.append(len(cands))
             flat.extend(cands)
 
-        s_t, c_t, g_t, m_t, wp_t, p_mask = self._build_padded_batch(flat)
+        s_t, g_t, wp_t, p_mask = self._build_padded_batch(flat)
 
         if _debug_gpu_enabled():
             print(
@@ -761,7 +724,7 @@ class Trainer:
 
         with torch.amp.autocast('cuda', enabled=use_amp):
             # 1. Contrastive Ranking Loss
-            scores = self.model.rank_scores(s_t, c_t, g_t, m_t, wp_t, pad_mask=p_mask)
+            scores = self.model.rank_scores(s_t, g_t, wp_t, pad_mask=p_mask)
             losses = []
             correct = 0
             top2 = 0
@@ -799,9 +762,7 @@ class Trainer:
 
             mlm_logits = self.model(
                 masked_s,
-                c_t[gold_indices],
                 g_t[gold_indices],
-                m_t[gold_indices],
                 wp_t[gold_indices],
                 pad_mask=gold_p_mask
             )
@@ -1179,7 +1140,7 @@ class Trainer:
         for item in all_seqs:
             if not item:
                 continue
-            if isinstance(item, tuple) and len(item) in {2, 5, 7}:
+            if isinstance(item, tuple) and len(item) in {2, 3, 5, 7}:
                 upgraded = self._upgrade_replay_entry(item)
                 if upgraded is not None:
                     candidate_sets.append([upgraded])
@@ -1506,30 +1467,26 @@ class Trainer:
         self.model.eval()
 
         if context_chains:
-            ctx_s, ctx_c, ctx_g, ctx_m, ctx_wp = _chain_tokens(context_chains)
+            ctx_s, ctx_g, ctx_wp = _chain_tokens(context_chains)
         else:
-            ctx_s, ctx_c, ctx_g, ctx_m, ctx_wp = ([], [], [], [], [])
+            ctx_s, ctx_g, ctx_wp = ([], [], [])
         if right_chains:
-            right_s, right_c, right_g, right_m, right_wp = _chain_tokens(right_chains)
+            right_s, right_g, right_wp = _chain_tokens(right_chains)
         else:
-            right_s, right_c, right_g, right_m, right_wp = ([], [], [], [], [])
+            right_s, right_g, right_wp = ([], [], [])
 
         prefix_s  = [SPECIAL_BOS]      + ctx_s
-        prefix_c  = [CATEGORY_SPECIAL] + ctx_c
         prefix_g  = [SPECIAL_FEATURE_ID] + ctx_g
-        prefix_m  = [SPECIAL_FEATURE_ID] + ctx_m
         prefix_wp = [SPECIAL_FEATURE_ID] + ctx_wp
         flat_sequences: List[FlatSequence] = []
         bare_indices: List[int] = []
         for idx, chain in enumerate(candidates):
-            cand_s, cand_c, cand_g, cand_m, cand_wp = _chain_tokens([chain])
+            cand_s, cand_g, cand_wp = _chain_tokens([chain])
             if len(cand_s) <= 1:
                 bare_indices.append(idx)
             flat_sequences.append((
                 prefix_s + cand_s + right_s,
-                prefix_c + cand_c + right_c,
                 prefix_g + cand_g + right_g,
-                prefix_m + cand_m + right_m,
                 prefix_wp + cand_wp + right_wp,
             ))
 
@@ -1571,8 +1528,8 @@ class Trainer:
                     chunk = seqs[start:start + current_size]
                     max_len = max((len(seq[0]) for seq in chunk), default=0)
                 try:
-                    s_t, c_t, g_t, m_t, wp_t, p_mask = self._build_padded_batch(chunk)
-                    scores = self.model.rank_scores(s_t, c_t, g_t, m_t, wp_t, pad_mask=p_mask)
+                    s_t, g_t, wp_t, p_mask = self._build_padded_batch(chunk)
+                    scores = self.model.rank_scores(s_t, g_t, wp_t, pad_mask=p_mask)
                     chunks.append(scores.detach())
                     start += current_size
                 except RuntimeError as exc:
@@ -1660,25 +1617,28 @@ class Trainer:
     def _upgrade_replay_entry(self, entry) -> Optional[FlatSequence]:
         if not isinstance(entry, (list, tuple)):
             return None
-        if len(entry) == 5:
+        if len(entry) == 3:
             return tuple(entry)
+        if len(entry) == 5:
+            return (
+                list(entry[0]),
+                list(entry[2]),
+                list(entry[4]),
+            )
         if len(entry) == 7:
             return (
                 list(entry[0]),
-                list(entry[1]),
                 list(entry[2]),
-                list(entry[4]),
                 list(entry[5]),
             )
         if len(entry) != 2:
             return None
 
-        suffix_ids, category_ids = entry
-        if len(suffix_ids) != len(category_ids):
+        suffix_ids, legacy_feature_ids = entry
+        if len(suffix_ids) != len(legacy_feature_ids):
             return None
 
         group_ids = [SPECIAL_FEATURE_ID] * len(suffix_ids)
-        makes_ids = [SPECIAL_FEATURE_ID] * len(suffix_ids)
         word_pos_ids = [SPECIAL_FEATURE_ID] * len(suffix_ids)
 
         current_word_positions: List[int] = []
@@ -1692,8 +1652,6 @@ class Trainer:
 
         return (
             list(suffix_ids),
-            list(category_ids),
             group_ids,
-            makes_ids,
             word_pos_ids,
         )

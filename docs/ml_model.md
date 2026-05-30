@@ -21,28 +21,19 @@ The model input is built from encoded chains created in `app/nlp_pipeline.py`.
 Each normal suffix token is encoded as:
 
 ```python
-(token_id, category_id, group_id, makes_id, position_in_word)
+(token_id, group_id, position_in_word)
 ```
 
 Meaning:
 
 - `token_id`: suffix identity, starting at ID `4`.
-- `category_id`: noun/verb/special/closed-class category embedding.
-  - `0`: noun
-  - `1`: verb
-  - `2`: special token
-  - `3`: closed-class token
-  - Current generated decomposer chains use `1` only if `s.makes.name == "Verb"`. The active `Type` enum names are uppercase, so generated normal suffix tokens currently become category `0`; the correct output-type signal is carried by `makes_id`.
-  - Directly encoded log entries can still produce category `1` when the logged `makes` string is `"VERB"`.
 - `group_id`: suffix group ID from `SuffixGroup`, or `0` for missing/special.
-- `makes_id`: what the suffix produces, using the same noun/verb/both IDs.
 - `position_in_word`: one-based position inside the current word's suffix chain.
 
 Closed-class words are encoded as one marker token:
 
 - token IDs come after the suffix inventory,
-- `category_id = 3`,
-- group and type features are `0`,
+- group feature is `0`,
 - position still shows that it is the first token of a word-level chain.
 
 Bare-root candidates have an empty chain:
@@ -75,7 +66,7 @@ These counts are dynamic at runtime. They change if suffix or closed-class inven
 
 ## Sequence Flattening
 
-`build_sentence_sequence(word_chains)` converts a list of per-word chains into five parallel integer lists.
+`build_sentence_sequence(word_chains)` converts a list of per-word chains into three parallel integer lists.
 
 Example shape:
 
@@ -97,9 +88,7 @@ Every feature stream has the same length:
 ```python
 (
   suffix_ids,
-  category_ids,
   group_ids,
-  makes_ids,
   word_pos_ids,
 )
 ```
@@ -158,36 +147,30 @@ Default config in `ml/config.py`:
 - `num_heads = 8`
 - `dropout = 0.3`
 - `max_sequence_length = 512`
-- `category_embed_dim = 4`
 - `group_embed_dim = 8`
-- `makes_embed_dim = 2`
 - `wordpos_embed_dim = 16`
 
 For every sequence position, the model concatenates:
 
 1. suffix/closed-class/special token embedding,
-2. category embedding,
-3. suffix-group embedding,
-4. `makes` type embedding,
-5. within-word-position embedding,
-6. absolute position embedding.
+2. suffix-group embedding,
+3. within-word-position embedding,
+4. absolute position embedding.
 
 With current defaults, the concatenated feature width is:
 
 ```text
 384 token
-+ 4 category
 + 8 group
-+ 2 makes
 + 16 word position
 + 384 absolute position
-= 794
+= 792
 ```
 
 This goes through:
 
 ```text
-Linear(794 -> 512)
+Linear(792 -> 512)
 GELU
 Linear(512 -> 384)
 ```
@@ -515,7 +498,7 @@ Per-suffix buckets use `_suffix_name_for_token_id()`, which maps only normal suf
 4. Loads optimizer and scheduler state only if suffix inventory matches.
 5. Restores histories and global step.
 6. Restores replay buffer only if suffix inventory matches.
-7. Upgrades old replay entries with two streams or the previous seven-stream schema into the current five-stream format.
+7. Upgrades old replay entries with two, five, or seven streams into the current three-stream format.
 
 If the suffix inventory changed, optimizer state and replay buffer are discarded.
 
@@ -525,7 +508,7 @@ If the suffix inventory changed, optimizer state and replay buffer are discarded
 - Surface characters are not included in ML input.
 - Surface suffix allomorphs are not included in ML input.
 - The model cannot distinguish two candidates that differ only by root if their encoded suffix/closed-class streams are identical.
-- Generated normal suffix chains currently put `0` in `category_id` because of the `"Verb"` vs `"VERB"` enum-name check; `makes_id` still carries noun/verb/both information.
+- The previous coarse category/output-type streams are no longer encoded; final/output-type information is left to `token_id`, `group_id`, sequence position, and `WORD_SEP`.
 - Direct log encoding does not fail on an unknown suffix name; it maps that name to `SUFFIX_OFFSET`, the first suffix-token slot.
 - Full Cartesian sentence candidate products are not generated for training.
 - The replay buffer is saved but not sampled during training.

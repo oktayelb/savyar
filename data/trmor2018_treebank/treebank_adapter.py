@@ -43,6 +43,7 @@ from data.treebank_adapter_commons import (
     make_layer,
     make_word,
     record_unmapped,
+    resolve_ambiguous_suffix_by_surface,
     resolve_ambiguous_vnoun_suffixes,
 )
 
@@ -68,10 +69,11 @@ ZERO_FEATURES = {
 
 V2V_FEATURES = {
     "Pass": "passive_il",
-    "Caus": "active_dir",
     "Recip": "reflexive_is",
     "Reflex": "reflexive_in",
 }
+AMBIGUOUS_CAUSATIVE = "__AMBIGUOUS_CAUSATIVE__"
+CAUSATIVE_CANDIDATES = ("active_dir", "active_it", "active_ir", "active_er")
 
 V2V_COMPOUND_FEATURES = {
     "Able": "possibilitative_ebil",
@@ -335,6 +337,10 @@ def features_to_suffix_names(word, unmapped_sink):
                 suffix_names.append(V2V_FEATURES[feat])
                 continue
 
+            if feat == "Caus":
+                suffix_names.append(AMBIGUOUS_CAUSATIVE)
+                continue
+
             if feat in V2V_COMPOUND_FEATURES:
                 suffix_names.append(V2V_COMPOUND_FEATURES[feat])
                 continue
@@ -441,6 +447,15 @@ def features_to_suffix_names(word, unmapped_sink):
         word["lemma"],
         suffix_names,
         SUFFIX_BY_NAME,
+    )
+    suffix_names = resolve_ambiguous_suffix_by_surface(
+        word["surface"],
+        word["lemma"],
+        suffix_names,
+        AMBIGUOUS_CAUSATIVE,
+        CAUSATIVE_CANDIDATES,
+        SUFFIX_BY_NAME,
+        fallback="active_dir",
     )
     return suffix_names, unmapped_on_word, has_unmappable
 

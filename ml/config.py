@@ -30,7 +30,7 @@ class MLConfig:
     focal_gamma: float = 0.0
 
     # --- Ranking Objective ---
-    max_negative_candidates: int = 8
+    max_negative_candidates: int = 5
     max_candidate_sequences_per_batch: int = 64
     max_sequence_length: int = 512
     use_torch_compile: bool = False
@@ -47,8 +47,8 @@ class MLConfig:
     mlm_weight: float = 0.2
 
     # --- Bulk-training defaults ---
-    bulk_epochs: int = 5               # Decreased from 11 due to larger dataset
-    bulk_batch_size: int = 128
+    bulk_epochs: int = 11               # Decreased from 11 due to larger dataset
+    bulk_batch_size: int = 1024
     bulk_batch_log_interval: int = 1
     relearn_preprocess_log_interval: int = 1000
     max_batch_padded_tokens: int = 8192
@@ -72,7 +72,7 @@ class MLConfig:
     steps_per_update: int = 4
 
     # --- Interactive/Loop Settings ---
-    checkpoint_frequency: int = 2500   # Increased from 1000 to avoid excessive I/O overhead
+    checkpoint_frequency: int = 4000   # Increased from 1000 to avoid excessive I/O overhead
     bare_root_prior_logprob: float = -0.75
     validation_split: float = 0.1
     validation_seed: int = 42

@@ -158,6 +158,7 @@ class SentenceDisambiguator(nn.Module):
         with torch.device(target_device):
             super().__init__()
             self.embed_dim = config.embed_dim
+            self.pos_embed_dim = int(config.pos_embed_dim)
             self.vocab_size = SUFFIX_OFFSET + suffix_vocab_size + closed_class_vocab_size
             self.max_sequence_length = int(config.max_sequence_length)
 
@@ -166,10 +167,11 @@ class SentenceDisambiguator(nn.Module):
             self.group_embed = nn.Embedding(len(GROUP_TO_ID), config.group_embed_dim)
             self.wordpos_embed = nn.Embedding(64, config.wordpos_embed_dim)
 
-            self.pos_embed = nn.Embedding(self.max_sequence_length, self.embed_dim)
+            self.pos_embed = nn.Embedding(self.max_sequence_length, self.pos_embed_dim)
 
             feature_width = (
-                self.embed_dim * 2 +
+                self.embed_dim +
+                self.pos_embed_dim +
                 config.group_embed_dim +
                 config.wordpos_embed_dim
             )

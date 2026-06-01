@@ -18,6 +18,7 @@ class MLConfig:
     # Feature embedding dimensions scaled by cardinality to prevent overfitting
     group_embed_dim: int = 8
     wordpos_embed_dim: int = 16
+    pos_embed_dim: int = 384
 
     # --- Training Hyperparameters ---
     learning_rate: float = 3e-4

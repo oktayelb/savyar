@@ -164,6 +164,7 @@ Default config in `ml/config.py`:
 - `max_sequence_length = 512`
 - `group_embed_dim = 8`
 - `wordpos_embed_dim = 16`
+- `pos_embed_dim = 384`
 
 For every sequence position, the model concatenates:
 

@@ -149,6 +149,23 @@ def minor_harmony(word: str) -> MinorHarmony | None:
              return MinorHarmony.BACK_WIDE if major_harmony(word) == MajorHarmony.BACK else MinorHarmony.FRONT_WIDE
     return None
 
+def progressive_narrow_vowel(stem: str) -> str | None:
+    """Return the high vowel used when final a/e narrows before -yor."""
+    if not stem or stem[-1] not in ['a', 'e']:
+        return None
+
+    for ch in reversed(stem[:-1]):
+        if ch in BACK_ROUND:
+            return 'u'
+        if ch in FRONT_ROUND:
+            return 'ü'
+        if ch in BACK_FLAT:
+            return 'ı'
+        if ch in FRONT_FLAT:
+            return 'i'
+
+    return 'ı' if stem[-1] == 'a' else 'i'
+
 # --- Morphological utilities ---
 
 def ends_with_consonant(word: str) -> bool:
@@ -192,6 +209,11 @@ def get_root_candidates(surface_root: str) -> List[str]:
             restored = surface_root + terminal_vowel
             if can_be_noun(restored) or can_be_verb(restored):
                  candidates.append(restored)
+    elif len(surface_root) == 1:
+        for terminal_vowel in ['a', 'e']:
+            restored = surface_root + terminal_vowel
+            if can_be_verb(restored):
+                candidates.append(restored)
 
     # Consonant gemination reversal: hiss→his, hakk→hak, redd→ret
     # Common in Arabic/Persian loanwords where the final consonant doubles

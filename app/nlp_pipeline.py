@@ -90,15 +90,28 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
 
     word_lower = tr_lower(word)
     current = root
+    cursor = len(root)
     accepted_chain = []
     suffix_info: List[Dict[str, Any]] = []
 
-    for suffix in chain:
+    if not word_lower.startswith(root) and chain:
+        first_suffix = chain[0]
+        possible_forms = first_suffix.form(root, current_chain=[])
+        for offset in range(3):
+            test_cursor = len(root) - offset
+            if test_cursor <= 0:
+                break
+            rest_of_word = word_lower[test_cursor:]
+            if any(form and rest_of_word.startswith(form) for form in possible_forms):
+                cursor = test_cursor
+                break
+
+    for idx, suffix in enumerate(chain):
         if isinstance(suffix, ClosedClassMarker):
             continue
 
         forms = suffix.form(current, current_chain=accepted_chain)
-        rest = word_lower[len(current):]
+        rest = word_lower[cursor:]
         used_form = ""
 
         for form in forms:
@@ -107,14 +120,35 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
                 break
 
         if not used_form:
+            has_iyor_ahead = any("iyor" in chain[k].name for k in range(idx + 1, len(chain)))
+            if has_iyor_ahead:
+                for form in forms:
+                    if form and form[-1] in ['a', 'e']:
+                        shortened = form[:-1]
+                        if shortened and rest.startswith(shortened):
+                            rest_after = rest[len(shortened):]
+                            if any(rest_after.startswith(v) for v in sfx.IYOR_VARIATIONS):
+                                used_form = shortened if suffix.makes.name == "VERB" else form
+                                break
+
+        if not used_form:
             used_form = forms[0] if forms else ""
 
+        replaces_final_vowel = (
+            suffix.name == "continuous_iyor"
+            and current.endswith(("a", "e"))
+            and cursor == len(current) - 1
+        )
         suffix_info.append({
             'name': suffix.name,
             'form': used_form,
             'makes': suffix.makes.name if suffix.makes else None,
         })
-        current += used_form
+        if replaces_final_vowel:
+            current = current[:-1] + used_form
+        else:
+            current += used_form
+        cursor += len(used_form)
         accepted_chain.append(suffix)
 
     return suffix_info
@@ -264,9 +298,18 @@ def reconstruct_morphology(word: str, decomposition: Tuple) -> Dict[str, Any]:
                 cursor       += len(possible_forms[0])
             continue
         
+        replaces_final_vowel = (
+            suffix_obj.name == "continuous_iyor"
+            and current_stem.endswith(("a", "e"))
+            and cursor == len(current_stem) - 1
+        )
+
         suffix_forms.append(found_form if found_form else "(ø)")
         suffix_names.append(suffix_obj.name)
-        current_stem += found_form
+        if replaces_final_vowel:
+            current_stem = current_stem[:-1] + found_form
+        else:
+            current_stem += found_form
         cursor       += len(found_form)
         
         verb_marker = "-" if suffix_obj.makes.name == "Verb" else ""

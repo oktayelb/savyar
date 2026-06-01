@@ -109,7 +109,6 @@ bekit
 beler
 belir
 belirle
-belirt
 belle
 benilde
 benimsen
@@ -545,8 +544,6 @@ kanırt
 kanıtsa
 kap
 kapa
-kapan
-kapat
 kar
 karar
 kargı
@@ -578,7 +575,6 @@ kaydol
 kaydırt
 kaykılt
 kayna
-kaynat
 kaynaş
 kaytar
 kayır

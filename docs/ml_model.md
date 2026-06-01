@@ -465,6 +465,8 @@ Sentence beam search repeatedly scores partial sentence chains and keeps the bes
 ## Validation Metrics
 
 `Trainer.validate(val_seqs)` evaluates candidate sets with at least two candidates.
+Single-candidate test items are therefore excluded from these candidate-set
+metrics.
 
 For every candidate set:
 
@@ -488,6 +490,14 @@ Metrics:
 `suff_acc` and `word_acc` compare morphology tokens after removing `PAD`, `WORD_SEP`, `BOS`, and `EOS`. Closed-class tokens can therefore affect those sequence-level metrics.
 
 Per-suffix buckets use `_suffix_name_for_token_id()`, which maps only normal suffix IDs. Closed-class IDs do not become per-suffix names.
+
+The CLI test report also prints `Overall Token Metrics`. These count every test
+word in the denominator, including words with only one generated decomposition.
+Root-only gold words and gold annotations that fall back to a gold-only encoded
+candidate are counted as single-candidate correct predictions. Words with no
+generated candidate are counted as incorrect. This is the literature-style token
+accuracy; the candidate-set metrics remain the harsher ambiguous-only reranking
+view.
 
 ## Checkpointing
 

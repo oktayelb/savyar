@@ -1014,6 +1014,152 @@ class WorkflowEngine:
             "diagnostic_skipped": skipped,
         }
 
+    def _evaluate_overall_test_tokens(self, entries: List[Dict]) -> Dict[str, Any]:
+        total = 0
+        correct = 0
+        ambiguous_total = 0
+        ambiguous_correct = 0
+        single_total = 0
+        single_correct = 0
+        root_only_total = 0
+        no_candidate = 0
+        unmatched_gold = 0
+        scoring_errors = 0
+        scoring_items: List[Tuple[List[Any], Dict[str, Any]]] = []
+
+        for entry in entries:
+            word_entries = entry.get("words", []) if entry.get("type") == "sentence" else [entry]
+            matched_infos: List[Dict[str, Any]] = []
+
+            for word_entry in word_entries:
+                total += 1
+                if not word_entry.get("suffixes", []):
+                    root_only_total += 1
+                    single_total += 1
+                    single_correct += 1
+                    correct += 1
+                    continue
+
+                try:
+                    analysis = nlp.analyze_word(word_entry["word"], include_closed_class=True)
+                except Exception:
+                    analysis = None
+
+                if not analysis or not analysis.get("decomps"):
+                    no_candidate += 1
+                    continue
+
+                matched = nlp.match_decompositions([word_entry], analysis["decomps"])
+                if not matched:
+                    unmatched_gold += 1
+                    single_total += 1
+                    single_correct += 1
+                    correct += 1
+                    continue
+
+                gold_idx = matched[0]
+                if len(analysis["decomps"]) <= 1:
+                    single_total += 1
+                else:
+                    ambiguous_total += 1
+
+                matched_infos.append({
+                    "encoded_chains": analysis["encoded_chains"],
+                    "gold_idx": gold_idx,
+                    "is_ambiguous": len(analysis["decomps"]) > 1,
+                })
+
+            if not any(info["is_ambiguous"] for info in matched_infos):
+                correct += len(matched_infos)
+                single_correct += len(matched_infos)
+                continue
+
+            gold_indices = [info["gold_idx"] for info in matched_infos]
+            gold_chains = [
+                info["encoded_chains"][info["gold_idx"]]
+                for info in matched_infos
+            ]
+            candidate_lists = [info["encoded_chains"] for info in matched_infos]
+            candidate_set = [build_sentence_sequence(gold_chains)]
+            combos = [list(gold_indices)]
+            seen = {tuple(tuple(tok[0] for tok in chain) for chain in gold_chains)}
+            max_candidate_set_size = 1 + max(0, int(config.max_negative_candidates))
+
+            for word_idx, candidates in enumerate(candidate_lists):
+                gold_idx = gold_indices[word_idx]
+                for cand_idx, candidate in enumerate(candidates):
+                    if cand_idx == gold_idx:
+                        continue
+                    neg_chains = list(gold_chains)
+                    neg_chains[word_idx] = candidate
+                    signature = tuple(tuple(tok[0] for tok in chain) for chain in neg_chains)
+                    if signature in seen:
+                        continue
+                    seen.add(signature)
+                    candidate_set.append(build_sentence_sequence(neg_chains))
+                    combo = list(gold_indices)
+                    combo[word_idx] = cand_idx
+                    combos.append(combo)
+                    if len(candidate_set) >= max_candidate_set_size:
+                        break
+                if len(candidate_set) >= max_candidate_set_size:
+                    break
+
+            if len(candidate_set) < 2 or not self._candidate_set_fits_model(candidate_set):
+                scoring_errors += len(matched_infos)
+                continue
+
+            scoring_items.append((candidate_set, {
+                "infos": matched_infos,
+                "gold_indices": gold_indices,
+                "combos": combos,
+            }))
+
+        batch_size = 64
+        for start in range(0, len(scoring_items), batch_size):
+            batch = scoring_items[start:start + batch_size]
+            flat = [seq for candidate_set, _meta in batch for seq in candidate_set]
+            sizes = [len(candidate_set) for candidate_set, _meta in batch]
+            try:
+                scores = self.trainer.score_flat_sequences(flat)
+            except Exception:
+                scoring_errors += sum(len(meta["infos"]) for _candidate_set, meta in batch)
+                continue
+
+            offset = 0
+            for (_candidate_set, meta), size in zip(batch, sizes):
+                group = scores[offset:offset + size]
+                offset += size
+                if not group:
+                    scoring_errors += len(meta["infos"])
+                    continue
+                best_idx = max(range(len(group)), key=lambda i: group[i])
+                pred_combo = meta["combos"][best_idx]
+                for info, gold_idx, pred_idx in zip(meta["infos"], meta["gold_indices"], pred_combo):
+                    if pred_idx == gold_idx:
+                        correct += 1
+                        if info["is_ambiguous"]:
+                            ambiguous_correct += 1
+                        else:
+                            single_correct += 1
+
+        return {
+            "token_acc": correct / total if total else 0.0,
+            "correct": correct,
+            "total": total,
+            "ambiguous_token_acc": ambiguous_correct / ambiguous_total if ambiguous_total else 0.0,
+            "ambiguous_correct": ambiguous_correct,
+            "ambiguous_total": ambiguous_total,
+            "single_token_acc": single_correct / single_total if single_total else 0.0,
+            "single_correct": single_correct,
+            "single_total": single_total,
+            "single_ratio": single_total / total if total else 0.0,
+            "root_only_total": root_only_total,
+            "no_candidate": no_candidate,
+            "unmatched_gold": unmatched_gold,
+            "scoring_errors": scoring_errors,
+        }
+
     def test_model(self, detailed: bool = False) -> Dict[str, Any]:
         entries = self.data_manager.get_test_entries()
         if not entries:
@@ -1023,6 +1169,7 @@ class WorkflowEngine:
                 'words': 0,
                 'skipped': 0,
                 'metrics': None,
+                'overall_metrics': None,
             }
         test_seqs, total_words, skipped = self._entries_to_sequences(entries)
         metrics = self.trainer.validate(test_seqs) if test_seqs else None
@@ -1032,6 +1179,7 @@ class WorkflowEngine:
             'words': total_words,
             'skipped': skipped,
             'metrics': metrics,
+            'overall_metrics': self._evaluate_overall_test_tokens(entries),
         }
         if detailed and metrics:
             report["detail"] = self._collect_test_detail(

@@ -494,7 +494,7 @@ class WorkflowEngine:
         metadata: Dict[str, Any] = {
             "cache_version": STATIC_PREPROCESS_CACHE_VERSION,
             "scope": scope,
-            "sources": self.data_manager.get_preprocess_source_signature(include_code=False),
+            "sources": self.data_manager.get_preprocess_source_signature(include_code=True),
             "suffix_inventory": [suffix.name for suffix in sfx.ALL_SUFFIXES],
             "closed_class_inventory": [list(spec) for spec in CLOSED_CLASS_TOKEN_SPECS],
             "config": {

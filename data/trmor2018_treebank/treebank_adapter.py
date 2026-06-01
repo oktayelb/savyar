@@ -138,6 +138,7 @@ N2N_POSSESSIVE_FEATURES = {
 
 N2N_DERIVATIONAL_FEATURES = {
     "Ness": "suitative_lik",
+    "FitFor": "suitative_lik",
     "With": "compositive_li",
     "Without": "privative_siz",
     "Agt": "actor_ci",

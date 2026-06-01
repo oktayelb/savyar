@@ -3,6 +3,7 @@ import os
 import random
 import time
 import warnings
+from itertools import zip_longest
 
 warnings.filterwarnings(
     "ignore",
@@ -911,6 +912,8 @@ class Trainer:
 
     @staticmethod
     def _suffix_name_for_token_id(token_id: int) -> Optional[str]:
+        if token_id is None:
+            return None
         suffixes = _get_all_suffixes()
         suffix_idx = token_id - SUFFIX_OFFSET
         if 0 <= suffix_idx < len(suffixes):
@@ -924,7 +927,7 @@ class Trainer:
         gold_tokens: List[int],
         pred_tokens: List[int],
     ) -> None:
-        for gold_tok, pred_tok in zip(gold_tokens, pred_tokens):
+        for gold_tok, pred_tok in zip_longest(gold_tokens, pred_tokens):
             gold_name = cls._suffix_name_for_token_id(gold_tok)
             pred_name = cls._suffix_name_for_token_id(pred_tok)
 

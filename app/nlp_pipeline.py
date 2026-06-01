@@ -171,6 +171,8 @@ def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int]]:
                 token_id, SPECIAL_FEATURE_ID, idx + 1,
             ))
         else:
+            if name not in _SUFFIX_TO_ID:
+                raise ValueError(f"Unknown suffix name in training data: {name!r}")
             token_id = _SUFFIX_TO_ID.get(name, SUFFIX_OFFSET)
             suffix_obj = _SUFFIX_BY_NAME.get(name)
             group_id = GROUP_TO_ID.get(getattr(suffix_obj, 'group', None), SPECIAL_FEATURE_ID)

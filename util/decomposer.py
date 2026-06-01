@@ -15,6 +15,7 @@ from util.suffix import Type, Suffix, SuffixGroup
 
 ALL_SUFFIXES = NOUN2NOUN + NOUN2VERB + VERB2NOUN + VERB2VERB
 IYOR_VARIATIONS = ('iyor', 'ıyor', 'uyor', 'üyor')
+NEGATIVE_IYOR_CONTRACTION_SUFFIXES = {'negative_me', 'negative_able'}
 
 # ============================================================================
 # SUFFIX TYPES
@@ -250,10 +251,16 @@ def find_suffix_chain(word: str, start_pos: str, root: str,
                     if rest.startswith(narrowed_form):
                         rest_after = rest[len(narrowed_form):]
                         if any(rest_after.startswith(v) for v in IYOR_VARIATIONS):
+                            if suffix_obj.name in NEGATIVE_IYOR_CONTRACTION_SUFFIXES and narrowed_form:
+                                next_word = word
+                                next_root = word[:root_len + len(narrowed_form)]
+                            else:
+                                next_word = root + suffix_form + rest_after
+                                next_root = root + suffix_form
                             subchains = find_suffix_chain(
-                                root + suffix_form + rest_after,
+                                next_word,
                                 target_pos,
-                                root + suffix_form,
+                                next_root,
                                 current_chain + [suffix_obj],
                                 visited,
                                 shared_cache

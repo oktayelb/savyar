@@ -250,10 +250,16 @@ def find_suffix_chain(word: str, start_pos: str, root: str,
                     if rest.startswith(narrowed_form):
                         rest_after = rest[len(narrowed_form):]
                         if any(rest_after.startswith(v) for v in IYOR_VARIATIONS):
+                            if suffix_obj.makes == Type.VERB and narrowed_form:
+                                next_word = word
+                                next_root = word[:root_len + len(narrowed_form)]
+                            else:
+                                next_word = root + suffix_form + rest_after
+                                next_root = root + suffix_form
                             subchains = find_suffix_chain(
-                                root + suffix_form + rest_after,
+                                next_word,
                                 target_pos,
-                                root + suffix_form,
+                                next_root,
                                 current_chain + [suffix_obj],
                                 visited,
                                 shared_cache
@@ -308,6 +314,19 @@ def append_analysis(word, pos, root, analyses_list, shared_cache: dict = None):
         analyses_list.append((root, pos, chain, final_pos))
 
 
+def append_progressive_vowel_drop_candidates(word: str, surface_root: str, analyses_list, shared_cache: dict = None):
+    rest = word[len(surface_root):]
+    if not any(rest.startswith(v) for v in IYOR_VARIATIONS):
+        return
+
+    for terminal_vowel in ['a', 'e']:
+        lemma_root = surface_root + terminal_vowel
+        if lemma_root in wrd.UNSUFFIXABLE_SET:
+            continue
+        if wrd.can_be_verb(lemma_root):
+            append_analysis(lemma_root + rest, "verb", lemma_root, analyses_list, shared_cache)
+
+
 @functools.lru_cache(maxsize=100000)
 def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
     """
@@ -347,5 +366,8 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
 
                 if wrd.can_be_verb(lemma_root):
                     append_analysis(virtual_word, "verb", lemma_root, analyses, shared_cache)
+
+        if (not force) and wrd.exists(root):
+            append_progressive_vowel_drop_candidates(word, root, analyses, shared_cache)
 
     return analyses

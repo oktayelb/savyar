@@ -101,15 +101,35 @@ class AppCLI:
 
     def show_test_report(self, report: Dict[str, Any]):
         metrics = report.get('metrics')
+        overall = report.get('overall_metrics')
         print("\n Test Set:")
         print(f"  Entries:   {report.get('entries', 0)}")
         print(f"  Sequences: {report.get('sequences', 0)}")
         print(f"  Words:     {report.get('words', 0)}")
         print(f"  Skipped:   {report.get('skipped', 0)}")
+        if overall:
+            print("\n Overall Token Metrics:")
+            print(f"  Token accuracy:       {overall.get('token_acc', 0.0):.4f}")
+            print(f"  Correct/total:        {int(overall.get('correct', 0))}/{int(overall.get('total', 0))}")
+            print(f"  Ambiguous token acc:  {overall.get('ambiguous_token_acc', 0.0):.4f}")
+            print(
+                f"  Ambiguous correct:    "
+                f"{int(overall.get('ambiguous_correct', 0))}/{int(overall.get('ambiguous_total', 0))}"
+            )
+            print(f"  Single-candidate acc: {overall.get('single_token_acc', 0.0):.4f}")
+            print(
+                f"  Single candidates:    "
+                f"{int(overall.get('single_correct', 0))}/{int(overall.get('single_total', 0))} "
+                f"({overall.get('single_ratio', 0.0):.1%} of tokens)"
+            )
+            print(f"  Root-only tokens:     {int(overall.get('root_only_total', 0))}")
+            print(f"  No candidates:        {int(overall.get('no_candidate', 0))}")
+            print(f"  Gold unmatched:       {int(overall.get('unmatched_gold', 0))}")
+            print(f"  Scoring errors:       {int(overall.get('scoring_errors', 0))}")
         if not metrics:
             print("  No test metrics available.")
             return
-        print("\n Test Metrics:")
+        print("\n Ambiguous Candidate-Set Metrics:")
         print(f"  Rank loss:        {metrics.get('loss', 0.0):.4f}")
         print(f"  Rank accuracy:    {metrics.get('rank_acc', 0.0):.4f}")
         print(f"  Top-2 accuracy:   {metrics.get('top2_acc', 0.0):.4f}")

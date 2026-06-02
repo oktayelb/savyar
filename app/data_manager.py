@@ -29,6 +29,14 @@ class DataManager:
             if numbered_re.fullmatch(path.name)
         ]
         if numbered:
+            if base_path.exists():
+                try:
+                    base_mtime = base_path.stat().st_mtime_ns
+                    newest_shard_mtime = max(path.stat().st_mtime_ns for path in numbered)
+                    if base_mtime > newest_shard_mtime:
+                        return [base_path]
+                except OSError:
+                    pass
             return sorted(numbered, key=lambda path: (cls._numbered_jsonl_key(path), path.name))
         return [base_path] if base_path.exists() else []
 
@@ -273,7 +281,7 @@ class DataManager:
         expected_sources = expected.get("sources", {})
         if not isinstance(actual_sources, dict) or not isinstance(expected_sources, dict):
             return False
-        for key in ("entries", "dependencies"):
+        for key in ("entries", "dependencies", "code"):
             if not DataManager._source_signatures_compatible(
                 actual_sources.get(key),
                 expected_sources.get(key),
@@ -290,7 +298,7 @@ class DataManager:
         for actual_item, expected_item in zip(actual, expected):
             if not isinstance(actual_item, dict) or not isinstance(expected_item, dict):
                 return False
-            for key in ("path", "exists", "size"):
+            for key in ("path", "exists", "size", "mtime_ns"):
                 if actual_item.get(key) != expected_item.get(key):
                     return False
         return True

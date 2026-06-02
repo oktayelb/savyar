@@ -1,4 +1,5 @@
 from util.suffix import Suffix, Type,  SuffixGroup
+import util.word_methods as wrd
 
 class CompoundVerb(Suffix):
     def __init__(self, name, suffix, 
@@ -27,6 +28,10 @@ class CompoundVerb(Suffix):
     
     def _default_form(word, suffix_obj, current_chain=None):
 
+        if suffix_obj.suffix == "iyor" and word and word[-1] in ["a", "e"]:
+            narrow_vowel = wrd.progressive_narrow_vowel(word)
+            if narrow_vowel:
+                return [narrow_vowel + "yor"]
 
         ebase = suffix_obj.suffix[0]
         candidates = []

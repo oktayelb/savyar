@@ -141,22 +141,27 @@ def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
     suffixes = []
     current_stem = root
     accepted_chain = []
-    for sname in expected_suffix_names:
+    for idx, sname in enumerate(expected_suffix_names):
         sobj = SUFFIX_BY_NAME.get(sname)
         if sobj:
             makes_str = "VERB" if sobj.makes == Type.VERB else "NOUN"
+            rest = surface_lower[len(current_stem):]
+            is_final_suffix = idx == len(expected_suffix_names) - 1
+            can_use_surface_tail = is_final_suffix and rest and surface_lower.startswith(current_stem)
             try:
                 forms = sobj.form(current_stem, current_chain=accepted_chain)
                 form_str = ""
-                rest = surface_lower[len(current_stem):]
                 for form in forms:
                     if form and rest.startswith(form):
                         form_str = form
                         break
                 if not form_str:
-                    form_str = forms[0] if forms else sobj.suffix
+                    # Gold treebank rows are authoritative. If Savyar's suffix
+                    # generator lacks the final surface variant, keep the actual
+                    # remaining token tail instead of inventing a default form.
+                    form_str = rest if can_use_surface_tail else (forms[0] if forms else sobj.suffix)
             except Exception:
-                form_str = sobj.suffix
+                form_str = rest if can_use_surface_tail else sobj.suffix
             suffixes.append({"name": sname, "form": form_str, "makes": makes_str})
             accepted_chain.append(sobj)
         else:
@@ -550,6 +555,87 @@ def _iter_suffix_tails(current_stem, suffix_names, suffix_by_name, limit=256):
 
     visit(current_stem, suffix_names, "", [])
     return results
+
+
+def resolve_ambiguous_suffix_by_surface(
+    surface,
+    lemma,
+    suffix_names,
+    marker,
+    candidates,
+    suffix_by_name=SUFFIX_BY_NAME,
+    fallback=None,
+):
+    if marker not in suffix_names:
+        return suffix_names
+
+    surface_lower = tr_lower(surface)
+    lemma_lower = tr_lower(lemma)
+    resolved = list(suffix_names)
+
+    def resolved_stem_before(end_idx):
+        stem = lemma_lower
+        chain = []
+        for prev_name in resolved[:end_idx]:
+            suffix_obj = suffix_by_name.get(prev_name)
+            if suffix_obj is None:
+                break
+            try:
+                forms = suffix_obj.form(stem, current_chain=chain)
+            except Exception:
+                forms = [suffix_obj.suffix]
+
+            rest = surface_lower[len(stem):]
+            form = ""
+            for candidate_form in forms:
+                if candidate_form and rest.startswith(candidate_form):
+                    form = candidate_form
+                    break
+            if not form:
+                form = forms[0] if forms else suffix_obj.suffix
+
+            stem += form
+            chain.append(suffix_obj)
+        return stem, chain
+
+    for idx, name in enumerate(resolved):
+        if name != marker:
+            continue
+
+        best_name = None
+        best_score = (-1, -1, -1)
+        current_stem, current_chain = resolved_stem_before(idx)
+        rest = surface_lower[len(current_stem):]
+        for candidate_idx, candidate in enumerate(candidates):
+            candidate_obj = suffix_by_name.get(candidate)
+            if candidate_obj is not None:
+                try:
+                    forms = candidate_obj.form(current_stem, current_chain=current_chain)
+                except Exception:
+                    forms = [candidate_obj.suffix]
+                for form in forms:
+                    if form and rest.startswith(form):
+                        score = (2, len(form), -candidate_idx)
+                        if score > best_score:
+                            best_name = candidate
+                            best_score = score
+
+            test_names = list(resolved)
+            test_names[idx] = candidate
+            tails = _iter_suffix_tails(lemma_lower, test_names, suffix_by_name)
+            for tail in tails:
+                if tail and surface_lower.endswith(tail):
+                    score = (1, len(tail), -candidate_idx)
+                    if score > best_score:
+                        best_name = candidate
+                        best_score = score
+
+        if best_name is None:
+            best_name = fallback if fallback is not None else candidates[0]
+
+        resolved[idx] = best_name
+
+    return resolved
 
 
 def _fallback_vnoun_from_surface(surface):

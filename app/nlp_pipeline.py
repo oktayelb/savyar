@@ -8,16 +8,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import util.decomposer as sfx
 from util.word_methods import tr_lower
-from util.suffix import  Type
 from util.words.closed_class import ClosedClassMarker, CLOSED_CLASS_TOKEN_SPECS
 from ml.ml_ranking_model import (
     SUFFIX_OFFSET,
-    CATEGORY_CLOSED_CLASS,
     GROUP_TO_ID,
-    TYPE_TO_ID,
     SPECIAL_FEATURE_ID,
-    WORD_FINAL_NO,
-    WORD_FINAL_YES,
 )
 
 _APOSTROPHE_RE = re.compile(r"['’‘]")
@@ -95,15 +90,28 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
 
     word_lower = tr_lower(word)
     current = root
+    cursor = len(root)
     accepted_chain = []
     suffix_info: List[Dict[str, Any]] = []
 
-    for suffix in chain:
+    if not word_lower.startswith(root) and chain:
+        first_suffix = chain[0]
+        possible_forms = first_suffix.form(root, current_chain=[])
+        for offset in range(3):
+            test_cursor = len(root) - offset
+            if test_cursor <= 0:
+                break
+            rest_of_word = word_lower[test_cursor:]
+            if any(form and rest_of_word.startswith(form) for form in possible_forms):
+                cursor = test_cursor
+                break
+
+    for idx, suffix in enumerate(chain):
         if isinstance(suffix, ClosedClassMarker):
             continue
 
         forms = suffix.form(current, current_chain=accepted_chain)
-        rest = word_lower[len(current):]
+        rest = word_lower[cursor:]
         used_form = ""
 
         for form in forms:
@@ -112,33 +120,46 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
                 break
 
         if not used_form:
+            has_iyor_ahead = any("iyor" in chain[k].name for k in range(idx + 1, len(chain)))
+            if has_iyor_ahead:
+                for form in forms:
+                    if form and form[-1] in ['a', 'e']:
+                        shortened = form[:-1]
+                        if shortened and rest.startswith(shortened):
+                            rest_after = rest[len(shortened):]
+                            if any(rest_after.startswith(v) for v in sfx.IYOR_VARIATIONS):
+                                used_form = shortened if suffix.makes.name == "VERB" else form
+                                break
+
+        if not used_form:
             used_form = forms[0] if forms else ""
 
+        replaces_final_vowel = (
+            suffix.name == "continuous_iyor"
+            and current.endswith(("a", "e"))
+            and cursor == len(current) - 1
+        )
         suffix_info.append({
             'name': suffix.name,
             'form': used_form,
             'makes': suffix.makes.name if suffix.makes else None,
         })
-        current += used_form
+        if replaces_final_vowel:
+            current = current[:-1] + used_form
+        else:
+            current += used_form
+        cursor += len(used_form)
         accepted_chain.append(suffix)
 
     return suffix_info
 
 
-def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, int, int, int, int]]:
+def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int]]:
     """Encode suffix chain directly from JSONL suffix dicts (name/makes strings)."""
-    category_to_id = {'NOUN': 0, 'VERB': 1, 'noun': 0, 'verb': 1, 'Noun': 0, 'Verb': 1}
-    type_name_to_enum = {
-        'NOUN': Type.NOUN, 'noun': Type.NOUN, 'Noun': Type.NOUN,
-        'VERB': Type.VERB, 'verb': Type.VERB, 'Verb': Type.VERB,
-        'BOTH': Type.BOTH, 'both': Type.BOTH, 'Both': Type.BOTH,
-    }
     encoded = []
     suffix_dicts = _expand_legacy_suffix_dicts(suffix_dicts)
-    last_idx = len(suffix_dicts) - 1
     for idx, sd in enumerate(suffix_dicts):
         name = sd['name']
-        makes = sd.get('makes', 'NOUN')
         if name.startswith('cc_'):
             category = name[3:]
             surface = sd.get('cc_surface') or sd.get('root') or ""
@@ -147,30 +168,25 @@ def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int, i
                 _CC_NAME_TO_DEFAULT_ID.get(name, _CC_OFFSET),
             )
             encoded.append((
-                token_id, CATEGORY_CLOSED_CLASS, SPECIAL_FEATURE_ID,
-                SPECIAL_FEATURE_ID, SPECIAL_FEATURE_ID, idx + 1,
-                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
+                token_id, SPECIAL_FEATURE_ID, idx + 1,
             ))
         else:
+            if name not in _SUFFIX_TO_ID:
+                raise ValueError(f"Unknown suffix name in training data: {name!r}")
             token_id = _SUFFIX_TO_ID.get(name, SUFFIX_OFFSET)
-            cat_id = category_to_id.get(makes, 0)
             suffix_obj = _SUFFIX_BY_NAME.get(name)
             group_id = GROUP_TO_ID.get(getattr(suffix_obj, 'group', None), SPECIAL_FEATURE_ID)
-            comes_to_id = TYPE_TO_ID.get(getattr(suffix_obj, 'comes_to', None), SPECIAL_FEATURE_ID)
-            makes_id = TYPE_TO_ID.get(type_name_to_enum.get(makes), SPECIAL_FEATURE_ID)
             encoded.append((
-                token_id, cat_id, group_id, comes_to_id, makes_id, idx + 1,
-                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
+                token_id, group_id, idx + 1,
             ))
     return encoded
 
 
-def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int, int, int, int, int]]:
-    """Encodes a suffix chain into (token_id, category_id) pairs for the ML model."""
+def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int]]:
+    """Encodes a suffix chain into ML token feature tuples."""
     if not suffix_chain:
         return []
     encoded = []
-    last_idx = len(suffix_chain) - 1
     for idx, s in enumerate(suffix_chain):
         if isinstance(s, ClosedClassMarker):
             token_id = _CC_SURFACE_TO_ID.get(
@@ -178,21 +194,14 @@ def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int, int, in
                 _CC_NAME_TO_DEFAULT_ID.get(s.name, _CC_OFFSET),
             )
             encoded.append((
-                token_id, CATEGORY_CLOSED_CLASS, SPECIAL_FEATURE_ID,
-                SPECIAL_FEATURE_ID, SPECIAL_FEATURE_ID, idx + 1,
-                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
+                token_id, SPECIAL_FEATURE_ID, idx + 1,
             ))
         else:
             token_id = _SUFFIX_TO_ID.get(s.name, SUFFIX_OFFSET)
-            cat_id   = 1 if s.makes.name == 'Verb' else 0
             encoded.append((
                 token_id,
-                cat_id,
                 GROUP_TO_ID.get(getattr(s, 'group', None), SPECIAL_FEATURE_ID),
-                TYPE_TO_ID.get(getattr(s, 'comes_to', None), SPECIAL_FEATURE_ID),
-                TYPE_TO_ID.get(getattr(s, 'makes', None), SPECIAL_FEATURE_ID),
                 idx + 1,
-                WORD_FINAL_YES if idx == last_idx else WORD_FINAL_NO,
             ))
     return encoded
 
@@ -291,9 +300,18 @@ def reconstruct_morphology(word: str, decomposition: Tuple) -> Dict[str, Any]:
                 cursor       += len(possible_forms[0])
             continue
         
+        replaces_final_vowel = (
+            suffix_obj.name == "continuous_iyor"
+            and current_stem.endswith(("a", "e"))
+            and cursor == len(current_stem) - 1
+        )
+
         suffix_forms.append(found_form if found_form else "(ø)")
         suffix_names.append(suffix_obj.name)
-        current_stem += found_form
+        if replaces_final_vowel:
+            current_stem = current_stem[:-1] + found_form
+        else:
+            current_stem += found_form
         cursor       += len(found_form)
         
         verb_marker = "-" if suffix_obj.makes.name == "Verb" else ""

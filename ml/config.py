@@ -1,17 +1,10 @@
 from pathlib import Path
 from dataclasses import dataclass
 
-# Dynamic Path Resolution
-# Assumes structure: savyar/ml/config.py
-# Base dir becomes:  savyar/
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-
 @dataclass
 class MLConfig:
     # --- File Paths ---
     model_path: Path = "ml/model.pt"
-    training_count_file: Path = DATA_DIR / "training_count.txt"
     device: str = "cuda"
     allow_cpu_fallback: bool = False
     
@@ -23,17 +16,13 @@ class MLConfig:
     dropout: float = 0.3        
 
     # Feature embedding dimensions scaled by cardinality to prevent overfitting
-    category_embed_dim: int = 4
     group_embed_dim: int = 8
-    comes_makes_embed_dim: int = 2
     wordpos_embed_dim: int = 16
-    wordfinal_embed_dim: int = 2
+    pos_embed_dim: int = 384
 
     # --- Training Hyperparameters ---
     learning_rate: float = 3e-4
-    weight_decay: float = 0.05  
-
-    use_class_weights: bool = True
+    weight_decay: float = 0.05
 
     # --- MLM Objective (Reintroduced for Regularization) ---
     mlm_mask_prob: float = 0.20
@@ -42,7 +31,7 @@ class MLConfig:
     focal_gamma: float = 0.0
 
     # --- Ranking Objective ---
-    max_negative_candidates: int = 8
+    max_negative_candidates: int = 5
     max_candidate_sequences_per_batch: int = 64
     max_sequence_length: int = 512
     use_torch_compile: bool = False
@@ -59,8 +48,8 @@ class MLConfig:
     mlm_weight: float = 0.2
 
     # --- Bulk-training defaults ---
-    bulk_epochs: int = 5               # Decreased from 11 due to larger dataset
-    bulk_batch_size: int = 128
+    bulk_epochs: int = 11               # Decreased from 11 due to larger dataset
+    bulk_batch_size: int = 1024
     bulk_batch_log_interval: int = 1
     relearn_preprocess_log_interval: int = 1000
     max_batch_padded_tokens: int = 8192
@@ -81,13 +70,10 @@ class MLConfig:
     warmup_steps: int = 350            # Decreased from 1000 to match new epoch steps
     lr_eta_min_ratio: float = 0.01
 
-    # --- Experience Replay ---
-    replay_buffer_size: int = 100000   # Increased to fit 90k dataset
-    replay_k: int = 64
     steps_per_update: int = 4
 
     # --- Interactive/Loop Settings ---
-    checkpoint_frequency: int = 2500   # Increased from 1000 to avoid excessive I/O overhead
+    checkpoint_frequency: int = 4000   # Increased from 1000 to avoid excessive I/O overhead
     bare_root_prior_logprob: float = -0.75
     validation_split: float = 0.1
     validation_seed: int = 42

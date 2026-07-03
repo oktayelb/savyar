@@ -356,7 +356,7 @@ class DataManager:
                 continue
 
     def get_test_entries(self) -> List[Dict]:
-        """Load the adapted TRMor2018 gold test JSONL."""
+        """Load the adapted test JSONL configured at FilePaths.test_adapted_path."""
         entries = []
         for path in self._jsonl_shards_for(Path(self.paths.test_adapted_path)):
             try:

@@ -8,7 +8,9 @@ class FilePaths:
     preprocessed_sequences_cache_dir: str = "data/preprocessed_sequence_cache"
     valid_decompositions_path: str  = "data/sentence_valid_decompositions.jsonl"
     data_dir: str                   = "data"
-    test_adapted_path: str          = "data/trmor2018_treebank/trmor2018_gold_adapted.jsonl"
+    # Placeholder for a future held-out test set; the old TRMor2018 gold set
+    # was removed because its sentences overlapped the training treebanks.
+    test_adapted_path: str          = "data/test_adapted.jsonl"
     sample_text_path: str           = "sample/sample.txt"
     sample_decomposed_path: str     = "sample/sample_decomposed.txt"
     sample_sentences_path: str      = "sample/sample_sentence.txt"

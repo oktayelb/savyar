@@ -467,7 +467,10 @@ Curriculum does not write a separate mined-example report.
 
 ## Test and Diagnostics
 
-`test` uses `data/trmor2018_treebank/trmor2018_gold_adapted.jsonl`.
+`test` uses the file configured at `FilePaths.test_adapted_path` (currently the
+placeholder `data/test_adapted.jsonl`; the old TRMor2018 gold test set was
+removed because its sentences overlapped the training treebanks). With no test
+file present, `test` reports zero entries.
 
 Flow:
 

@@ -508,36 +508,9 @@ def adapt_treebank(input_path, output_path, stats_path=None,
     )
 
 
-def adapt_gold_test_set(input_path, output_path):
-    """Adapt TRMor2018 gold data into the test JSONL only.
-
-    The test set deliberately has no stats/unmatched/diagnostic sidecar
-    files; it is just the adapted Savyar JSONL consumed by the training code.
-    """
-    return adapt_normalized_treebank(
-        input_path,
-        output_path,
-        parse_sentences=parse_trmor2018,
-        translate_word=features_to_suffix_names,
-        should_skip_word=should_skip_word,
-        closed_class_category=closed_class_category,
-        include_input_files_in_stats=True,
-        include_unmapped_feature_value_count=True,
-        unmapped_header=None,
-        word_context=trmor_context,
-        parse_message="Parsing TRMor2018 gold test treebank: {path}",
-        parsed_message="Found {count} test sentences",
-        write_unmatched_log=False,
-        write_sentence_diagnostics=False,
-        write_unmapped_report=False,
-    )
-
-
 if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.abspath(__file__))
     input_path = os.path.join(base_dir, "trmor2018.conllu")
-    gold_input_path = os.path.join(base_dir, "trmor2018_gold.conllu")
-    gold_output_path = os.path.join(base_dir, "trmor2018_gold_adapted.jsonl")
 
     adapt_treebank(
         input_path,
@@ -547,6 +520,3 @@ if __name__ == "__main__":
         unmapped_path=os.path.join(base_dir, "unmapped_features.json"),
         sentence_diagnostics_path=os.path.join(base_dir, "treebank_adapted_sentence_diagnostics.jsonl"),
     )
-
-    if os.path.exists(gold_input_path):
-        adapt_gold_test_set(gold_input_path, gold_output_path)

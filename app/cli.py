@@ -28,7 +28,7 @@ class AppCLI:
         print("  - 'eval <word>' - Evaluate model on a word")
         print("  - 'relearn' - Train on all logged decompositions")
         print("  - 'curriculum' - Train with dynamic hard-negative mining")
-        print("  - 'test' - Evaluate current model on the TRMor2018 gold test set")
+        print("  - 'test' - Evaluate current model on the configured test set")
         print("  - 'test detail' - Test plus worst suffixes and failure examples")
         print("  - '10FKV' - 10-fold cross-validation with 95% CI")
         print("  - 'stats' - Show training statistics")

@@ -46,8 +46,6 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     last_g = last_suffix.group
     next_g = next_suffix.group
 
-    #for trying
-    return True
 
     ## main waterfall rule.
    

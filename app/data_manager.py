@@ -176,6 +176,11 @@ class DataManager:
         }
         if include_code:
             code_paths = sorted({
+                # engine.py assembles the candidate sets themselves, so a
+                # change to how gold chains or negatives are built has to
+                # invalidate the cache. It was missing here, and a run silently
+                # trained on sequences built by the previous version of it.
+                Path("app/engine.py"),
                 Path("app/nlp_pipeline.py"),
                 Path("ml/ml_ranking_model.py"),
                 Path("util/decomposer.py"),

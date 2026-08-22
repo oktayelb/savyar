@@ -23,7 +23,8 @@ from ml.ml_ranking_model import SentenceDisambiguator, Trainer, build_sentence_s
 from ml.config import config
 from util.words.closed_class import CLOSED_CLASS_TOKEN_SPECS
 
-STATIC_PREPROCESS_CACHE_VERSION = 4
+# 5: bare-root words are kept in the gold chains instead of being dropped.
+STATIC_PREPROCESS_CACHE_VERSION = 5
 
 # --------------------------------------------------------------------------- #
 # K-Fold Cross Validation Logic

@@ -94,10 +94,16 @@ SPECIAL_WORD_SEP      = 1
 SPECIAL_BOS           = 2
 SPECIAL_MASK          = 3
 SPECIAL_EOS           = 4
-SUFFIX_OFFSET         = 5
+# A word that takes no suffix used to contribute nothing but the separator
+# ending it, so "this word is a bare root" had no embedding of its own and the
+# model had no parameter with which to learn how often that happens. It was
+# compensated for by a flat penalty applied at inference and absent from the
+# loss. This token replaces that guess with something learnable.
+SPECIAL_NO_SUFFIX     = 5
+SUFFIX_OFFSET         = 6
 
 SPECIAL_FEATURE_ID    = 0
-FEATURE_SCHEMA_VERSION = 4
+FEATURE_SCHEMA_VERSION = 5
 
 GROUP_TO_ID = {None: SPECIAL_FEATURE_ID}
 for idx, group in enumerate(SuffixGroup):
@@ -123,6 +129,12 @@ def _chain_tokens(
     group_ids:    List[int] = []
     pos_ids:      List[int] = []
     for chain in word_chains:
+        if not chain:
+            # Occupies the first suffix slot, so a bare root is a positive
+            # statement the encoder can attend to rather than an absence.
+            suffix_ids.append(SPECIAL_NO_SUFFIX)
+            group_ids.append(SPECIAL_FEATURE_ID)
+            pos_ids.append(1)
         for (sid, gid, pos_in_word) in chain:
             suffix_ids.append(sid)
             group_ids.append(gid)
@@ -890,7 +902,7 @@ class Trainer:
     def _morph_tokens_from_sequence(seq: FlatSequence) -> List[int]:
         return [
             tok for tok in seq[0]
-            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS, SPECIAL_EOS)
+            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS, SPECIAL_EOS, SPECIAL_NO_SUFFIX)
         ]
 
     @classmethod
@@ -1424,29 +1436,21 @@ class Trainer:
         prefix_g  = [SPECIAL_FEATURE_ID] + ctx_g
         prefix_wp = [SPECIAL_FEATURE_ID] + ctx_wp
         flat_sequences: List[FlatSequence] = []
-        bare_indices: List[int] = []
-        for idx, chain in enumerate(candidates):
+        for chain in candidates:
             cand_s, cand_g, cand_wp = _chain_tokens([chain])
-            if len(cand_s) <= 1:
-                bare_indices.append(idx)
             flat_sequences.append((
                 prefix_s + cand_s + right_s + [SPECIAL_EOS],
                 prefix_g + cand_g + right_g + [SPECIAL_FEATURE_ID],
                 prefix_wp + cand_wp + right_wp + [SPECIAL_FEATURE_ID],
             ))
 
-        scores = self.score_flat_sequences(flat_sequences)
-        for idx in bare_indices:
-            scores[idx] += float(config.bare_root_prior_logprob)
-        return scores
+        return self.score_flat_sequences(flat_sequences)
 
     def score_sentence_chains(self, word_chains: List[List[EncodedToken]]) -> float:
         full_sequence = build_sentence_sequence(word_chains)
-        bare_root_count = sum(1 for chain in word_chains if not chain)
-        prior = bare_root_count * float(config.bare_root_prior_logprob)
         if not word_chains or len(full_sequence[0]) < 2:
-            return prior
-        return self.score_flat_sequences([full_sequence])[0] + prior
+            return 0.0
+        return self.score_flat_sequences([full_sequence])[0]
 
     def score_flat_sequences(self, seqs: List[FlatSequence]) -> List[float]:
         if not seqs:

@@ -74,14 +74,6 @@ class MLConfig:
 
     # --- Interactive/Loop Settings ---
     checkpoint_frequency: int = 4000   # Increased from 1000 to avoid excessive I/O overhead
-    # Flat penalty added to bare-root candidates at inference only - the
-    # training loss and validate() never see it, so every metric was measured
-    # on a model without it while beam search shipped one. It also pushed the
-    # wrong way: the gold analysis is a bare root for 37.8% of test words and
-    # the model already picks bare for only 24.1% of them. Swept over the test
-    # set, 0.0 beat every negative value monotonically. Kept as a knob so the
-    # sweep stays reproducible.
-    bare_root_prior_logprob: float = 0.0
     validation_split: float = 0.1
     validation_seed: int = 42
 

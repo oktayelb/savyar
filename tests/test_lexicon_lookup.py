@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 import util.decomposer as sfx
 import util.word_methods as wrd
@@ -66,6 +68,58 @@ class LexiconStateTest(unittest.TestCase):
 
     def test_delete_word_reports_nothing_removed(self):
         self.assertFalse(wrd.delete_word("zzzyok"))
+
+
+class DerivedLexiconTest(unittest.TestCase):
+    def test_noun_set_is_the_union_of_its_files(self):
+        self.assertEqual(
+            wrd.WORDS_SET,
+            wrd._FILE_ENTRIES[wrd.DATA_FILE] | wrd._FILE_ENTRIES[wrd.DERIVED_DATA_FILE],
+        )
+
+    def test_verb_set_is_the_union_of_its_files(self):
+        self.assertEqual(
+            wrd.VERB_SET,
+            wrd._FILE_ENTRIES[wrd.VERB_DATA_FILE] | wrd._FILE_ENTRIES[wrd.DERIVED_VERB_DATA_FILE],
+        )
+
+    def test_derived_entries_resolve_like_core_ones(self):
+        derived = wrd._FILE_ENTRIES[wrd.DERIVED_VERB_DATA_FILE]
+        if not derived:
+            self.skipTest("verbs_derived.txt is empty")
+        self.assertTrue(wrd.can_be_verb(next(iter(derived))))
+
+    def test_missing_derived_file_is_simply_empty(self):
+        self.assertEqual(wrd._read_entries(Path("data") / "no_such_lexicon.txt"), set())
+
+    def test_delete_only_touches_the_file_that_owns_the_word(self):
+        # Provenance has to survive a delete, or a rewrite would collapse the
+        # core and derived lexicons into one file.
+        derived = wrd._FILE_ENTRIES[wrd.DERIVED_DATA_FILE]
+        if not derived:
+            self.skipTest("nouns_derived.txt is empty")
+        victim = next(iter(derived))
+        core_size = len(wrd._FILE_ENTRIES[wrd.DATA_FILE])
+        try:
+            self.assertTrue(wrd.delete_word(victim))
+            self.assertNotIn(victim, wrd._FILE_ENTRIES[wrd.DERIVED_DATA_FILE])
+            self.assertEqual(len(wrd._FILE_ENTRIES[wrd.DATA_FILE]), core_size)
+        finally:
+            wrd._FILE_ENTRIES[wrd.DERIVED_DATA_FILE].add(victim)
+            wrd._rebuild_sets()
+
+    def test_save_dictionary_writes_each_file_from_its_own_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            noun_path = Path(tmp) / "core.txt"
+            derived_path = Path(tmp) / "derived.txt"
+            original = wrd._FILE_ENTRIES
+            wrd._FILE_ENTRIES = {noun_path: {"kitap", "Ankara"}, derived_path: {"bilgi"}}
+            try:
+                self.assertTrue(wrd.save_dictionary())
+            finally:
+                wrd._FILE_ENTRIES = original
+            self.assertEqual(noun_path.read_text(encoding="utf-8").split(), ["Ankara", "kitap"])
+            self.assertEqual(derived_path.read_text(encoding="utf-8").split(), ["bilgi"])
 
 
 class DecompositionReachTest(unittest.TestCase):

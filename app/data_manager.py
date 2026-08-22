@@ -168,6 +168,8 @@ class DataManager:
         dependency_paths = [
             Path(self.paths.words_path),
             Path(self.paths.verbs_path),
+            Path(self.paths.derived_words_path),
+            Path(self.paths.derived_verbs_path),
             Path(self.paths.unsuffixable_words_path),
         ]
         signature = {
@@ -400,15 +402,10 @@ class DataManager:
     
     def delete(self, word: str) -> bool:
         try:
-            if wrd.delete_word(word):
-                with open(self.paths.words_path, "w", encoding="utf-8") as f:
-                    for w in wrd.get_all_words():
-                        f.write(w + "\n")
-                with open(self.paths.verbs_path, "w", encoding="utf-8") as f:
-                    for v in wrd.get_all_verbs():
-                        f.write(v + "\n")
-                return True
-            return False
+            # word_methods owns the persistence because it knows which file
+            # each entry came from; writing the merged sets back here would
+            # collapse the core and derived lexicons into one.
+            return wrd.delete_word(word) and wrd.save_dictionary()
         except Exception:
             return False
 

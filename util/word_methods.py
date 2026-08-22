@@ -9,9 +9,22 @@ def tr_lower(s: str) -> str:
     """Lowercase a Turkish string correctly: İ→i, I→ı."""
     return s.translate(_TR_LOWER_TABLE).lower()
 
-DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "words.txt"
-VERB_DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "verbs.txt"
-UNSUFFIXABLE_FILE = Path(__file__).resolve().parent.parent / "data" / "ekistemez.txt"
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+DATA_FILE = _DATA_DIR / "words.txt"
+VERB_DATA_FILE = _DATA_DIR / "verbs.txt"
+UNSUFFIXABLE_FILE = _DATA_DIR / "ekistemez.txt"
+
+# Lemmas the treebanks annotate as roots which savyar can also reach from a
+# shorter lemma ("bilgi" as bil+gi, "kullan" as kul+la+n). They live in their
+# own files so the hand-curated core lexicon stays separable from these
+# corpus-derived additions, but they load into the same sets and are looked up
+# exactly like any other entry.
+DERIVED_DATA_FILE = _DATA_DIR / "nouns_derived.txt"
+DERIVED_VERB_DATA_FILE = _DATA_DIR / "verbs_derived.txt"
+
+NOUN_FILES = (DATA_FILE, DERIVED_DATA_FILE)
+VERB_FILES = (VERB_DATA_FILE, DERIVED_VERB_DATA_FILE)
 
 
 ## Vowel Classes
@@ -47,6 +60,10 @@ WORDS_SET: set = set()
 VERB_SET: set = set()
 UNSUFFIXABLE_SET: set = set()
 
+# Which file each entry came from, so a delete rewrites only the file that
+# owns the word instead of collapsing the core and derived lexicons into one.
+_FILE_ENTRIES: dict = {}
+
 _NOUN_KEYS: set = set()
 _VERB_KEYS: set = set()
 _UNSUFFIXABLE_KEYS: set = set()
@@ -72,21 +89,44 @@ def _reindex_dictionary():
     _UNSUFFIXABLE_KEYS = {lexicon_key(word) for word in UNSUFFIXABLE_SET}
 
 
-def _load_dictionary():
-    global WORDS_SET, VERB_SET, UNSUFFIXABLE_SET
+def _read_entries(path) -> set:
+    """One entry per line; a file that is not there yet is simply empty."""
     try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            WORDS_SET = {line.strip() for line in f if line.strip()}
-        with open(VERB_DATA_FILE, "r", encoding="utf-8") as f:
-            VERB_SET = {line.strip() for line in f if line.strip()}
-        with open(UNSUFFIXABLE_FILE, "r", encoding="utf-8") as f:
-            UNSUFFIXABLE_SET = {line.strip() for line in f if line.strip()}
+        with open(path, "r", encoding="utf-8") as f:
+            return {line.strip() for line in f if line.strip()}
     except FileNotFoundError:
-        print(f"Warning: {DATA_FILE} or {VERB_DATA_FILE} not found")
-        WORDS_SET = set()
-        VERB_SET = set()
-        UNSUFFIXABLE_SET = set()
+        return set()
+
+
+def _rebuild_sets():
+    """Recombine the per-file entries into the two lookup sets."""
+    global WORDS_SET, VERB_SET
+    WORDS_SET = set().union(*(_FILE_ENTRIES[path] for path in NOUN_FILES))
+    VERB_SET = set().union(*(_FILE_ENTRIES[path] for path in VERB_FILES))
     _reindex_dictionary()
+
+
+def _load_dictionary():
+    global UNSUFFIXABLE_SET, _FILE_ENTRIES
+    _FILE_ENTRIES = {path: _read_entries(path) for path in NOUN_FILES + VERB_FILES}
+    UNSUFFIXABLE_SET = _read_entries(UNSUFFIXABLE_FILE)
+    if not _FILE_ENTRIES[DATA_FILE] or not _FILE_ENTRIES[VERB_DATA_FILE]:
+        print(f"Warning: {DATA_FILE} or {VERB_DATA_FILE} not found")
+    _rebuild_sets()
+
+
+def save_dictionary() -> bool:
+    """Write every lexicon file back from the entries it owns."""
+    try:
+        for path, entries in _FILE_ENTRIES.items():
+            if not entries and not Path(path).exists():
+                continue
+            with open(path, "w", encoding="utf-8") as f:
+                for entry in sorted(entries):
+                    f.write(entry + "\n")
+        return True
+    except OSError:
+        return False
 
 # Initialize on module load
 _load_dictionary()
@@ -113,15 +153,13 @@ def delete_word(word: str) -> bool:
         return False
 
     removed = False
-    for entry in [w for w in WORDS_SET if lexicon_key(w) == key]:
-        WORDS_SET.discard(entry)
-        removed = True
-    for entry in [v for v in VERB_SET if lexicon_key(v) == key]:
-        VERB_SET.discard(entry)
-        removed = True
+    for entries in _FILE_ENTRIES.values():
+        for entry in [e for e in entries if lexicon_key(e) == key]:
+            entries.discard(entry)
+            removed = True
 
     if removed:
-        _reindex_dictionary()
+        _rebuild_sets()
     return removed
 
 def get_all_words() -> List[str]:

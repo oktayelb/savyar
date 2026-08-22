@@ -10,6 +10,43 @@ from util.word_methods import tr_lower
 
 SUFFIX_BY_NAME = {s.name: s for s in ALL_SUFFIXES}
 
+# Sentences carved out as the held-out test set. Re-adapting a treebank
+# rebuilds its shard from the original CoNLL file, which would quietly pull
+# every held-out sentence back into training, so the writer checks this file
+# and withholds them again.
+HELD_OUT_TEST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_adapted.jsonl")
+
+
+def sentence_text(entry):
+    """The comparable form of a sentence: what it says, not how it was stored."""
+    raw = entry.get("original_sentence")
+    if not raw:
+        raw = " ".join(word.get("word", "") for word in entry.get("words", []))
+    return " ".join(tr_lower(raw).split())
+
+
+def held_out_sentence_texts(path=HELD_OUT_TEST_PATH):
+    """Sentence texts reserved for the test set. Missing file means none are."""
+    texts = set()
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    texts.add(sentence_text(json.loads(line)))
+    except FileNotFoundError:
+        pass
+    return texts
+
+
+def withhold_held_out(entries, path=HELD_OUT_TEST_PATH):
+    """Drop the sentences that belong to the test set, whichever treebank they are in."""
+    held_out = held_out_sentence_texts(path)
+    if not held_out:
+        return entries, 0
+    kept = [entry for entry in entries if sentence_text(entry) not in held_out]
+    return kept, len(entries) - len(kept)
+
+
 QUOTE_CHARS = "\"'`‘’“”„«»‹›"
 
 AMBIGUOUS_VNOUN = "__AMBIGUOUS_VNOUN__"
@@ -467,6 +504,10 @@ def adapt_normalized_treebank(
                     sentence_unmappable, trainable_words_in_sentence,
                     bare_root_words, skipped_words,
                 ))
+
+    output_entries, withheld = withhold_held_out(output_entries)
+    if withheld:
+        print(f"Withholding {withheld} sentences that belong to the test set at {HELD_OUT_TEST_PATH}")
 
     print(f"\nWriting {len(output_entries)} sentences to {output_path}")
     write_jsonl(output_path, output_entries)

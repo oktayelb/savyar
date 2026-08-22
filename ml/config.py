@@ -50,7 +50,10 @@ class MLConfig:
     # --- Bulk-training defaults ---
     bulk_epochs: int = 11               # Decreased from 11 due to larger dataset
     bulk_batch_size: int = 1024
-    bulk_batch_log_interval: int = 1
+    # Batches are packed to a token budget, so their set count swings by more
+    # than an order of magnitude (5 sets one step, 60 the next). Logging every
+    # one of ~16k batches reports that swing as if it were the loss moving.
+    bulk_batch_log_interval: int = 25
     relearn_preprocess_log_interval: int = 1000
     max_batch_padded_tokens: int = 8192
     max_batch_attention_cells: int = 2_000_000
@@ -67,10 +70,19 @@ class MLConfig:
     max_auto_bulk_batch_size: int = 512
 
     # --- LR Schedule ---
-    warmup_steps: int = 350            # Decreased from 1000 to match new epoch steps
-    lr_eta_min_ratio: float = 0.01
+    # Warmup is counted in optimizer steps, and the packer decides how many
+    # of those an epoch holds - it moved from 2173 batches to 1497 between two
+    # runs on identical data - so the ramp is kept long enough to survive that
+    # drifting.
+    warmup_steps: int = 500
+    # 0.01 drove the tail of the cosine to 3e-6, where the last epochs stopped
+    # changing anything. A floor of 5% keeps them contributing.
+    lr_eta_min_ratio: float = 0.05
 
-    steps_per_update: int = 4
+    # Gradient accumulation is the only thing damping the batch-size swing
+    # above; six mini-batches per update trade a little step count for a
+    # visibly steadier curve.
+    steps_per_update: int = 6
 
     # --- Interactive/Loop Settings ---
     checkpoint_frequency: int = 4000   # Increased from 1000 to avoid excessive I/O overhead

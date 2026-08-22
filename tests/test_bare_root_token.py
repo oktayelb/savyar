@@ -70,3 +70,36 @@ class NoHardcodedPriorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GoldChainsIncludeBareRootsTest(unittest.TestCase):
+    """The token is only learnable if correct bare roots reach the gold."""
+
+    @classmethod
+    def setUpClass(cls):
+        from app.engine import WorkflowEngine
+        cls.parts = WorkflowEngine._candidate_parts_from_word_entries
+
+    def word(self, surface, suffixes):
+        return {"word": surface, "root": surface, "suffixes": suffixes, "final_pos": "noun"}
+
+    def test_a_suffixless_word_is_kept(self):
+        parts = self.parts([self.word("kitap", [])])
+        self.assertIsNotNone(parts, "a bare-root word must not be dropped from the sequence")
+        gold_chains, _cands, _idx, word_count = parts
+        self.assertEqual(word_count, 1)
+        self.assertEqual(gold_chains[0], [])
+
+    def test_a_sentence_keeps_all_of_its_words(self):
+        entries = [
+            self.word("kitap", []),
+            self.word("kitaplar", [{"name": "plural_ler", "makes": "NOUN"}]),
+            self.word("ev", []),
+        ]
+        _gold, _cands, _idx, word_count = self.parts(entries)
+        self.assertEqual(word_count, 3, "dropping bare roots used to leave holes mid-sentence")
+
+    def test_a_chain_the_tables_cannot_encode_still_rejects_the_sentence(self):
+        # _entries_to_sequences catches this and counts the entry as skipped.
+        with self.assertRaises(ValueError):
+            self.parts([self.word("x", [{"name": "no_such_suffix", "makes": "NOUN"}])])

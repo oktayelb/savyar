@@ -356,9 +356,15 @@ class WorkflowEngine:
         gold_indices = []
         for word_entry in word_entries:
             sfx_dicts = word_entry.get('suffixes', [])
-            if not sfx_dicts: continue
+            # A word whose gold analysis is the bare root belongs in the
+            # sequence like any other. Dropping it used to remove 43% of the
+            # words from training, so the sentences the model learned on had
+            # holes where the sentences it is asked about do not, and a bare
+            # reading could only ever reach it inside a negative - which made
+            # "no suffix" a flawless marker for a wrong answer. An empty chain
+            # is the correct encoding; a chain the tables cannot encode still
+            # raises, and the caller still drops that sentence.
             encoded_gold = nlp.encode_suffix_names(sfx_dicts)
-            if not encoded_gold: continue
             try:
                 word_analysis = nlp.analyze_word(word_entry['word'], include_closed_class=True)
                 matched = nlp.match_decompositions([word_entry], word_analysis['decomps'])

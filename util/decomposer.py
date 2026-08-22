@@ -319,7 +319,7 @@ def append_progressive_vowel_drop_candidates(word: str, surface_root: str, analy
 
     for terminal_vowel in ['a', 'e']:
         lemma_root = surface_root + terminal_vowel
-        if lemma_root in wrd.UNSUFFIXABLE_SET:
+        if wrd.is_unsuffixable(lemma_root):
             continue
         if wrd.can_be_verb(lemma_root):
             append_analysis(lemma_root + rest, "verb", lemma_root, analyses_list, shared_cache)
@@ -344,7 +344,7 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
     for i in range(1, len(word) + 1):
         root = word[:i]
 
-        if root in wrd.UNSUFFIXABLE_SET:
+        if wrd.is_unsuffixable(root):
             continue
 
 

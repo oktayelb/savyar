@@ -40,9 +40,37 @@ class MinorHarmony(Enum):
     FRONT_WIDE  = 3
 
 # --- Centralized Dictionary State ---
+# The *_SET sets hold the entries exactly as the data files write them, because
+# they are what gets written back on delete. Lookups never touch them directly:
+# they go through the folded key indexes below.
 WORDS_SET: set = set()
 VERB_SET: set = set()
 UNSUFFIXABLE_SET: set = set()
+
+_NOUN_KEYS: set = set()
+_VERB_KEYS: set = set()
+_UNSUFFIXABLE_KEYS: set = set()
+
+
+def lexicon_key(word: str) -> str:
+    """The form a word is looked up under.
+
+    Every word that reaches the decomposer has been tr_lower()'d by the input
+    pipeline, while words.txt keeps proper nouns capitalised (Ankara, Türkiye,
+    İstanbul). Folding both sides through this one function is what lets
+    "ankara" find "Ankara"; it is also the single place to add any further
+    difference the lexicon should not care about.
+    """
+    return tr_lower(word)
+
+
+def _reindex_dictionary():
+    """Rebuild the folded lookup indexes from the loaded entries."""
+    global _NOUN_KEYS, _VERB_KEYS, _UNSUFFIXABLE_KEYS
+    _NOUN_KEYS = {lexicon_key(word) for word in WORDS_SET}
+    _VERB_KEYS = {lexicon_key(word) for word in VERB_SET}
+    _UNSUFFIXABLE_KEYS = {lexicon_key(word) for word in UNSUFFIXABLE_SET}
+
 
 def _load_dictionary():
     global WORDS_SET, VERB_SET, UNSUFFIXABLE_SET
@@ -58,22 +86,43 @@ def _load_dictionary():
         WORDS_SET = set()
         VERB_SET = set()
         UNSUFFIXABLE_SET = set()
+    _reindex_dictionary()
 
 # Initialize on module load
 _load_dictionary()
 
+
+def _in_index(word: str, index: set) -> bool:
+    """Membership under lexicon_key(), without folding what is already folded.
+
+    This is the hottest lookup in the project - decompose() runs it on every
+    prefix of every word - so the folded form is only built when the word
+    actually carries case the index cannot have: the pipeline hands over
+    sanitized words and the decomposer slices its roots out of them, so in
+    practice the first test decides.
+    """
+    if word in index:
+        return True
+    return not word.islower() and lexicon_key(word) in index
+
+
 def delete_word(word: str) -> bool:
     """Removes a word from the in-memory dictionary state."""
-    word = tr_lower(word.strip())
+    key = lexicon_key(word.strip())
+    if not key:
+        return False
 
-    if word in WORDS_SET:
-        WORDS_SET.discard(word)
-        
-    if word in VERB_SET:
-        VERB_SET.discard(word)
-    
+    removed = False
+    for entry in [w for w in WORDS_SET if lexicon_key(w) == key]:
+        WORDS_SET.discard(entry)
+        removed = True
+    for entry in [v for v in VERB_SET if lexicon_key(v) == key]:
+        VERB_SET.discard(entry)
+        removed = True
 
-    return False
+    if removed:
+        _reindex_dictionary()
+    return removed
 
 def get_all_words() -> List[str]:
     """Returns the current list of dictionary words."""
@@ -104,6 +153,11 @@ def exists(word: str) -> bool:
     return can_be_noun(word) or can_be_verb(word)
 
 
+def is_unsuffixable(word: str) -> bool:
+    """Interjections and particles that never take a suffix (ha, çüş, ki)."""
+    return _in_index(word, _UNSUFFIXABLE_KEYS)
+
+
 def is_non_ben_pronoun_surface(word: str) -> bool:
     from util.words.closed_class import NON_BEN_PRONOUN_SURFACES
     return word in NON_BEN_PRONOUN_SURFACES
@@ -112,19 +166,19 @@ def can_be_noun(word: str) -> bool:
     if not word:
         return False
 
-    if word in WORDS_SET:
+    if _in_index(word, _NOUN_KEYS):
         return True
 
     if word.endswith("l"):
         soft_l = word[:-1] + "ł"
-        if soft_l in WORDS_SET:
+        if _in_index(soft_l, _NOUN_KEYS):
             return True
 
     return False
 
 def can_be_verb(word: str) -> bool:
-    """Checks if a root is a verb by looking it up in VERB_SET."""
-    return word in VERB_SET
+    """Checks if a root is a verb by looking it up in the verb index."""
+    return _in_index(word, _VERB_KEYS)
 
 # --- Harmony functions ---
 def major_harmony(word: str) -> MajorHarmony | None:

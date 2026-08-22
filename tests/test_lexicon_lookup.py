@@ -4,6 +4,7 @@ from pathlib import Path
 
 import util.decomposer as sfx
 import util.word_methods as wrd
+from util.suffix import DISABLED_SUFFIX_NAMES, is_enabled
 
 
 class LexiconKeyTest(unittest.TestCase):
@@ -120,6 +121,33 @@ class DerivedLexiconTest(unittest.TestCase):
                 wrd._FILE_ENTRIES = original
             self.assertEqual(noun_path.read_text(encoding="utf-8").split(), ["Ankara", "kitap"])
             self.assertEqual(derived_path.read_text(encoding="utf-8").split(), ["bilgi"])
+
+
+class DisabledSuffixTest(unittest.TestCase):
+    def reachable_suffix_names(self):
+        return {
+            suffix.name
+            for targets in sfx.SUFFIX_TRANSITIONS.values()
+            for suffixes in targets.values()
+            for suffix in suffixes
+        }
+
+    def test_disabled_suffixes_are_unreachable(self):
+        self.assertFalse(self.reachable_suffix_names() & DISABLED_SUFFIX_NAMES)
+
+    def test_vocabulary_still_contains_them(self):
+        # They are dropped from the transition tables, not from ALL_SUFFIXES,
+        # so token ids stay stable across the change.
+        self.assertTrue({s.name for s in sfx.ALL_SUFFIXES} >= DISABLED_SUFFIX_NAMES)
+
+    def test_is_enabled_agrees_with_the_tables(self):
+        for suffix in sfx.ALL_SUFFIXES:
+            self.assertEqual(is_enabled(suffix), suffix.name in self.reachable_suffix_names(), suffix.name)
+
+    def test_lexicalised_stem_no_longer_competes_with_a_derivation(self):
+        # "hükümet" was read as hüküm+abstractifier_iyat, a suffix no gold
+        # annotation uses; only the lexical entry should survive.
+        self.assertEqual([root for root, _pos, _chain, _final in sfx.decompose("hükümet")], ["hükümet"])
 
 
 class DecompositionReachTest(unittest.TestCase):

@@ -11,7 +11,7 @@ from util.suffixes.n2n_suffixes import NOUN2NOUN
 from util.suffixes.v2n_suffixes import VERB2NOUN
 
 import util.word_methods as wrd
-from util.suffix import Type, Suffix, SuffixGroup
+from util.suffix import Type, Suffix, SuffixGroup, is_enabled
 
 ALL_SUFFIXES = NOUN2NOUN + NOUN2VERB + VERB2NOUN + VERB2VERB
 IYOR_VARIATIONS = ('iyor', 'ıyor', 'uyor', 'üyor')
@@ -34,6 +34,17 @@ SUFFIX_TRANSITIONS = {
         # Standard V->V + (N->V suffixes that also accept Verbs)
         'verb': VERB2VERB + [s for s in NOUN2VERB if s.comes_to == Type.BOTH]
     }
+}
+
+# Suffixes no gold annotation ever uses are dropped here rather than from
+# ALL_SUFFIXES, so the token vocabulary and its ids stay exactly as they were
+# and only the candidates change.
+SUFFIX_TRANSITIONS = {
+    start_pos: {
+        target_pos: [suffix for suffix in suffixes if is_enabled(suffix)]
+        for target_pos, suffixes in targets.items()
+    }
+    for start_pos, targets in SUFFIX_TRANSITIONS.items()
 }
 
 # ============================================================================

@@ -52,6 +52,51 @@ class SuffixGroup(IntEnum):
     # Fiil şahıs çekimleri -im -sin -ler
     CONJUGATION = 300                
 
+# Groups 25 and 50 are the derivational ones (yapım ekleri). Turkish grammar
+# calls them all derivational, but the treebanks annotate many of them
+# constantly - passive_il, infinitive_me, factative_en and adjectifier_dik are
+# tens of thousands of gold tokens each - so switching the whole class off
+# would make most of the corpus unproducible.
+DERIVATIONAL_GROUPS = frozenset({SuffixGroup.V2V_DERIVATIONAL, SuffixGroup.N2V_DERIVATIONAL})
+
+# The derivational suffixes below never appear in a single gold annotation
+# across all five treebanks (1.23M suffix tokens). Every candidate they produce
+# is therefore wrong by construction: they are what lets "bilgi" be read as
+# bil+gi and "hükümet" as hüküm+iyat, competing with the lexicalised stem the
+# treebanks actually annotate. Switching them off cuts 21% of the generated
+# candidates without making a single gold analysis unreachable.
+#
+# To go further, add names from the next tier up - they cost real coverage:
+#   <100 gold uses (13 more, e.g. nounifier_gi, diminutive_cik):  -6% candidates, 191 gold tokens lost
+#   <1500 gold uses (3 more, e.g. relative_ce, active_er):        -4% candidates, 3152 gold tokens lost
+# Regenerate the counts with tools/audit_missing_roots.py's corpus walk.
+DISABLED_SUFFIX_NAMES = frozenset({
+    "absentative_se",
+    "abstractifier_iyat",
+    "approximative_imtrak",
+    "constofactative_gin",
+    "counting_er",
+    "nounifier_amak",
+    "nounifier_anak",
+    "nounifier_ge",
+    "nounifier_i",
+    "nounifier_in",
+    "nounifier_inti",
+    "nounifier_inç",
+    "nounifier_it",
+    "perfectative_ik",
+    "scientist_olog",
+    "subjectifier_giç",
+    "subjectifier_men",
+    "toolifier_geç",
+})
+
+
+def is_enabled(suffix) -> bool:
+    """Whether the decomposer may apply this suffix at all."""
+    return suffix.name not in DISABLED_SUFFIX_NAMES
+
+
 class Type(Enum):
     NOUN = "noun"
     VERB = "verb"

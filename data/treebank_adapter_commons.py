@@ -2,7 +2,9 @@ import json
 import os
 from collections import Counter
 
-from util.decomposer import ALL_SUFFIXES
+import itertools
+
+from util.decomposer import ALL_SUFFIXES, decompose
 from util.suffix import Type
 from util.words.closed_class import CLOSED_CLASS_LOOKUP
 from util.word_methods import tr_lower
@@ -169,6 +171,79 @@ def bare_root_entry(surface_lower):
         "suffixes": [],
         "final_pos": "noun",
     }
+
+
+def _build_suffix_siblings():
+    """Suffix names that share a surface form, taken from the tables themselves.
+
+    Turkish spells several distinct morphemes the same way, and which one is
+    meant depends on whether the stem is nominal or verbal at that point:
+    "-di" is pasttense_di after a verb but pasttense_noundi after a noun,
+    "-dir" is the causative active_dir after a verb but the copula
+    nounaorist_dir after a noun. Treebank features record the tense, not which
+    of the two the decomposer would build, so the adapters emit one name for
+    both and the gold chain becomes unbuildable for half the words.
+    Sharing a surface is not enough: "-i" is both possessive_3sg and
+    accusative_i, and "-ir" is both the aorist factative_ir and the causative
+    active_ir. Those are different morphemes in different slots, and renaming
+    one to the other to satisfy the decomposer would be relabelling the
+    annotation rather than correcting it. Requiring the same SuffixGroup keeps
+    only the pairs that compete for one position in the chain.
+    """
+    by_surface = {}
+    for suffix in ALL_SUFFIXES:
+        by_surface.setdefault((suffix.suffix, suffix.group), []).append(suffix.name)
+    siblings = {}
+    for names in by_surface.values():
+        if len(names) < 2:
+            continue
+        for name in names:
+            siblings[name] = [other for other in names if other != name]
+    return siblings
+
+
+SUFFIX_SIBLINGS = _build_suffix_siblings()
+MAX_AMBIGUOUS_POSITIONS = 6
+
+
+def decomposer_chains(surface, root):
+    """Suffix-name chains the decomposer can actually build for this word."""
+    try:
+        analyses = decompose(surface)
+    except Exception:
+        return set()
+    return {
+        tuple(s.name for s in chain)
+        for analysis_root, _pos, chain, _final in analyses
+        if analysis_root == root
+    }
+
+
+def reconcile_suffix_names(surface, lemma, names):
+    """Rename same-surface suffixes so the gold chain is one the decomposer builds.
+
+    Only names are changed, never the segmentation: siblings share a surface
+    form by definition, so the word still divides in exactly the same place.
+    A word whose lemma the decomposer cannot reach at all is left untouched -
+    that is a lexicon gap, and guessing at it here would only hide it.
+    """
+    names = list(names)
+    positions = [idx for idx, name in enumerate(names) if name in SUFFIX_SIBLINGS]
+    if not positions or len(positions) > MAX_AMBIGUOUS_POSITIONS:
+        return names
+
+    buildable = decomposer_chains(surface, lemma)
+    if not buildable or tuple(names) in buildable:
+        return names
+
+    choices = [[names[idx]] + SUFFIX_SIBLINGS[names[idx]] for idx in positions]
+    for combo in itertools.product(*choices):
+        candidate = list(names)
+        for idx, name in zip(positions, combo):
+            candidate[idx] = name
+        if tuple(candidate) in buildable:
+            return candidate
+    return names
 
 
 def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
@@ -474,6 +549,7 @@ def adapt_normalized_treebank(
                 word_entries.append(bare_root_entry(surface_lower))
                 continue
 
+            expected_suffixes = reconcile_suffix_names(surface_lower, lemma, expected_suffixes)
             entry = build_treebank_forced_entry(surface_lower, lemma, expected_suffixes)
             word_entries.append(entry)
             matched_words += 1

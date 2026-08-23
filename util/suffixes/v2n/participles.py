@@ -55,9 +55,14 @@ def form_for_factative_ir(word, suffix_obj, current_chain=None):
         z_base = "z"
         result_list.append(z_base)
 
-    # ir form with harmony
+    # ir form with harmony. The aorist high vowel takes the full four-way
+    # harmony - bul-ur, gör-ür, ol-ur, öl-ür - so major harmony alone is not
+    # enough: it only reaches ır/ir and never the rounded ur/ür. Without the
+    # rounded forms "olur" cannot be read as ol + aorist at all, and the only
+    # analysis left is the causative active_ir, which is a different morpheme.
     ir_base = 'ir'
     ir_base = Suffix._apply_major_harmony(word, ir_base, suffix_obj.has_major_harmony)
+    ir_base = Suffix._apply_minor_harmony(word, ir_base, True)
     result_list.append(ir_base)
     
     # er form with harmony (Gider, Yapar)

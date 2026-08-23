@@ -9,9 +9,22 @@ def tr_lower(s: str) -> str:
     """Lowercase a Turkish string correctly: İ→i, I→ı."""
     return s.translate(_TR_LOWER_TABLE).lower()
 
-DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "words.txt"
-VERB_DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "verbs.txt"
-UNSUFFIXABLE_FILE = Path(__file__).resolve().parent.parent / "data" / "ekistemez.txt"
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+DATA_FILE = _DATA_DIR / "words.txt"
+VERB_DATA_FILE = _DATA_DIR / "verbs.txt"
+UNSUFFIXABLE_FILE = _DATA_DIR / "ekistemez.txt"
+
+# Lemmas the treebanks annotate as roots which savyar can also reach from a
+# shorter lemma ("bilgi" as bil+gi, "kullan" as kul+la+n). They live in their
+# own files so the hand-curated core lexicon stays separable from these
+# corpus-derived additions, but they load into the same sets and are looked up
+# exactly like any other entry.
+DERIVED_DATA_FILE = _DATA_DIR / "nouns_derived.txt"
+DERIVED_VERB_DATA_FILE = _DATA_DIR / "verbs_derived.txt"
+
+NOUN_FILES = (DATA_FILE, DERIVED_DATA_FILE)
+VERB_FILES = (VERB_DATA_FILE, DERIVED_VERB_DATA_FILE)
 
 
 ## Vowel Classes
@@ -40,40 +53,114 @@ class MinorHarmony(Enum):
     FRONT_WIDE  = 3
 
 # --- Centralized Dictionary State ---
+# The *_SET sets hold the entries exactly as the data files write them, because
+# they are what gets written back on delete. Lookups never touch them directly:
+# they go through the folded key indexes below.
 WORDS_SET: set = set()
 VERB_SET: set = set()
 UNSUFFIXABLE_SET: set = set()
 
-def _load_dictionary():
-    global WORDS_SET, VERB_SET, UNSUFFIXABLE_SET
+# Which file each entry came from, so a delete rewrites only the file that
+# owns the word instead of collapsing the core and derived lexicons into one.
+_FILE_ENTRIES: dict = {}
+
+_NOUN_KEYS: set = set()
+_VERB_KEYS: set = set()
+_UNSUFFIXABLE_KEYS: set = set()
+
+
+def lexicon_key(word: str) -> str:
+    """The form a word is looked up under.
+
+    Every word that reaches the decomposer has been tr_lower()'d by the input
+    pipeline, while words.txt keeps proper nouns capitalised (Ankara, Türkiye,
+    İstanbul). Folding both sides through this one function is what lets
+    "ankara" find "Ankara"; it is also the single place to add any further
+    difference the lexicon should not care about.
+    """
+    return tr_lower(word)
+
+
+def _reindex_dictionary():
+    """Rebuild the folded lookup indexes from the loaded entries."""
+    global _NOUN_KEYS, _VERB_KEYS, _UNSUFFIXABLE_KEYS
+    _NOUN_KEYS = {lexicon_key(word) for word in WORDS_SET}
+    _VERB_KEYS = {lexicon_key(word) for word in VERB_SET}
+    _UNSUFFIXABLE_KEYS = {lexicon_key(word) for word in UNSUFFIXABLE_SET}
+
+
+def _read_entries(path) -> set:
+    """One entry per line; a file that is not there yet is simply empty."""
     try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            WORDS_SET = {line.strip() for line in f if line.strip()}
-        with open(VERB_DATA_FILE, "r", encoding="utf-8") as f:
-            VERB_SET = {line.strip() for line in f if line.strip()}
-        with open(UNSUFFIXABLE_FILE, "r", encoding="utf-8") as f:
-            UNSUFFIXABLE_SET = {line.strip() for line in f if line.strip()}
+        with open(path, "r", encoding="utf-8") as f:
+            return {line.strip() for line in f if line.strip()}
     except FileNotFoundError:
+        return set()
+
+
+def _rebuild_sets():
+    """Recombine the per-file entries into the two lookup sets."""
+    global WORDS_SET, VERB_SET
+    WORDS_SET = set().union(*(_FILE_ENTRIES[path] for path in NOUN_FILES))
+    VERB_SET = set().union(*(_FILE_ENTRIES[path] for path in VERB_FILES))
+    _reindex_dictionary()
+
+
+def _load_dictionary():
+    global UNSUFFIXABLE_SET, _FILE_ENTRIES
+    _FILE_ENTRIES = {path: _read_entries(path) for path in NOUN_FILES + VERB_FILES}
+    UNSUFFIXABLE_SET = _read_entries(UNSUFFIXABLE_FILE)
+    if not _FILE_ENTRIES[DATA_FILE] or not _FILE_ENTRIES[VERB_DATA_FILE]:
         print(f"Warning: {DATA_FILE} or {VERB_DATA_FILE} not found")
-        WORDS_SET = set()
-        VERB_SET = set()
-        UNSUFFIXABLE_SET = set()
+    _rebuild_sets()
+
+
+def save_dictionary() -> bool:
+    """Write every lexicon file back from the entries it owns."""
+    try:
+        for path, entries in _FILE_ENTRIES.items():
+            if not entries and not Path(path).exists():
+                continue
+            with open(path, "w", encoding="utf-8") as f:
+                for entry in sorted(entries):
+                    f.write(entry + "\n")
+        return True
+    except OSError:
+        return False
 
 # Initialize on module load
 _load_dictionary()
 
+
+def _in_index(word: str, index: set) -> bool:
+    """Membership under lexicon_key(), without folding what is already folded.
+
+    This is the hottest lookup in the project - decompose() runs it on every
+    prefix of every word - so the folded form is only built when the word
+    actually carries case the index cannot have: the pipeline hands over
+    sanitized words and the decomposer slices its roots out of them, so in
+    practice the first test decides.
+    """
+    if word in index:
+        return True
+    return not word.islower() and lexicon_key(word) in index
+
+
 def delete_word(word: str) -> bool:
     """Removes a word from the in-memory dictionary state."""
-    word = tr_lower(word.strip())
+    key = lexicon_key(word.strip())
+    if not key:
+        return False
 
-    if word in WORDS_SET:
-        WORDS_SET.discard(word)
-        
-    if word in VERB_SET:
-        VERB_SET.discard(word)
-    
+    removed = False
+    for entries in _FILE_ENTRIES.values():
+        for entry in [e for e in entries if lexicon_key(e) == key]:
+            entries.discard(entry)
+            removed = True
 
-    return False
+    if removed:
+        _rebuild_sets()
+    return removed
 
 def get_all_words() -> List[str]:
     """Returns the current list of dictionary words."""
@@ -104,6 +191,11 @@ def exists(word: str) -> bool:
     return can_be_noun(word) or can_be_verb(word)
 
 
+def is_unsuffixable(word: str) -> bool:
+    """Interjections and particles that never take a suffix (ha, çüş, ki)."""
+    return _in_index(word, _UNSUFFIXABLE_KEYS)
+
+
 def is_non_ben_pronoun_surface(word: str) -> bool:
     from util.words.closed_class import NON_BEN_PRONOUN_SURFACES
     return word in NON_BEN_PRONOUN_SURFACES
@@ -112,19 +204,19 @@ def can_be_noun(word: str) -> bool:
     if not word:
         return False
 
-    if word in WORDS_SET:
+    if _in_index(word, _NOUN_KEYS):
         return True
 
     if word.endswith("l"):
         soft_l = word[:-1] + "ł"
-        if soft_l in WORDS_SET:
+        if _in_index(soft_l, _NOUN_KEYS):
             return True
 
     return False
 
 def can_be_verb(word: str) -> bool:
-    """Checks if a root is a verb by looking it up in VERB_SET."""
-    return word in VERB_SET
+    """Checks if a root is a verb by looking it up in the verb index."""
+    return _in_index(word, _VERB_KEYS)
 
 # --- Harmony functions ---
 def major_harmony(word: str) -> MajorHarmony | None:

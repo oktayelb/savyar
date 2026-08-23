@@ -31,7 +31,11 @@ class MLConfig:
     focal_gamma: float = 0.0
 
     # --- Ranking Objective ---
-    max_negative_candidates: int = 5
+    # Negatives are drawn round-robin over the ambiguous words of a sentence, so
+    # the budget has to grow with sentence length or late words never get one.
+    max_negative_candidates: int = 5            # floor: budget for a short sentence
+    negatives_per_ambiguous_word: float = 1.0   # 1.0 = one negative per ambiguous word
+    max_negative_candidates_cap: int = 16       # ceiling for the scaled budget
     max_candidate_sequences_per_batch: int = 64
     max_sequence_length: int = 512
     use_torch_compile: bool = False

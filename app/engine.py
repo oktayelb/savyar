@@ -23,8 +23,10 @@ from ml.ml_ranking_model import SentenceDisambiguator, Trainer, build_sentence_s
 from ml.config import config
 from util.words.closed_class import CLOSED_CLASS_TOKEN_SPECS
 
+# 5: negatives are drawn round-robin over words instead of depth-first from word 0.
 # 5: bare-root words are kept in the gold chains instead of being dropped.
-STATIC_PREPROCESS_CACHE_VERSION = 5
+# 6: both of the above, which no cache built on either branch alone matches.
+STATIC_PREPROCESS_CACHE_VERSION = 6
 
 # --------------------------------------------------------------------------- #
 # K-Fold Cross Validation Logic
@@ -332,23 +334,90 @@ class WorkflowEngine:
     def prepare_sentence_training(self, sentence: str) -> Optional[List[Dict]]:
         return self.analyze_sentence(sentence.strip().split())
 
+    @staticmethod
+    def _chains_signature(chains: List[List]) -> Tuple:
+        return tuple(tuple(tok[0] for tok in chain) for chain in chains)
+
+    @staticmethod
+    def _negative_budget(candidate_lists: List[List[List]]) -> int:
+        """How many negatives a sentence is allowed, scaled by its own ambiguity.
+
+        A fixed budget is unfair to long sentences: with five slots and fifteen
+        ambiguous words, ten of them never appear in any negative and so never
+        receive gradient. The budget therefore grows with the number of ambiguous
+        words, between a floor and a ceiling.
+        """
+        base = max(0, int(config.max_negative_candidates))
+        per_word = float(config.negatives_per_ambiguous_word)
+        if per_word <= 0.0:
+            return base
+        ambiguous = sum(1 for candidates in candidate_lists if len(candidates) > 1)
+        scaled = int(math.ceil(ambiguous * per_word))
+        ceiling = max(base, int(config.max_negative_candidates_cap))
+        return max(base, min(ceiling, scaled))
+
+    @classmethod
+    def _rotation_offset(cls, gold_chains: List[List], modulus: int) -> int:
+        """Per-sentence starting word for the round-robin.
+
+        When the budget cannot cover every ambiguous word, always starting at
+        word 0 would re-create the positional bias one step further along. The
+        offset is derived from the gold chains rather than random so that
+        preprocessing stays reproducible and the sequence cache stays valid.
+        """
+        if modulus <= 1:
+            return 0
+        payload = repr(cls._chains_signature(gold_chains)).encode("utf-8")
+        return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big") % modulus
+
+    @classmethod
     def _single_substitution_negatives(
-        self, gold_chains: List[List], candidate_lists: List[List[List]], gold_indices: List[int], limit: Optional[int] = None,
+        cls, gold_chains: List[List], candidate_lists: List[List[List]], gold_indices: List[int], limit: Optional[int] = None,
     ) -> List[List[List]]:
-        if limit is None: limit = config.max_negative_candidates
+        """Negatives that replace exactly one word of the gold sentence.
+
+        Words are visited round-robin, one candidate each per pass, so the budget
+        is spread across the sentence instead of being spent entirely on whichever
+        word happens to have the most readings.
+        """
+        if limit is None: limit = cls._negative_budget(candidate_lists)
+        if limit <= 0: return []
+
+        # Only ambiguous words can produce a negative; rotating over just those
+        # keeps the offset meaningful on sentences with many unambiguous words.
+        order = [idx for idx, candidates in enumerate(candidate_lists) if len(candidates) > 1]
+        if not order: return []
+        offset = cls._rotation_offset(gold_chains, len(order))
+        order = order[offset:] + order[:offset]
+
         negatives: List[List[List]] = []
-        seen = set()
-        for word_idx, candidates in enumerate(candidate_lists):
-            gold_idx = gold_indices[word_idx]
-            for cand_idx, candidate in enumerate(candidates):
-                if cand_idx == gold_idx: continue
-                neg = list(gold_chains)
-                neg[word_idx] = candidate
-                signature = tuple(tuple(tok[0] for tok in chain) for chain in neg)
-                if signature in seen: continue
-                seen.add(signature)
-                negatives.append(neg)
-                if len(negatives) >= limit: return negatives
+        # Seeding with the gold signature stops a same-signature sibling candidate
+        # (different root, identical suffix chain) from being handed to the ranker
+        # as a negative it cannot possibly score below the gold.
+        seen = {cls._chains_signature(gold_chains)}
+        cursors = [0] * len(order)
+
+        while len(negatives) < limit:
+            produced = False
+            for slot, word_idx in enumerate(order):
+                if len(negatives) >= limit: break
+                candidates = candidate_lists[word_idx]
+                gold_idx = gold_indices[word_idx]
+                cursor = cursors[slot]
+                while cursor < len(candidates):
+                    cand_idx = cursor
+                    cursor += 1
+                    if cand_idx == gold_idx: continue
+                    neg = list(gold_chains)
+                    neg[word_idx] = candidates[cand_idx]
+                    signature = cls._chains_signature(neg)
+                    if signature in seen: continue
+                    seen.add(signature)
+                    negatives.append(neg)
+                    produced = True
+                    break
+                cursors[slot] = cursor
+            if not produced: break
         return negatives
 
     def _candidate_parts_from_word_entries(self, word_entries: List[Dict]) -> Optional[Tuple[List, List, List, int]]:
@@ -386,10 +455,12 @@ class WorkflowEngine:
         if not gold_chains: return None
         return gold_chains, candidate_lists, gold_indices, len(gold_chains)
 
-    def _select_dynamic_negatives(self, scored_negatives: List[Tuple[float, Any]], rng: random.Random) -> List[Any]:
+    def _select_dynamic_negatives(
+        self, scored_negatives: List[Tuple[float, Any]], rng: random.Random, limit: Optional[int] = None,
+    ) -> List[Any]:
         if not scored_negatives: return []
         ranked = [item for _, item in sorted(scored_negatives, key=lambda x: x[0], reverse=True)]
-        max_neg = max(0, int(config.max_negative_candidates))
+        max_neg = max(0, int(config.max_negative_candidates) if limit is None else limit)
         hard_count = min(int(config.hard_negative_count), max_neg, len(ranked))
         selected = ranked[:hard_count]
         selected_ids = {id(item) for item in selected}
@@ -432,7 +503,9 @@ class WorkflowEngine:
         ]
         if not negative_seqs: return None
         scores = self.trainer.score_flat_sequences(negative_seqs)
-        selected = self._select_dynamic_negatives(list(zip(scores, negative_seqs)), rng)
+        selected = self._select_dynamic_negatives(
+            list(zip(scores, negative_seqs)), rng, limit=self._negative_budget(candidate_lists),
+        )
         if not selected: return None
         return [gold_seq] + selected, word_count
 
@@ -506,6 +579,8 @@ class WorkflowEngine:
             "closed_class_inventory": [list(spec) for spec in CLOSED_CLASS_TOKEN_SPECS],
             "config": {
                 "max_negative_candidates": int(config.max_negative_candidates),
+                "negatives_per_ambiguous_word": float(config.negatives_per_ambiguous_word),
+                "max_negative_candidates_cap": int(config.max_negative_candidates_cap),
                 "max_sequence_length": int(config.max_sequence_length),
             },
         }

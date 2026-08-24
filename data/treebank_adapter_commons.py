@@ -225,6 +225,51 @@ SUFFIX_SIBLINGS = _with_families(_build_suffix_siblings())
 MAX_AMBIGUOUS_POSITIONS = 6
 
 
+# Sequences the treebanks spell out with two tags that savyar models as one
+# suffix. This is not a renaming: -lArI is a single morpheme here, and
+# possessive_3pl already carries its own plural, so plural_ler followed by
+# possessive_3pl would build kitap-lar-ları. Collapsing keeps the treebank's
+# reading - a plural thing possessed by a plural owner - and spells it the way
+# savyar does, which leaves plural_ler + possessive_3sg free to mean the other
+# reading of the same surface.
+COLLAPSE_SEQUENCES = [
+    (("plural_ler", "possessive_3pl"), ("possessive_3pl",)),
+]
+
+# Corrections to annotations the source data gets wrong, applied only where the
+# surface settles the question beyond argument.
+ANNOTATION_CORRECTIONS = [
+    # TrMor2006 tags the optative first person plural as A3pl - "atalım" is
+    # at+Verb+Pos+Opt+A3pl in trmor2006.conllu. -AlIm is first person plural in
+    # Turkish and nothing else; the third person optative is not spelled this
+    # way. 427 words.
+    (("alım", "elim"), "conjugation_3pl", "conjugation_1pl"),
+]
+
+
+def apply_collapses(names):
+    """Rewrite tag sequences savyar spells as a single suffix."""
+    out = list(names)
+    for pattern, replacement in COLLAPSE_SEQUENCES:
+        i = 0
+        while i <= len(out) - len(pattern):
+            if tuple(out[i:i + len(pattern)]) == pattern:
+                out[i:i + len(pattern)] = list(replacement)
+                i += len(replacement)
+            else:
+                i += 1
+    return out
+
+
+def apply_annotation_corrections(surface, names):
+    """Fix known source-data errors the surface form contradicts."""
+    out = list(names)
+    for endings, wrong, right in ANNOTATION_CORRECTIONS:
+        if wrong in out and surface.endswith(tuple(endings)):
+            out = [right if n == wrong else n for n in out]
+    return out
+
+
 def decomposer_chains(surface, root):
     """Suffix-name chains the decomposer can actually build for this word."""
     try:
@@ -246,13 +291,15 @@ def reconcile_suffix_names(surface, lemma, names):
     A word whose lemma the decomposer cannot reach at all is left untouched -
     that is a lexicon gap, and guessing at it here would only hide it.
     """
-    names = list(names)
+    names = apply_annotation_corrections(surface, apply_collapses(names))
     positions = [idx for idx, name in enumerate(names) if name in SUFFIX_SIBLINGS]
     if not positions or len(positions) > MAX_AMBIGUOUS_POSITIONS:
         return names
 
     buildable = decomposer_chains(surface, lemma)
     if not buildable or tuple(names) in buildable:
+        return names
+    if not positions:
         return names
 
     choices = [[names[idx]] + SUFFIX_SIBLINGS[names[idx]] for idx in positions]

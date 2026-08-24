@@ -34,9 +34,16 @@ class CaseInsensitiveLookupTest(unittest.TestCase):
         self.assertTrue(wrd.can_be_verb("GEL"))
 
     def test_unsuffixables_fold_as_well(self):
-        sample = next(iter(wrd.UNSUFFIXABLE_SET))
-        self.assertTrue(wrd.is_unsuffixable(sample))
-        self.assertTrue(wrd.is_unsuffixable(sample.upper()))
+        for word in sorted(wrd.UNSUFFIXABLE_SET):
+            self.assertTrue(wrd.is_unsuffixable(word), word)
+        self.assertTrue(wrd.is_unsuffixable("YA"))
+        self.assertTrue(wrd.is_unsuffixable("ÇÜŞ"))
+
+    def test_ascii_uppercase_i_is_not_a_turkish_uppercase_i(self):
+        # "ki".upper() is "KI" in Python, whose Turkish lowercase is "kı" - a
+        # different word. Folding it back to "ki" would be the bug, not this.
+        self.assertTrue(wrd.is_unsuffixable("Kİ"))
+        self.assertFalse(wrd.is_unsuffixable("KI"))
 
     def test_soft_l_entries_still_resolve(self):
         soft_l_entry = next((w for w in wrd.WORDS_SET if w.endswith("ł")), None)
@@ -97,9 +104,13 @@ class DerivedLexiconTest(unittest.TestCase):
         # Provenance has to survive a delete, or a rewrite would collapse the
         # core and derived lexicons into one file.
         derived = wrd._FILE_ENTRIES[wrd.DERIVED_DATA_FILE]
-        if not derived:
-            self.skipTest("nouns_derived.txt is empty")
-        victim = next(iter(derived))
+        core = wrd._FILE_ENTRIES[wrd.DATA_FILE]
+        # The two files may share an entry, and deleting one of those legitimately
+        # shrinks both - pick a word only the derived file owns.
+        victim = next((w for w in sorted(derived) if wrd.lexicon_key(w) not in
+                       {wrd.lexicon_key(c) for c in core}), None)
+        if victim is None:
+            self.skipTest("no entry unique to nouns_derived.txt")
         core_size = len(wrd._FILE_ENTRIES[wrd.DATA_FILE])
         try:
             self.assertTrue(wrd.delete_word(victim))

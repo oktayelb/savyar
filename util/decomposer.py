@@ -304,6 +304,20 @@ def decompose_with_cc(word: str) -> List[Tuple]:
 
     analyses = list(decompose(word))
 
+    if not analyses:
+        # Nothing in the lexicon reaches this word. Rather than hand the
+        # sentence a hole - which costs every other word in it - hypothesise
+        # the root from the surface itself. Turkish proper nouns, acronyms and
+        # spelled-out numbers are unbounded, so no word list closes this; the
+        # suffix tables still have to span the surface, so the chains are real.
+        seen_forced = set()
+        for analysis in decompose(word, force=True):
+            signature = (analysis[0], tuple(s.name for s in analysis[2]))
+            if signature in seen_forced:
+                continue
+            seen_forced.add(signature)
+            analyses.append(analysis)
+
     cc_entries = CLOSED_CLASS_LOOKUP.get(word, [])
     seen_categories: set = set()
     for cc_obj in cc_entries:
@@ -396,6 +410,12 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
         root = word[:i]
 
         if wrd.is_unsuffixable(root):
+            # "ekalmaz" means no suffix may attach, not that the word does not
+            # exist. Skipping the root outright left "ya" and "be" with no
+            # analysis at all, which took their whole sentence down with them.
+            if root == word:
+                start = "verb" if (wrd.can_be_verb(root) and not wrd.can_be_noun(root)) else "noun"
+                append_analysis(word, start, root, analyses, shared_cache)
             continue
 
 

@@ -103,3 +103,30 @@ class GoldChainsIncludeBareRootsTest(unittest.TestCase):
         # _entries_to_sequences catches this and counts the entry as skipped.
         with self.assertRaises(ValueError):
             self.parts([self.word("x", [{"name": "no_such_suffix", "makes": "NOUN"}])])
+
+
+class RootGuidedDecompositionTest(unittest.TestCase):
+    """Annotated data names the lemma; the lexicon need not know it."""
+
+    def test_a_root_the_lexicon_lacks_still_yields_chains(self):
+        import util.word_methods as wrd
+        self.assertFalse(wrd.exists("erbakan"))
+        chains = {tuple(s.name for s in c) for _r, _p, c, _f in sfx.decompose_with_root("erbakanın", "erbakan")}
+        self.assertIn(("noun_compound",), chains)
+        self.assertGreater(len(chains), 1, "the word should arrive with alternatives, not one answer")
+
+    def test_every_analysis_uses_the_given_root(self):
+        for _r, _p, _c, _f in sfx.decompose_with_root("kullandığı", "kullan"):
+            self.assertEqual(_r, "kullan")
+
+    def test_chains_must_still_span_the_surface(self):
+        # Nothing is invented: a chain that cannot reach the end is not offered.
+        self.assertEqual(sfx.decompose_with_root("erbakanın", "zzz"), [])
+
+    def test_a_softened_stem_is_spliced_onto_the_surface(self):
+        chains = {tuple(s.name for s in c) for _r, _p, c, _f in sfx.decompose_with_root("kitabı", "kitap")}
+        self.assertTrue(chains, "kitap + accusative should be reachable from the lemma")
+
+    def test_empty_inputs_are_safe(self):
+        self.assertEqual(sfx.decompose_with_root("", "kitap"), [])
+        self.assertEqual(sfx.decompose_with_root("kitabı", ""), [])

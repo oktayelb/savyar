@@ -26,7 +26,8 @@ from util.words.closed_class import CLOSED_CLASS_TOKEN_SPECS
 # 5: negatives are drawn round-robin over words instead of depth-first from word 0.
 # 5: bare-root words are kept in the gold chains instead of being dropped.
 # 6: both of the above, which no cache built on either branch alone matches.
-STATIC_PREPROCESS_CACHE_VERSION = 6
+# 7: words the lexicon cannot reach are rebuilt from their annotated root.
+STATIC_PREPROCESS_CACHE_VERSION = 7
 
 # --------------------------------------------------------------------------- #
 # K-Fold Cross Validation Logic
@@ -446,9 +447,25 @@ class WorkflowEngine:
                 gold_chain = word_analysis['encoded_chains'][gold_idx]
                 candidates = word_analysis['encoded_chains']
             else:
-                gold_idx = 0
-                gold_chain = encoded_gold
-                candidates = [encoded_gold]
+                # The lexicon cannot reach this lemma, but the annotation names
+                # it. Rebuilding the word from the given root recovers the
+                # alternatives it has to be ranked against; without them the
+                # word arrived as its own single candidate and taught nothing,
+                # which is most of what an unknown name or a typo used to cost.
+                gold_idx, gold_chain, candidates = 0, encoded_gold, [encoded_gold]
+                root = word_entry.get('root') or ''
+                if root:
+                    try:
+                        forced = nlp.analyze_word_with_root(word_entry['word'], root)
+                    except Exception:
+                        forced = None
+                    if forced and forced['encoded_chains']:
+                        chains = forced['encoded_chains']
+                        target = [tuple(tok) for tok in encoded_gold]
+                        for idx, chain in enumerate(chains):
+                            if [tuple(tok) for tok in chain] == target:
+                                gold_idx, gold_chain, candidates = idx, chain, chains
+                                break
             gold_chains.append(gold_chain)
             candidate_lists.append(candidates)
             gold_indices.append(gold_idx)

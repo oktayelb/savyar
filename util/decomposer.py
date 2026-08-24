@@ -337,6 +337,46 @@ def append_progressive_vowel_drop_candidates(word: str, surface_root: str, analy
 
 
 @functools.lru_cache(maxsize=100000)
+def decompose_with_root(word: str, root: str) -> List[Tuple]:
+    """Every analysis of `word` that uses `root` as its lemma.
+
+    The lexicon is never consulted; the root is taken as given. Annotated data
+    supplies the lemma of every word, so a root the lexicon has never heard of
+    - a name, a loanword, a typo the treebank happens to contain - still yields
+    its full set of competing suffix chains rather than the single gold reading
+    the caller already had. Nothing is invented: the chains still have to span
+    the surface using the ordinary suffix tables.
+    """
+    if not word or not root:
+        return []
+
+    # The surface need not start with the lemma where the stem softens
+    # (kitap -> kitab-ı, hak -> hakk-ı), so splice the lemma onto the tail the
+    # way decompose() does for its own root candidates.
+    surfaces = [word]
+    if not word.startswith(root) and len(word) > len(root):
+        surfaces.append(root + word[len(root):])
+
+    analyses: List[Tuple] = []
+    shared_cache: dict = {}
+    for surface in surfaces:
+        if not surface.startswith(root):
+            continue
+        for pos in ("noun", "verb"):
+            append_analysis(surface, pos, root, analyses, shared_cache)
+
+    seen = set()
+    unique = []
+    for analysis in analyses:
+        signature = (analysis[0], tuple(s.name for s in analysis[2]))
+        if signature in seen:
+            continue
+        seen.add(signature)
+        unique.append(analysis)
+    return unique
+
+
+@functools.lru_cache(maxsize=100000)
 def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
     """
     Finds all possible root-suffix decompositions for a word.\n

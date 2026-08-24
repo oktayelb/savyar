@@ -391,6 +391,21 @@ def analyze_word(word: str, *, include_closed_class: bool = True) -> Dict[str, A
     }
 
 
+def analyze_word_with_root(word: str, root: str) -> Dict[str, Any]:
+    """analyze_word() for a word whose lemma is already known.
+
+    Used where annotated data supplies the root, so that a word the lexicon
+    cannot reach still arrives with the alternatives it has to be ranked
+    against instead of its gold answer alone.
+    """
+    decomps = sfx.decompose_with_root(word, root)
+    return {
+        'word': word,
+        'decomps': decomps,
+        'encoded_chains': [encode_suffix_chain(chain) for _r, _p, chain, _f in decomps],
+    }
+
+
 def analyze_words(words: List[str], *, include_closed_class: bool = True) -> List[Dict[str, Any]]:
     return [analyze_word(w, include_closed_class=include_closed_class) for w in words]
 

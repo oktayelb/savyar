@@ -202,7 +202,26 @@ def _build_suffix_siblings():
     return siblings
 
 
-SUFFIX_SIBLINGS = _build_suffix_siblings()
+# One morpheme spelled several ways, where the treebanks record the function
+# with a single feature and leave the adapter to guess the spelling. The
+# causative is marked Caus whether the surface shows -DIr, -t, -Ir or -Ar, and
+# every adapter emitted active_dir for all four, so "ağlatan" (ağla-t-an) could
+# not be built. These are not different morphemes being swapped for one
+# another; they are allomorphs of one, chosen by the stem.
+SUFFIX_FAMILIES = [
+    {"active_dir", "active_it", "active_ir", "active_er"},
+]
+
+
+def _with_families(siblings):
+    for family in SUFFIX_FAMILIES:
+        for name in family:
+            others = [other for other in family if other != name]
+            siblings[name] = sorted(set(siblings.get(name, [])) | set(others))
+    return siblings
+
+
+SUFFIX_SIBLINGS = _with_families(_build_suffix_siblings())
 MAX_AMBIGUOUS_POSITIONS = 6
 
 

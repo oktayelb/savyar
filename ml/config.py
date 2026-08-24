@@ -52,7 +52,11 @@ class MLConfig:
     mlm_weight: float = 0.2
 
     # --- Bulk-training defaults ---
-    bulk_epochs: int = 11               # Decreased from 11 due to larger dataset
+    # Every run on this corpus has ended with a validation margin of 0.04-0.06,
+    # the signature of a model still climbing rather than one that has run out
+    # of things to learn. Capacity is held at 384/6 and 11.5M parameters so
+    # that this raise tests the training budget on its own.
+    bulk_epochs: int = 16
     bulk_batch_size: int = 1024
     # Batches are packed to a token budget, so their set count swings by more
     # than an order of magnitude (5 sets one step, 60 the next). Logging every

@@ -130,3 +130,30 @@ class RootGuidedDecompositionTest(unittest.TestCase):
     def test_empty_inputs_are_safe(self):
         self.assertEqual(sfx.decompose_with_root("", "kitap"), [])
         self.assertEqual(sfx.decompose_with_root("kitabı", ""), [])
+
+
+class PassiveAllomorphTest(unittest.TestCase):
+    """-Il after a consonant, -n after a vowel, -In after l."""
+
+    def setUp(self):
+        self.passive = {s.name: s for s in sfx.ALL_SUFFIXES}["passive_il"]
+
+    def forms(self, stem):
+        return self.passive.form(stem, current_chain=[])
+
+    def test_vowel_final_stems_take_n(self):
+        for stem in ("bekle", "oku", "ye", "dışla"):
+            self.assertIn("n", self.forms(stem), stem)
+
+    def test_l_final_stems_take_in(self):
+        self.assertIn("ın", self.forms("al"))
+        self.assertIn("un", self.forms("bul"))
+
+    def test_consonant_stems_still_take_il(self):
+        self.assertIn("ıl", self.forms("yap"))
+        self.assertIn("ül", self.forms("gör"))
+
+    def test_the_passive_reading_beats_nothing_being_available(self):
+        # "beklenen" used to be analysable only as bekle + reflexive_in.
+        chains = {tuple(s.name for s in c) for _r, _p, c, _f in sfx.decompose_with_root("beklenen", "bekle")}
+        self.assertIn(("passive_il", "factative_en"), chains)

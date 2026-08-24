@@ -36,26 +36,32 @@ class VerbDerivationalSuffix(Suffix):
             is_unique=is_unique
         )
 
-"""
 def form_for_passive_il(word, suffix_obj, current_chain=None):
+    """The Turkish passive has three allomorphs, not one.
 
+    -Il after a consonant (yap-ıl, gör-ül), -n after a vowel (bekle-n, oku-n,
+    ye-n), and -In after l, where -Il would double the consonant (al-ın,
+    bul-un). This function existed but was commented out, so passive_il fell
+    back to the default form and only ever produced -Il. Every vowel-final and
+    l-final verb therefore had no passive at all, and the only reading left for
+    "beklenen" was reflexive_in, which does produce -n and is a different
+    morpheme - 12,084 words across the corpus.
+    """
     result_list = []
-    
-    # il form with harmony
-    il_base = 'il'
-    il_base = Suffix._apply_major_harmony(word, il_base, suffix_obj.has_major_harmony)
-    il_base = Suffix._apply_minor_harmony(word, il_base, suffix_obj.has_minor_harmony)
-    result_list.append(il_base)
 
-    if word.endswith("l") :
-        in_base = 'in'
-        in_base = Suffix._apply_major_harmony(word, in_base, suffix_obj.has_major_harmony)
-        in_base = Suffix._apply_minor_harmony(word, in_base, suffix_obj.has_minor_harmony)
-        result_list.append(in_base)
+    def harmonised(base):
+        base = Suffix._apply_major_harmony(word, base, suffix_obj.has_major_harmony)
+        return Suffix._apply_minor_harmony(word, base, suffix_obj.has_minor_harmony)
 
+    if word and word[-1] in VOWELS:
+        result_list.append("n")
+        return result_list
+
+    result_list.append(harmonised("il"))
+    if word.endswith("l"):
+        result_list.append(harmonised("in"))
 
     return result_list
-"""
 def form_for_active_it(word, suffix_obj, current_chain=None):
     """
     Form function for active_it suffix (Active Sıfat-Fiil)
@@ -83,7 +89,7 @@ active_dir      = VerbDerivationalSuffix("active_dir"      , "dir")
 active_ir       = VerbDerivationalSuffix("active_ir"       , "ir" )
 active_er       = VerbDerivationalSuffix("active_er"       , "er" )
 
-passive_il      = VerbDerivationalSuffix("passive_il"      , "il" )
+passive_il      = VerbDerivationalSuffix("passive_il"      , "il", form_function=form_for_passive_il )
 reflexive_in    = VerbDerivationalSuffix("reflexive_in"    , "in" )
 randomative_ele = VerbDerivationalSuffix("randomative_ele" , "ele")
 

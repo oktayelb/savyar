@@ -10,20 +10,20 @@ class MLConfig:
     
     # --- Model Architecture ---
     # Vocab size is dynamic (passed at runtime), others are static
-    # The corpus grew 68% in words per sequence when bare roots stopped being
-    # dropped - 8.2 to 12.8 - while capacity stayed at 11.5M, which is 117
-    # parameters per training set. The model cannot fit its own training data:
-    # 58.9% rank accuracy on it against 58.4% on validation, a gap of half a
-    # point. That is underfitting, and capacity is the lever for it.
-    embed_dim: int = 512        # Main suffix identity dimension
-    num_layers: int = 8         # Increased from 4 for 90k dataset capacity
+    # 512/8 (26.5M) was tried against this corpus and reverted. It moved every
+    # accuracy metric by less than two tenths of a point and left the train-val
+    # gap negative - 58.17% train against 58.29% validation - so the model still
+    # could not fit its own training data at 2.3x the parameters. Whatever binds
+    # performance here, it is not capacity.
+    embed_dim: int = 384        # Main suffix identity dimension
+    num_layers: int = 6         # Increased from 4 for 90k dataset capacity
     num_heads: int = 8          
     dropout: float = 0.3        
 
     # Feature embedding dimensions scaled by cardinality to prevent overfitting
     group_embed_dim: int = 8
     wordpos_embed_dim: int = 16
-    pos_embed_dim: int = 512
+    pos_embed_dim: int = 384
 
     # --- Training Hyperparameters ---
     learning_rate: float = 3e-4

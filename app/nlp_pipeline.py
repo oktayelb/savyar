@@ -8,7 +8,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import util.decomposer as sfx
 from util.word_methods import tr_lower
-from util.words.closed_class import ClosedClassMarker, CLOSED_CLASS_TOKEN_SPECS
+from util.words.closed_class import (
+    CLOSED_CLASS_LEXEMES,
+    IRREGULAR_STEMS,
+    irregular_stem,
+    lexeme_of,
+)
 from ml.ml_ranking_model import (
     SUFFIX_OFFSET,
     GROUP_TO_ID,
@@ -37,19 +42,11 @@ def sanitize_sentence(raw: str) -> List[str]:
 def _build_caches():
     suffix_to_id = {s.name: idx + SUFFIX_OFFSET for idx, s in enumerate(sfx.ALL_SUFFIXES)}
     suffix_by_name = {s.name: s for s in sfx.ALL_SUFFIXES}
-    cc_offset = SUFFIX_OFFSET + len(sfx.ALL_SUFFIXES)
-    cc_surface_to_id = {
-        (category, surface): cc_offset + idx
-        for idx, (category, surface) in enumerate(CLOSED_CLASS_TOKEN_SPECS)
-    }
-    cc_name_to_default_id = {}
-    for idx, (category, _surface) in enumerate(CLOSED_CLASS_TOKEN_SPECS):
-        name = f"cc_{category}"
-        if name not in cc_name_to_default_id:
-            cc_name_to_default_id[name] = cc_offset + idx
-    return suffix_to_id, suffix_by_name, cc_surface_to_id, cc_name_to_default_id, cc_offset
+    lexeme_offset = SUFFIX_OFFSET + len(sfx.ALL_SUFFIXES)
+    lexeme_to_id = {lexeme: lexeme_offset + idx for idx, lexeme in enumerate(CLOSED_CLASS_LEXEMES)}
+    return suffix_to_id, suffix_by_name, lexeme_to_id
 
-_SUFFIX_TO_ID, _SUFFIX_BY_NAME, _CC_SURFACE_TO_ID, _CC_NAME_TO_DEFAULT_ID, _CC_OFFSET = _build_caches()
+_SUFFIX_TO_ID, _SUFFIX_BY_NAME, _LEXEME_TO_ID = _build_caches()
 
 
 def _suffix_names_attaching_to(start_pos: str) -> set:
@@ -97,7 +94,7 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
     """Build log-friendly suffix metadata for a selected decomposition."""
     root, _pos, chain, _final_pos = decomposition
 
-    if not chain or isinstance(chain[0], ClosedClassMarker):
+    if not chain:
         return []
 
     word_lower = tr_lower(word)
@@ -105,8 +102,21 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
     cursor = len(root)
     accepted_chain = []
     suffix_info: List[Dict[str, Any]] = []
+    start_idx = 0
 
-    if not word_lower.startswith(root) and chain:
+    stem = irregular_stem(word_lower, root, chain[0].name)
+    if stem:
+        first_suffix = chain[0]
+        suffix_info.append({
+            'name': first_suffix.name,
+            'form': IRREGULAR_STEMS[stem][2],
+            'makes': first_suffix.makes.name if first_suffix.makes else None,
+        })
+        current = stem
+        cursor = len(stem)
+        accepted_chain.append(first_suffix)
+        start_idx = 1
+    elif not word_lower.startswith(root):
         first_suffix = chain[0]
         possible_forms = first_suffix.form(root, current_chain=[])
         for offset in range(3):
@@ -118,10 +128,8 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
                 cursor = test_cursor
                 break
 
-    for idx, suffix in enumerate(chain):
-        if isinstance(suffix, ClosedClassMarker):
-            continue
-
+    for idx in range(start_idx, len(chain)):
+        suffix = chain[idx]
         forms = suffix.form(current, current_chain=accepted_chain)
         rest = word_lower[cursor:]
         used_form = ""
@@ -166,8 +174,14 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
     return suffix_info
 
 
-def root_token(root_pos: str) -> Tuple[int, int, int]:
-    token_id = SPECIAL_ROOT_VERB if root_pos == "verb" else SPECIAL_ROOT_NOUN
+def root_token(root: str, root_pos: str) -> Tuple[int, int, int]:
+    lexeme = lexeme_of(root) if root_pos == "noun" else None
+    if lexeme is not None:
+        token_id = _LEXEME_TO_ID[lexeme]
+    elif root_pos == "verb":
+        token_id = SPECIAL_ROOT_VERB
+    else:
+        token_id = SPECIAL_ROOT_NOUN
     return (token_id, SPECIAL_FEATURE_ID, 1)
 
 
@@ -178,68 +192,39 @@ def root_pos_from_suffix_names(suffix_dicts: List[Dict]) -> str:
     return "noun"
 
 
-def encode_suffix_names(suffix_dicts: List[Dict], root_pos: str) -> List[Tuple[int, int, int]]:
+def encode_suffix_names(suffix_dicts: List[Dict], root: str, root_pos: str) -> List[Tuple[int, int, int]]:
     """Encode suffix chain directly from JSONL suffix dicts (name/makes strings)."""
-    encoded = [root_token(root_pos)]
+    encoded = [root_token(root, root_pos)]
     suffix_dicts = _expand_legacy_suffix_dicts(suffix_dicts)
     for idx, sd in enumerate(suffix_dicts):
         name = sd['name']
-        if name.startswith('cc_'):
-            category = name[3:]
-            surface = sd.get('cc_surface') or sd.get('root') or ""
-            token_id = _CC_SURFACE_TO_ID.get(
-                (category, surface),
-                _CC_NAME_TO_DEFAULT_ID.get(name, _CC_OFFSET),
-            )
-            encoded.append((
-                token_id, SPECIAL_FEATURE_ID, idx + 2,
-            ))
-        else:
-            if name not in _SUFFIX_TO_ID:
-                raise ValueError(f"Unknown suffix name in training data: {name!r}")
-            token_id = _SUFFIX_TO_ID.get(name, SUFFIX_OFFSET)
-            suffix_obj = _SUFFIX_BY_NAME.get(name)
-            group_id = GROUP_TO_ID.get(getattr(suffix_obj, 'group', None), SPECIAL_FEATURE_ID)
-            encoded.append((
-                token_id, group_id, idx + 2,
-            ))
+        if name not in _SUFFIX_TO_ID:
+            raise ValueError(f"Unknown suffix name in training data: {name!r}")
+        token_id = _SUFFIX_TO_ID[name]
+        suffix_obj = _SUFFIX_BY_NAME.get(name)
+        group_id = GROUP_TO_ID.get(getattr(suffix_obj, 'group', None), SPECIAL_FEATURE_ID)
+        encoded.append((
+            token_id, group_id, idx + 2,
+        ))
     return encoded
 
 
-def encode_suffix_chain(suffix_chain: List, root_pos: str) -> List[Tuple[int, int, int]]:
+def encode_suffix_chain(suffix_chain: List, root: str, root_pos: str) -> List[Tuple[int, int, int]]:
     """Encodes a root and its suffix chain into ML token feature tuples."""
-    encoded = [root_token(root_pos)]
+    encoded = [root_token(root, root_pos)]
     for idx, s in enumerate(suffix_chain):
-        if isinstance(s, ClosedClassMarker):
-            token_id = _CC_SURFACE_TO_ID.get(
-                (s.cc_word.category, getattr(s, 'surface_form', s.cc_word.word)),
-                _CC_NAME_TO_DEFAULT_ID.get(s.name, _CC_OFFSET),
-            )
-            encoded.append((
-                token_id, SPECIAL_FEATURE_ID, idx + 2,
-            ))
-        else:
-            token_id = _SUFFIX_TO_ID.get(s.name, SUFFIX_OFFSET)
-            encoded.append((
-                token_id,
-                GROUP_TO_ID.get(getattr(s, 'group', None), SPECIAL_FEATURE_ID),
-                idx + 2,
-            ))
+        token_id = _SUFFIX_TO_ID.get(s.name, SUFFIX_OFFSET)
+        encoded.append((
+            token_id,
+            GROUP_TO_ID.get(getattr(s, 'group', None), SPECIAL_FEATURE_ID),
+            idx + 2,
+        ))
     return encoded
 
 
 def reconstruct_morphology(word: str, decomposition: Tuple) -> Dict[str, Any]:
     """Reconstructs the step-by-step morphology string from a root and suffix chain."""
     root, pos, chain, final_pos = decomposition
-
-    if chain and isinstance(chain[0], ClosedClassMarker):
-        cc = chain[0].cc_word
-        return {
-            'root_str':      f"{root} ({cc.category})",
-            'final_pos':     final_pos,
-            'has_chain':     False,
-            'formation_str': f"{root} [{cc.category}]",
-        }
 
     if not chain:
         verb_marker = "-" if pos == "verb" else ""
@@ -258,7 +243,16 @@ def reconstruct_morphology(word: str, decomposition: Tuple) -> Dict[str, Any]:
     cursor    = len(root)
     start_idx = 0
     
-    if chain and chain[0].name == "pekistirme":
+    stem = irregular_stem(word, root, chain[0].name)
+    if stem:
+        suffix_forms.append(IRREGULAR_STEMS[stem][2])
+        suffix_names.append(chain[0].name)
+        current_stem = stem
+        formation.append(stem)
+        cursor = len(stem)
+        start_idx = 1
+
+    if chain[0].name == "pekistirme":
         root_idx = word.find(root)
         if root_idx > 0:
             prefix_str = word[:root_idx]
@@ -349,27 +343,25 @@ def reconstruct_morphology(word: str, decomposition: Tuple) -> Dict[str, Any]:
     }
 
 
-def format_detailed_decomp(decomp: Tuple) -> str:
+def format_detailed_decomp(word: str, decomp: Tuple) -> str:
     """Formats decomposition to include both suffix name and specific surface form."""
     root, pos, chain, final_pos = decomp
     
-    # Fast path for closed-class words since they don't have standard suffixes
-    if chain and isinstance(chain[0], ClosedClassMarker):
-        cc = chain[0].cc_word
-        return f"{root}_{cc.category}"
-        
     if not chain:
         return root
-        
+
     parts = [root]
     current = root
     accepted_chain = []
-    for suffix in chain:
-        # Fallback check in case a CC marker is mixed into a standard chain
-        if isinstance(suffix, ClosedClassMarker):
-            parts.append(suffix.name)
-            continue
-            
+    remaining_chain = chain
+    stem = irregular_stem(word, root, chain[0].name)
+    if stem:
+        parts.append(f"{chain[0].name}_{IRREGULAR_STEMS[stem][2]}")
+        current = stem
+        accepted_chain.append(chain[0])
+        remaining_chain = chain[1:]
+
+    for suffix in remaining_chain:
         forms = suffix.form(current, current_chain=accepted_chain)
         
         # Use getattr as a safety net to prevent AttributeError
@@ -386,9 +378,9 @@ def format_detailed_decomp(decomp: Tuple) -> str:
     return "+".join(parts)
 
 
-def analyze_word(word: str, *, include_closed_class: bool = True) -> Dict[str, Any]:
+def analyze_word(word: str) -> Dict[str, Any]:
     """Decompose one sanitized word and bundle everything downstream needs."""
-    decomps = sfx.decompose_with_cc(word) if include_closed_class else sfx.decompose(word)
+    decomps = sfx.decompose_with_fallback(word)
 
     encoded_chains: List[List] = []
     vms: List[Dict[str, Any]] = []
@@ -396,7 +388,7 @@ def analyze_word(word: str, *, include_closed_class: bool = True) -> Dict[str, A
 
     for decomp in decomps:
         root, root_pos, chain, _ = decomp
-        encoded_chains.append(encode_suffix_chain(chain, root_pos))
+        encoded_chains.append(encode_suffix_chain(chain, root, root_pos))
         vm = reconstruct_morphology(word, decomp)
         vms.append(vm)
         if vm.get('has_chain'):
@@ -424,12 +416,12 @@ def analyze_word_with_root(word: str, root: str) -> Dict[str, Any]:
     return {
         'word': word,
         'decomps': decomps,
-        'encoded_chains': [encode_suffix_chain(chain, root_pos) for _r, root_pos, chain, _f in decomps],
+        'encoded_chains': [encode_suffix_chain(chain, root, root_pos) for root, root_pos, chain, _f in decomps],
     }
 
 
-def analyze_words(words: List[str], *, include_closed_class: bool = True) -> List[Dict[str, Any]]:
-    return [analyze_word(w, include_closed_class=include_closed_class) for w in words]
+def analyze_words(words: List[str]) -> List[Dict[str, Any]]:
+    return [analyze_word(w) for w in words]
 
 
 def score_and_sort(analysis: Dict[str, Any], trainer) -> Optional[List[float]]:

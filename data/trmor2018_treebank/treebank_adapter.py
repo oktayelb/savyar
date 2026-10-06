@@ -195,9 +195,10 @@ UPOS_TO_CC_CATEGORY = {
     "Det": "determiner",
     "Interj": "interjection",
     "Pron": "pronoun",
+    "Ques": "particle",
 }
 
-SKIP_UPOS = {"Num", "Ques", "?", "Dup"}
+SKIP_UPOS = {"Num", "?", "Dup"}
 POS_TAGS = {
     "Noun", "Verb", "Adj", "Adverb", "Det", "Conj", "Pron", "Postp",
     "Num", "Ques", "Interj", "Punct", "Dup", "?",

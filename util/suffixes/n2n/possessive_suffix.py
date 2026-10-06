@@ -1,4 +1,5 @@
 from util.suffix import Suffix, Type, SuffixGroup
+from util.words.closed_class import N_STEM_PRONOUNS
 
 
 ## COMPLETE
@@ -26,6 +27,11 @@ class PossessiveSuffix(Suffix):
             group=group,
             is_unique=is_unique
         )
+
+    def form(self, word, current_chain=None):
+        if not current_chain and word in N_STEM_PRONOUNS:
+            return []
+        return super().form(word, current_chain=current_chain)
 
 def form_for_possessive_3sg(word, suffix_obj, current_chain=None):
     base = "i"

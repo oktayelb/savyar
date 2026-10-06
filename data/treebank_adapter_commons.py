@@ -6,7 +6,8 @@ import itertools
 
 from util.decomposer import ALL_SUFFIXES, decompose
 from util.suffix import Type
-from util.words.closed_class import CLOSED_CLASS_LOOKUP
+from util.words.closed_class import IRREGULAR_STEMS, irregular_stem, lexeme_of
+import util.word_methods as wrd
 from util.word_methods import tr_lower
 
 
@@ -319,8 +320,16 @@ def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
     suffixes = []
     current_stem = root
     accepted_chain = []
+    first_name = expected_suffix_names[0] if expected_suffix_names else None
+    stem = irregular_stem(surface_lower, root, first_name)
     for idx, sname in enumerate(expected_suffix_names):
         sobj = SUFFIX_BY_NAME.get(sname)
+        if idx == 0 and stem:
+            makes_str = "VERB" if sobj.makes == Type.VERB else "NOUN"
+            suffixes.append({"name": sname, "form": IRREGULAR_STEMS[stem][2], "makes": makes_str})
+            accepted_chain.append(sobj)
+            current_stem = stem
+            continue
         if sobj:
             makes_str = "VERB" if sobj.makes == Type.VERB else "NOUN"
             rest = surface_lower[len(current_stem):]
@@ -356,19 +365,75 @@ def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
     }
 
 
-def build_cc_entry(surface_lower, cc_category):
-    cc_entries = CLOSED_CLASS_LOOKUP.get(surface_lower, [])
-    if not cc_entries:
+TREEBANK_LEMMA_ALIASES = {
+    "biri": "bir",
+    "birbiri": "birbir",
+    "hepsi": "hep",
+    "kendisi": "kendi",
+    "çoğu": "çok",
+    "on": "o",
+    "san": "sen",
+}
+
+
+def _lexeme_or_root(root):
+    return lexeme_of(root) or root
+
+
+def _lemma_lexeme(lemma):
+    lemma = TREEBANK_LEMMA_ALIASES.get(lemma, lemma)
+    if lexeme_of(lemma) or wrd.exists(lemma):
+        return _lexeme_or_root(lemma)
+    lexeme_roots = [
+        root for root, pos, _chain, _final_pos in decompose(lemma)
+        if pos == "noun" and lexeme_of(root)
+    ]
+    if not lexeme_roots:
+        return lemma
+    return lexeme_of(max(lexeme_roots, key=len))
+
+
+def is_closed_class_lemma(lemma):
+    lexeme = lexeme_of(TREEBANK_LEMMA_ALIASES.get(lemma, lemma))
+    return lexeme is not None and not wrd.can_be_verb(lexeme)
+
+
+def _suffix_slot(name):
+    suffix = SUFFIX_BY_NAME.get(name)
+    return suffix.group if suffix is not None else name
+
+
+def _agreement_with_features(chain_names, expected_names):
+    same_names = sum((Counter(chain_names) & Counter(expected_names)).values())
+    same_slots = sum((
+        Counter(_suffix_slot(name) for name in chain_names)
+        & Counter(_suffix_slot(name) for name in expected_names)
+    ).values())
+    return (
+        chain_names == expected_names,
+        same_names,
+        same_slots,
+        -abs(len(chain_names) - len(expected_names)),
+    )
+
+
+def build_closed_class_entry(surface_lower, lemma, expected_suffix_names):
+    target = _lemma_lexeme(tr_lower(lemma))
+    expected = apply_annotation_corrections(surface_lower, apply_collapses(expected_suffix_names))
+    analyses = [
+        (root, chain)
+        for root, pos, chain, _final_pos in decompose(surface_lower)
+        if pos == "noun"
+        and _lexeme_or_root(root) == target
+        and all(suffix.name in SUFFIX_BY_NAME for suffix in chain)
+    ]
+    if not analyses:
         return None
-    matched_cc = next((c for c in cc_entries if c.category == cc_category), cc_entries[0])
-    suffix_name = f"cc_{matched_cc.category}"
-    return {
-        "word": surface_lower,
-        "morphology_string": surface_lower,
-        "root": surface_lower,
-        "suffixes": [{"name": suffix_name, "form": "", "makes": "", "cc_surface": surface_lower}],
-        "final_pos": suffix_name,
-    }
+    root, chain = max(
+        analyses,
+        key=lambda analysis: _agreement_with_features([s.name for s in analysis[1]], expected),
+    )
+    return build_treebank_forced_entry(surface_lower, root, [s.name for s in chain])
 
 
 def record_unmapped(sink, feat_key, feat_val, word, *, note=""):
@@ -565,19 +630,23 @@ def adapt_normalized_treebank(
                 no_suffix_words += 1
                 continue
 
-            cc_category = closed_class_category(word)
-            if cc_category:
-                entry = build_cc_entry(surface_lower, cc_category)
+            is_function_word = bool(closed_class_category(word))
+            if is_function_word or is_closed_class_lemma(tr_lower(lemma)):
+                expected_suffixes, _unmapped, has_unmappable = translate_word(word, {})
+                entry = build_closed_class_entry(surface_lower, lemma, expected_suffixes)
+                if entry is None and is_function_word and expected_suffixes and not has_unmappable:
+                    entry = build_treebank_forced_entry(surface_lower, lemma, expected_suffixes)
                 if entry:
                     word_entries.append(entry)
                     matched_words += 1
                     sentence_has_any = True
                     trainable_words_in_sentence += 1
-                else:
+                    continue
+                if is_function_word:
                     bare_root_words.append(surface_lower)
                     word_entries.append(bare_root_entry(surface_lower))
                     no_suffix_words += 1
-                continue
+                    continue
 
             expected_suffixes, unmapped_feats, has_unmappable = translate_word(word, unmapped_features)
 

@@ -104,15 +104,11 @@ The algorithm:
 3. Verifies the remainder starts with the same consonant-vowel prefix as the word.
 4. If suffixes follow the reduplicated root (e.g. `masmaviydim`), it recursively calls `find_suffix_chain()` on the remainder.
 
-### 7. Closed-Class Integration
+### 7. Closed-Class Words
 
-`decompose_with_cc()` wraps `decompose()` and appends closed-class word analyses. For words like `"ve"` (conjunction) or `"o"` (pronoun/determiner), it adds entries from `CLOSED_CLASS_LOOKUP`:
+Closed-class lexemes (`util/words/closed_class.py`) are ordinary noun roots, so `bana` is `("ben", "noun", [dative_e], "noun")`. Their irregular forms come from the suffix rules (pronominal `n` after `o`/`bu`/`şu`, genitive `-im` after `ben`/`biz`) and from `IRREGULAR_STEMS` (e.g. `bana`, `hepsi`, `birisi`). Conjunctions and clitics take no suffix as nouns. `decompose()` returns each `(root, pos, chain)` once.
 
-```python
-(word, "cc_pronoun", [ClosedClassMarker(...)], "cc_pronoun")
-```
-
-This allows the ML model to see these tokens in the sentence sequence alongside suffix-chain decompositions.
+`decompose_with_fallback()` is what callers use: it returns `decompose()`'s analyses, or hypothesised roots when there are none.
 
 ### 8. Caching Strategy
 

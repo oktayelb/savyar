@@ -246,6 +246,7 @@ UPOS_TO_CC_CATEGORY = {
     "Adv":    "adverb",
     "Interj": "interjection",
     "Det":    "determiner",
+    "Ques":   "particle",
 }
 # Pron XPOS subtypes all map to "pronoun"
 PRON_XPOS = {"PersP", "DemonsP", "QuesP", "ReflexP", "Pron"}
@@ -651,7 +652,7 @@ def features_to_suffix_names(word, _unmapped_sink=None):
 
 def should_skip_word(word):
     first_step = word["feature_layers"][0]
-    return first_step["upos"] in {"Num", "Ques"}
+    return first_step["upos"] in {"Num"}
 
 
 def closed_class_category(word):

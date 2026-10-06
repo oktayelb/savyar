@@ -16,8 +16,8 @@ from ml.ml_ranking_model import (
     build_sentence_sequence,
 )
 
-NOUN = nlp.root_token("noun")
-VERB = nlp.root_token("verb")
+NOUN = nlp.root_token("elma", "noun")
+VERB = nlp.root_token("gel", "verb")
 SUFFIXED = [NOUN, (SUFFIX_OFFSET + 3, 4, 2)]
 
 
@@ -37,12 +37,12 @@ class RootTokenTest(unittest.TestCase):
 
     def test_every_word_opens_with_its_root_token(self):
         dative = {s.name: s for s in sfx.ALL_SUFFIXES}["dative_e"]
-        self.assertEqual(nlp.encode_suffix_chain([], "noun"), [NOUN])
-        self.assertEqual(nlp.encode_suffix_chain([], "verb"), [VERB])
-        self.assertEqual(nlp.encode_suffix_chain([dative], "noun")[0], NOUN)
+        self.assertEqual(nlp.encode_suffix_chain([], "elma", "noun"), [NOUN])
+        self.assertEqual(nlp.encode_suffix_chain([], "gel", "verb"), [VERB])
+        self.assertEqual(nlp.encode_suffix_chain([dative], "elma", "noun")[0], NOUN)
 
     def test_suffixes_follow_the_root(self):
-        encoded = nlp.encode_suffix_names([{"name": "dative_e", "makes": "NOUN"}], "noun")
+        encoded = nlp.encode_suffix_names([{"name": "dative_e", "makes": "NOUN"}], "elma", "noun")
         self.assertEqual(encoded[0], NOUN)
         self.assertEqual(encoded[1][2], 2)
 

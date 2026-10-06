@@ -14,13 +14,13 @@ The short version is:
 raw input text
   -> sanitize into lowercase Turkish tokens
   -> rule-based decomposer creates root + suffix-chain candidates
-  -> NLP adapter reconstructs display strings and encodes only suffix/closed-class chains
+  -> NLP adapter reconstructs display strings and encodes a root token plus the suffix chain
   -> ML model scores complete candidate chains
   -> user/treebank choice becomes gold
   -> engine trains gold-vs-generated-negative candidate sets
 ```
 
-The important design point is that roots are used by the rule-based engine, display code, logs, and gold-candidate matching. Roots are not encoded into the ML model input.
+The important design point is that roots are used by the rule-based engine, display code, logs, and gold-candidate matching. The model sees an open-class root only as `ROOT_NOUN` or `ROOT_VERB`; a closed-class root (ben, bu, ve, için, mi, ...) gets a token of its own.
 
 ## Startup
 
@@ -33,7 +33,7 @@ Creating `WorkflowEngine()` does the following:
    - CPU fallback is refused unless `config.allow_cpu_fallback`, `SAVYAR_ALLOW_CPU=1`, or an explicit CPU device is used.
 3. Creates `SentenceDisambiguator`.
    - The current repository has `98` suffix objects in `util.decomposer.ALL_SUFFIXES`.
-   - The current closed-class vocabulary has `88` `(category, surface)` entries.
+   - The current closed-class vocabulary has `102` lexemes (`CLOSED_CLASS_LEXEMES`).
 4. Creates `Trainer`.
    - The trainer builds AdamW, the scheduler, AMP scaler, and tries to load `ml/model.pt`.
    - Checkpoint loading is shape-tolerant: matching tensors are loaded, incompatible/missing tensors are left initialized.
@@ -71,20 +71,16 @@ No tokenizer keeps punctuation, capitalization, apostrophes, or sentence-boundar
 
 ## Word Analysis
 
-`WorkflowEngine.analyze_word(word)` calls `nlp.analyze_word(word, include_closed_class=True)`.
+`WorkflowEngine.analyze_word(word)` calls `nlp.analyze_word(word)`.
 
 ### 1. Candidate Generation
 
-`nlp.analyze_word()` calls `sfx.decompose_with_cc(word)`.
+`nlp.analyze_word()` calls `sfx.decompose_with_fallback(word)`, which runs `decompose(word)` and, only when that finds nothing, hypothesises the root from the surface (`decompose(word, force=True)`).
 
-`decompose_with_cc()` first runs the open-class decomposer and then appends closed-class analyses.
+`decompose(word)` does this:
 
-The open-class decomposer, `decompose(word)`, does this:
-
-1. Rejects non-`ben` pronoun surfaces for open-class decomposition unless `force=True`.
-   - This keeps forms such as `sana`, `onu`, or `bizim` from being treated as ordinary dictionary-root analyses.
-   - They can still appear through the closed-class path.
-2. Starts with any `pekistirme` analyses from `get_pekistirme_analyses()`.
+1. Adds analyses that start from an irregular closed-class stem (`IRREGULAR_STEMS`, e.g. `bana`, `hepsi`, `birisi`).
+2. Adds any `pekistirme` analyses from `get_pekistirme_analyses()`.
    - This handles intensifier reduplication such as `masmavi`.
 3. Iterates every prefix of the word as a possible root.
    - For `evlerden`, prefixes are `e`, `ev`, `evl`, `evle`, ...
@@ -140,19 +136,16 @@ Suffix objects generate forms through `util/suffix.py` and custom suffix functio
 
 That means the detailed suffix waterfall rules written below that return statement are not active. In the current code, ordering restrictions are effectively not enforced by `is_valid_transition()`. The decomposer still filters candidates by POS transition, uniqueness, surface-form matching, dictionary roots, and special matching logic, but not by the later waterfall checks.
 
-### 4. Closed-Class Candidates
+### 4. Closed-Class Words
 
-After regular decompositions, `decompose_with_cc()` checks `CLOSED_CLASS_LOOKUP`.
+Closed-class words are decomposed like any other noun root; there is no separate closed-class candidate. `util/words/closed_class.py` lists the lexemes, and every lexeme is a noun root. The irregular parts of their paradigms live in the suffix rules and one small table:
 
-For each matching closed-class word, it appends:
+- `o`, `bu`, `şu` take a pronominal `n` before a case or plural suffix (`o-n-u`, `bu-n-lar`) and take no possessive.
+- `ben`, `biz` form the genitive with `-im` (`benim`, `bizim`).
+- `bana`, `sana`, `hepsi`, `birisi`, `birileri`, `hiçbirisi` start from `IRREGULAR_STEMS`.
+- Conjunctions, `de`/`da`, `bile`, `ile` and `evet` take no suffix as nouns.
 
-```python
-(word, "cc_<category>", [ClosedClassMarker(cc_obj, surface_form=word)], "cc_<category>")
-```
-
-Closed-class examples include pronouns, conjunctions, postpositions, adverbs, and question particles. Pronoun lookup includes stored irregular forms such as `bana`, `sana`, `onu`, and `onun`.
-
-Closed-class candidates are represented as one marker in the suffix chain. They are not decomposed into normal root + suffix pieces.
+Inflected forms of these lexemes (`bana`, `onlar`, `kendisine`, `misiniz`) are not lexicon entries, so each word has exactly one analysis per reading. `decompose()` also drops any repeated `(root, pos, chain)` before returning, and `tools/build_derived_lexicons.py` refuses to add such forms back.
 
 ## NLP Adapter Output
 
@@ -165,43 +158,22 @@ For every decomposition, `nlp.analyze_word()` builds four aligned lists:
 
 ### Encoded Chains
 
-`encode_suffix_chain(chain)` converts each suffix or closed-class marker into:
+`encode_suffix_chain(chain, root, root_pos)` emits a root token followed by one token per suffix, each as:
 
 ```python
 (token_id, group_id, position_in_word)
 ```
 
-For a normal suffix:
+- Root token: the lexeme's token if `root_pos` is `"noun"` and the root is a closed-class lexeme, otherwise `ROOT_NOUN`/`ROOT_VERB`. Position `1`, group `0`.
+- Suffix: `token_id = SUFFIX_OFFSET + suffix_index_in_ALL_SUFFIXES`, group from `SuffixGroup`, positions from `2`.
 
-- `token_id = 5 + suffix_index_in_ALL_SUFFIXES`.
-- `group_id` comes from `SuffixGroup`; missing group is `0`.
-- `position_in_word` starts at `1` inside the current word.
-
-For a closed-class marker:
-
-- `token_id` comes after all suffix IDs.
-- `group_id` is special value `0`.
-- position is still set.
-
-For a bare-root candidate with no suffixes:
-
-```python
-encoded_chain = []
-```
-
-There is no root token and no bare-root token in the encoded chain.
+A bare root is its root token alone: `elma` is `[ROOT_NOUN]`, `ben` is `[ben]`.
 
 ### Display Reconstruction
 
 `reconstruct_morphology(word, decomposition)` builds the user-facing explanation.
 
-For a closed-class candidate:
-
-```text
-root_str      = "<surface> (<category>)"
-formation_str = "<surface> [<category>]"
-has_chain     = False
-```
+An analysis that starts from an irregular stem is displayed from that stem: `bana` shows `ben + a` and `ben → bana`.
 
 For a bare root:
 
@@ -278,7 +250,7 @@ raw word
 2. Logs each selected decomposition to `data/sentence_valid_decompositions.jsonl`.
    - Each log entry stores `word`, `root`, `suffixes`, and `final_pos`.
    - `suffixes` contains suffix names, matched surface forms, and output POS.
-   - Closed-class and bare-root chains log an empty suffix list.
+   - Bare-root chains log an empty suffix list.
 3. Runs dictionary cleanup logic.
    - It intends to remove the full surface word if a different root exists.
    - It also intends to remove an infinitive form derived from the root.
@@ -350,7 +322,6 @@ This means manual sentence entry is not free-form morphology parsing. The text m
 1. Takes the selected candidate index for each word.
 2. Builds `confirmed_chains`, one encoded chain per word.
    - Bare roots contribute their root token alone (`ROOT_NOUN` or `ROOT_VERB`).
-   - Closed-class candidates contribute their closed-class marker chain during this interactive step.
 3. Logs a sentence entry to `data/sentence_valid_decompositions.jsonl`.
    - The entry has `type: "sentence"`, `original_sentence`, `decomposed_sentence`, and `words`.
 4. Builds negatives with `_single_substitution_negatives()`.
@@ -410,7 +381,6 @@ For every word entry:
 1. Read `suffixes`.
 2. If `suffixes` is empty, skip that word entry.
    - This means bare-root words from logs/treebanks are not included in bulk relearn candidate sets.
-   - Closed-class entries logged with empty suffixes are also skipped in bulk relearn.
 3. Encode the logged suffix names with `nlp.encode_suffix_names()`.
    - The legacy `nondoing_meden` name expands into `infinitive_me + ablative_den`.
    - Unknown suffix names fall back to token ID `SUFFIX_OFFSET`, which is the first normal suffix-token slot, rather than raising an error.
@@ -487,7 +457,7 @@ Flow:
 4. Compares gold/predicted suffix token names.
 5. Captures examples for the worst suffixes.
 
-Per-suffix diagnostic names come only from normal suffix token IDs. Closed-class token IDs do not map to suffix names in this report.
+Per-suffix diagnostic names come only from normal suffix token IDs. Root and lexeme token IDs do not map to suffix names in this report.
 
 ## Sampling
 
@@ -525,7 +495,7 @@ Static preprocessing cache metadata includes:
 - training/source file signatures,
 - dictionary dependency file signatures,
 - suffix inventory,
-- closed-class inventory,
+- closed-class lexeme inventory,
 - `max_negative_candidates`,
 - `max_sequence_length`,
 - optional entry digest for scoped entry lists.
@@ -534,12 +504,11 @@ Exact cache lookup requires full metadata equality. Compatible fallback can reus
 
 ## What Is Not Happening
 
-- The ML model is not given root strings, root IDs, lemmas, or raw surface characters.
+- The ML model is not given open-class root strings, root IDs, lemmas, or raw surface characters; only closed-class lexemes have root identity.
 - The ML model is not given the displayed suffix surface forms such as `ler`, `den`, or `(ø)`. It receives suffix object IDs and suffix metadata IDs.
 - The ML model does not receive punctuation, capitalization, apostrophes, or original sentence text.
 - The engine does not use a full Cartesian product of sentence candidates for training negatives.
 - Bulk relearn skips logged word entries whose `suffixes` list is empty, so bare-root logged words are not included as context there.
-- Closed-class candidates are used interactively, but logged closed-class entries with empty suffixes are skipped by the current bulk relearn conversion.
 - `is_valid_transition()` currently does not enforce the waterfall rules because it returns `True` at the top of the function.
 - Dictionary cleanup after word commits is effectively inactive because `wrd.delete_word()` always returns `False`.
 - Suffix-derived verb markers in `formation_str` are effectively inactive for the same enum-name reason: the display code checks for `"Verb"`, while current enum names are uppercase.

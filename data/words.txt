@@ -3266,7 +3266,6 @@ bambul
 bamya
 bamyatarlası
 ban
-bana
 banak
 banal
 bandaj
@@ -3491,7 +3490,6 @@ bazofil
 bazofobi
 bazuka
 bazı
-bazısı
 baç
 bağ
 bağ-fiil
@@ -3804,7 +3802,6 @@ beraat
 beraatizimmet
 beraber
 beraberce
-beraberinde
 berat
 berbat
 berber
@@ -4107,7 +4104,6 @@ birahaneci
 biraz
 birazcık
 birazdan
-birbiri
 birci
 birden
 birdenbire
@@ -4118,21 +4114,17 @@ birey
 bireyci
 bireyüstü
 bireşimli
-biri
 biricik
 birikimci
 birikinti
 birikmek
 biriktirilmek
 biriktirim
-birileri
 birim
 birincasıf
 birinci
 birincil
-birisi
 birkaç
-birkaçı
 birleşen
 birleşik
 birleşilmek
@@ -4144,8 +4136,6 @@ birun
 biryan
 biryancı
 birçok
-birçokları
-birçoğu
 biseksüel
 bisiklet
 bisküvi
@@ -4217,10 +4207,6 @@ bizar
 bizatihi
 bizce
 bizcileyin
-bizde
-bizden
-bize
-bizimki
 bizlengiç
 bizmut
 bizon
@@ -4503,7 +4489,6 @@ bumburuşuk
 bumbuz
 bumerang
 bun
-buna
 bunak
 bunakça
 bunalmak
@@ -4512,12 +4497,9 @@ bunaltı
 bunamak
 bunca
 buncağız
-bunda
-bundan
 bungalov
 bunmak
 bura
-burası
 burağan
 burcu
 burcumak
@@ -6052,7 +6034,6 @@ dizmen
 dizyem
 dizüstü
 diğer
-diğeri
 diğerkam
 diş
 dişbudak
@@ -8486,9 +8467,6 @@ geğirmek
 geğirti
 geğrek
 gibi
-gibilerden
-gibisi
-gibisinden
 gider
 giderayak
 giderek
@@ -9235,7 +9213,6 @@ hanek
 hanende
 hangar
 hangi
-hangisi
 hani
 hantal
 hanuman
@@ -9632,7 +9609,6 @@ hep
 hepatit
 hepatoloji
 hepatolojik
-hepsi
 hepten
 hepyek
 hepçil
@@ -9837,7 +9813,6 @@ hizmet
 hizmetkar
 hiç
 hiçbir
-hiçbiri
 hiçten
 hiş
 hişt
@@ -12200,14 +12175,11 @@ kazımık
 kazıntı
 kazıtmak
 kaç
-kaça
 kaçak
 kaçamak
 kaçar
 kaçgöç
 kaçmak
-kaçta
-kaçı
 kaçıkça
 kaçımsamak
 kaçıngan
@@ -12343,8 +12315,6 @@ kendi
 kendigelen
 kendiliğinden
 kendince
-kendinde
-kendinden
 kendir
 kendirci
 kendirik
@@ -12558,7 +12528,6 @@ kim
 kimesne
 kimi
 kimileyin
-kimisi
 kimono
 kimse
 kimsecik
@@ -16951,16 +16920,11 @@ nepotist
 nepotizm
 neptünyum
 nere
-nerede
-nereden
 neredeyse
-neresi
-nereye
 nergis
 neritik
 nervür
 nesep
-nesi
 nesih
 nesil
 nesim
@@ -17339,7 +17303,6 @@ omurilik
 omuz
 omuzdaş
 on
-ona
 onamak
 onanizm
 onanmak
@@ -17355,9 +17318,7 @@ onbeşli
 onbiraylık
 onca
 onculayın
-onda
 ondalıkçı
-ondan
 ondörtlük
 ondülatör
 ondüle
@@ -17368,11 +17329,7 @@ onikitelli
 oniks
 onkoloji
 onkolojik
-onlara
 onlarca
-onlarda
-onlardan
-onlarınki
 onmadık
 onmak
 onomastik
@@ -17385,7 +17342,6 @@ ontoloji
 ontolojik
 onum
 onuncu
-onunki
 onur
 oosfer
 oosit
@@ -17411,7 +17367,6 @@ opus
 ora
 oracık
 oracıkta
-oradan
 orak
 oral
 oramiral
@@ -17420,7 +17375,6 @@ oranca
 orangutan
 oranla
 orantı
-orası
 oratoryo
 orcik
 ordinaryüs
@@ -19408,7 +19362,6 @@ samur
 samuray
 samut
 san
-sana
 sanal
 sanat
 sanatevi
@@ -19886,7 +19839,6 @@ senevi
 seneye
 senfoni
 senfonik
-seninki
 senir
 senit
 senkretizm
@@ -20301,10 +20253,6 @@ siyonist
 siyonizm
 siz
 sizce
-sizde
-sizden
-size
-sizinki
 siğil
 skala
 skandal
@@ -25160,7 +25108,6 @@ zıypak
 çokal
 çokbilmiş
 çokgen
-çokları
 çoklarınca
 çoklukla
 çokrağan
@@ -25187,7 +25134,6 @@ zıypak
 çotuk
 çoğalmak
 çoğaltmak
-çoğu
 çoğul
 çoğulcu
 çoğumsamak
@@ -26428,10 +26374,8 @@ zıypak
 şufa
 şuh
 şule
-şuna
 şunca
 şuncacık
-şunda
 şura
 şuracık
 şurada

@@ -3,6 +3,13 @@ from pathlib import Path
 import random
 from typing import List, Tuple, Optional
 
+from util.words.closed_class import (
+    CLOSED_CLASS_LEXEMES,
+    LEXEME_SPELLINGS,
+    UNINFLECTED_LEXEMES,
+    lexeme_of,
+)
+
 _TR_LOWER_TABLE = str.maketrans("İI", "iı")
 
 def tr_lower(s: str) -> str:
@@ -84,7 +91,10 @@ def lexicon_key(word: str) -> str:
 def _reindex_dictionary():
     """Rebuild the folded lookup indexes from the loaded entries."""
     global _NOUN_KEYS, _VERB_KEYS, _UNSUFFIXABLE_KEYS
-    _NOUN_KEYS = {lexicon_key(word) for word in WORDS_SET}
+    noun_keys = {lexicon_key(word) for word in WORDS_SET}
+    noun_keys.update(CLOSED_CLASS_LEXEMES)
+    noun_keys.update(LEXEME_SPELLINGS)
+    _NOUN_KEYS = noun_keys
     _VERB_KEYS = {lexicon_key(word) for word in VERB_SET}
     _UNSUFFIXABLE_KEYS = {lexicon_key(word) for word in UNSUFFIXABLE_SET}
 
@@ -196,9 +206,8 @@ def is_unsuffixable(word: str) -> bool:
     return _in_index(word, _UNSUFFIXABLE_KEYS)
 
 
-def is_non_ben_pronoun_surface(word: str) -> bool:
-    from util.words.closed_class import NON_BEN_PRONOUN_SURFACES
-    return word in NON_BEN_PRONOUN_SURFACES
+def is_uninflected_noun(word: str) -> bool:
+    return lexeme_of(word) in UNINFLECTED_LEXEMES
 
 def can_be_noun(word: str) -> bool:
     if not word:

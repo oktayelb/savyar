@@ -21,7 +21,7 @@ from app.data_manager import DataManager
 import app.nlp_pipeline as nlp
 from ml.ml_ranking_model import SentenceDisambiguator, Trainer, build_sentence_sequence, resolve_torch_device
 from ml.config import config
-from util.words.closed_class import CLOSED_CLASS_TOKEN_SPECS
+from util.words.closed_class import CLOSED_CLASS_LEXEMES
 
 # 5: negatives are drawn round-robin over words instead of depth-first from word 0.
 # 5: bare-root words are kept in the gold chains instead of being dropped.
@@ -200,7 +200,7 @@ class WorkflowEngine:
         self.device = resolve_torch_device()
         self.model = SentenceDisambiguator(
             suffix_vocab_size=len(sfx.ALL_SUFFIXES),
-            closed_class_vocab_size=len(CLOSED_CLASS_TOKEN_SPECS),
+            closed_class_vocab_size=len(CLOSED_CLASS_LEXEMES),
             device=self.device,
         )
         self.trainer = Trainer(model=self.model, device=self.device)
@@ -210,7 +210,7 @@ class WorkflowEngine:
     def get_decompositions(self, word: str) -> List[Tuple]:
         word = word.replace("'", "")
         if word not in self.decomp_cache:
-            self.decomp_cache[word] = sfx.decompose_with_cc(word)
+            self.decomp_cache[word] = sfx.decompose_with_fallback(word)
         return self.decomp_cache[word]
 
     def save(self):
@@ -228,7 +228,7 @@ class WorkflowEngine:
             self.data_manager.save_final_suffix_metrics(report)
 
     def analyze_word(self, word: str) -> Optional[Dict[str, Any]]:
-        analysis = nlp.analyze_word(word, include_closed_class=True)
+        analysis = nlp.analyze_word(word)
         if not analysis['decomps']:
             return None
         if self.training_count > 0:
@@ -238,7 +238,7 @@ class WorkflowEngine:
     def analyze_sentence_with_failures(self, words: List[str]) -> Tuple[Optional[List[Dict[str, Any]]], List[Dict[str, Any]]]:
         if not words:
             return None, []
-        analyses = nlp.analyze_words(words, include_closed_class=True)
+        analyses = nlp.analyze_words(words)
         failures = [
             {'index': i + 1, 'word': a['word']}
             for i, a in enumerate(analyses)
@@ -326,7 +326,7 @@ class WorkflowEngine:
         return loss
 
     def evaluate_word(self, word: str) -> Optional[Dict]:
-        analysis = nlp.analyze_word(word, include_closed_class=True)
+        analysis = nlp.analyze_word(word)
         if not analysis['decomps']: return None
         scores = nlp.score_and_sort(analysis, self.trainer)
         if scores is None and len(analysis['decomps']) > 1: return None
@@ -435,9 +435,13 @@ class WorkflowEngine:
             # "no suffix" a flawless marker for a wrong answer. Its root token
             # alone is the correct encoding; a chain the tables cannot encode
             # still raises, and the caller still drops that sentence.
-            encoded_gold = nlp.encode_suffix_names(sfx_dicts, nlp.root_pos_from_suffix_names(sfx_dicts))
+            encoded_gold = nlp.encode_suffix_names(
+                sfx_dicts,
+                word_entry.get('root') or word_entry['word'],
+                nlp.root_pos_from_suffix_names(sfx_dicts),
+            )
             try:
-                word_analysis = nlp.analyze_word(word_entry['word'], include_closed_class=True)
+                word_analysis = nlp.analyze_word(word_entry['word'])
                 matched = nlp.match_decompositions([word_entry], word_analysis['decomps'])
             except Exception:
                 matched = []
@@ -592,7 +596,7 @@ class WorkflowEngine:
             "scope": scope,
             "sources": self.data_manager.get_preprocess_source_signature(include_code=True),
             "suffix_inventory": [suffix.name for suffix in sfx.ALL_SUFFIXES],
-            "closed_class_inventory": [list(spec) for spec in CLOSED_CLASS_TOKEN_SPECS],
+            "closed_class_inventory": list(CLOSED_CLASS_LEXEMES),
             "config": {
                 "max_negative_candidates": int(config.max_negative_candidates),
                 "negatives_per_ambiguous_word": float(config.negatives_per_ambiguous_word),
@@ -889,7 +893,7 @@ class WorkflowEngine:
             fold_path = os.path.join(tmp_dir, f"fold_{fold_idx}.pt")
             model = SentenceDisambiguator(
                 suffix_vocab_size=len(sfx.ALL_SUFFIXES),
-                closed_class_vocab_size=len(CLOSED_CLASS_TOKEN_SPECS),
+                closed_class_vocab_size=len(CLOSED_CLASS_LEXEMES),
                 device=self.device,
             )
             trainer = Trainer(model=model, path=fold_path, device=self.device)
@@ -933,10 +937,14 @@ class WorkflowEngine:
             sfx_dicts = word_entry.get("suffixes", [])
             if not sfx_dicts:
                 continue
-            encoded_gold = nlp.encode_suffix_names(sfx_dicts, nlp.root_pos_from_suffix_names(sfx_dicts))
+            encoded_gold = nlp.encode_suffix_names(
+                sfx_dicts,
+                word_entry.get("root") or word_entry["word"],
+                nlp.root_pos_from_suffix_names(sfx_dicts),
+            )
 
             try:
-                word_analysis = nlp.analyze_word(word_entry["word"], include_closed_class=True)
+                word_analysis = nlp.analyze_word(word_entry["word"])
                 matched = nlp.match_decompositions([word_entry], word_analysis["decomps"])
             except Exception:
                 word_analysis = None
@@ -946,7 +954,7 @@ class WorkflowEngine:
                 gold_idx = matched[0]
                 candidates = word_analysis["encoded_chains"]
                 displays = [
-                    nlp.format_detailed_decomp(decomp)
+                    nlp.format_detailed_decomp(word_entry["word"], decomp)
                     for decomp in word_analysis["decomps"]
                 ]
                 gold_chain = candidates[gold_idx]
@@ -1137,7 +1145,7 @@ class WorkflowEngine:
                     continue
 
                 try:
-                    analysis = nlp.analyze_word(word_entry["word"], include_closed_class=True)
+                    analysis = nlp.analyze_word(word_entry["word"])
                 except Exception:
                     analysis = None
 
@@ -1292,15 +1300,15 @@ class WorkflowEngine:
         for word in unique_words:
             decomps = self.get_decompositions(word)
             if not decomps: cache[word] = word
-            elif len(decomps) == 1: cache[word] = nlp.format_detailed_decomp(decomps[0])
+            elif len(decomps) == 1: cache[word] = nlp.format_detailed_decomp(word, decomps[0])
             else:
-                encoded_chains = [nlp.encode_suffix_chain(chain, root_pos) for _, root_pos, chain, _ in decomps]
+                encoded_chains = [nlp.encode_suffix_chain(chain, root, root_pos) for root, root_pos, chain, _ in decomps]
                 best_idx = 0
                 if self.training_count > 0:
                     try: best_idx, _ = self.trainer.predict(encoded_chains)
                     except Exception: best_idx = 0
                 if best_idx >= len(decomps): best_idx = 0
-                cache[word] = nlp.format_detailed_decomp(decomps[best_idx])
+                cache[word] = nlp.format_detailed_decomp(word, decomps[best_idx])
         final_output = [cache.get(word, word) for word in text]
         return self.data_manager.write_decomposed_text('\n'.join(final_output))
 
@@ -1327,7 +1335,7 @@ class WorkflowEngine:
                     decomposed_words = []
                     for w_idx, cand_idx in enumerate(best_combo):
                         decomp = word_data[w_idx]['decomps'][cand_idx]
-                        decomposed_words.append(nlp.format_detailed_decomp(decomp))
+                        decomposed_words.append(nlp.format_detailed_decomp(word_data[w_idx]['word'], decomp))
                     line_output.append(" ".join(decomposed_words) + ".")
                 else: line_output.append(sentence)
             output_lines.append("  ".join(line_output))

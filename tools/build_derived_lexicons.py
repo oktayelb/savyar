@@ -30,7 +30,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import util.decomposer as sfx
 import util.word_methods as wrd
+from util.suffix import SuffixGroup
+from util.words.closed_class import lexeme_of
 
 DEFAULT_REPORT = REPO_ROOT / "data" / "nonexistant_report.json"
 
@@ -57,6 +60,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+INFLECTIONAL_GROUPS = {
+    SuffixGroup.PLURAL,
+    SuffixGroup.POSSESSIVE,
+    SuffixGroup.CASE,
+    SuffixGroup.MARKING_KI,
+    SuffixGroup.WITH_LE,
+    SuffixGroup.PREDICATIVE,
+    SuffixGroup.CONJUGATION,
+}
+
+
+def is_inflected_closed_class_form(root: str) -> bool:
+    key = wrd.lexicon_key(root)
+    for analysis_root, pos, chain, _final_pos in sfx.decompose(key):
+        if analysis_root == key or pos != "noun" or not lexeme_of(analysis_root):
+            continue
+        if all(suffix.group in INFLECTIONAL_GROUPS for suffix in chain):
+            return True
+    return False
+
+
 def selected_roots(report_path: Path, min_count: int, include_unanalysable: bool) -> List[Dict]:
     with report_path.open("r", encoding="utf-8") as handle:
         report = json.load(handle)
@@ -72,6 +96,8 @@ def selected_roots(report_path: Path, min_count: int, include_unanalysable: bool
         if not record.get("suggested_file"):
             # Nothing places the root: neither the gold chain nor any chain at
             # all carries it across its own surface forms.
+            continue
+        if is_inflected_closed_class_form(record["root"]):
             continue
         roots.append(record)
     return roots

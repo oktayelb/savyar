@@ -99,7 +99,7 @@ SPECIAL_ROOT_VERB     = 6
 SUFFIX_OFFSET         = 7
 
 SPECIAL_FEATURE_ID    = 0
-FEATURE_SCHEMA_VERSION = 6
+FEATURE_SCHEMA_VERSION = 7
 
 GROUP_TO_ID = {None: SPECIAL_FEATURE_ID}
 for idx, group in enumerate(SuffixGroup):
@@ -890,12 +890,10 @@ class Trainer:
 
     @staticmethod
     def _morph_tokens_from_sequence(seq: FlatSequence) -> List[int]:
+        lexeme_offset = SUFFIX_OFFSET + len(_get_all_suffixes())
         return [
             tok for tok in seq[0]
-            if tok not in (
-                SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS, SPECIAL_EOS,
-                SPECIAL_ROOT_NOUN, SPECIAL_ROOT_VERB,
-            )
+            if SUFFIX_OFFSET <= tok < lexeme_offset
         ]
 
     @classmethod

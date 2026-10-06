@@ -431,12 +431,11 @@ def features_to_suffix_names(word, unmapped_sink):
         is_aux_copula = (upos == "AUX" and lemma in ("i", "YDİ", "YDU", "DU", "TU", "TİR"))
         is_aux_question = (upos == "AUX" and xpos == "Ques")
         is_aux_dur = (upos == "AUX" and lemma in ("dur", "tur", "dür", "tür", "dır", "tır"))
-        is_closed_class_layer = upos in UPOS_TO_CC_CATEGORY
 
         # --------------------------------------------------------------
         # AUX / copula layer
         # --------------------------------------------------------------
-        if is_aux_copula:
+        if is_aux_copula or is_aux_question:
             cop_suffixes = copula_suffixes_from_feats(feats)
             for s in cop_suffixes:
                 if s.startswith("__UNMAPPED"):
@@ -460,11 +459,6 @@ def features_to_suffix_names(word, unmapped_sink):
                     suffix_names.append(pm)
             continue
 
-        if is_aux_question:
-            # Question particle mı/mi/mu/mü → closed-class "particle".
-            suffix_names.append("cc_particle")
-            continue
-
         if is_aux_dur:
             # Lexicalised auxiliaries: dur/tur with nounaorist_dir semantics +
             # optional person marker.
@@ -473,17 +467,6 @@ def features_to_suffix_names(word, unmapped_sink):
                 pm = V_PERSON_MAP.get((person, number))
                 if pm:
                     suffix_names.append(pm)
-            continue
-
-        # --------------------------------------------------------------
-        # Closed-class layer (PRON/ADP/DET/INTJ/CCONJ/ADV/SCONJ)
-        # Pronouns may carry case/possessive; handle them like nouns for
-        # inflection and still route to the closed-class entry at word level.
-        # Other CC categories with no inflection are emitted as bare CC.
-        # --------------------------------------------------------------
-        if is_closed_class_layer and upos != "PRON":
-            # bare CC — no per-layer suffixes emitted here; the word-level
-            # common pipeline routes to the closed-class entry builder.
             continue
 
         # --------------------------------------------------------------
@@ -646,6 +629,8 @@ def should_skip_word(word):
 def closed_class_category(word):
     if word["is_multiword"]:
         return None
+    if word["head_upos"] == "AUX" and word["head_xpos"] == "Ques":
+        return "particle"
     return UPOS_TO_CC_CATEGORY.get(word["head_upos"])
 
 

@@ -2,11 +2,11 @@
 
 The ML layer ranks complete morphological candidates. The rule-based decomposer proposes possible analyses; the model chooses which candidate is most plausible.
 
-The model does not read raw Turkish text directly. It receives only encoded suffix chains and closed-class markers.
+The model does not read raw Turkish text directly. It receives a root token and the encoded suffix chain of every word.
 
 ```text
 word/sentence candidate
-  -> per-word suffix or closed-class chains
+  -> per-word root token + suffix chains
   -> flattened sentence sequence
   -> Transformer encoder
   -> scalar rank score
@@ -18,7 +18,7 @@ Candidate `0` is always treated as gold during training and validation.
 
 The model input is built from encoded chains created in `app/nlp_pipeline.py`.
 
-Every word opens with a root token, `ROOT_NOUN` or `ROOT_VERB`, taken from the part of speech of the decomposition's root. Suffix tokens follow it. Each token is encoded as:
+Every word opens with a root token. For a closed-class root (`util/words/closed_class.py`: ben, bu, ve, için, mi, ...) it is that lexeme's own token; for any other root it is `ROOT_NOUN` or `ROOT_VERB`, so elma and armut stay interchangeable. Suffix tokens follow it. Each token is encoded as:
 
 ```python
 (token_id, group_id, position_in_word)
@@ -26,11 +26,11 @@ Every word opens with a root token, `ROOT_NOUN` or `ROOT_VERB`, taken from the p
 
 Meaning:
 
-- `token_id`: root token (`5`/`6`) or suffix identity, starting at ID `7`.
+- `token_id`: root token (`5`/`6` or a lexeme ID) or suffix identity, starting at ID `7`.
 - `group_id`: suffix group ID from `SuffixGroup`, or `0` for root/special tokens.
 - `position_in_word`: one-based position inside the word; the root token is `1`, the first suffix `2`.
 
-Closed-class words are encoded as `ROOT_NOUN` followed by one marker token whose ID comes after the suffix inventory.
+Lexeme IDs come after the suffix inventory. A closed-class word is encoded like any other word: `bana` is `[ben, dative_e]`, `elmaya` is `[ROOT_NOUN, dative_e]`.
 
 A bare-root candidate is its root token alone:
 
@@ -59,10 +59,10 @@ From `ml/ml_ranking_model.py`:
 Current inventory sizes in this repository:
 
 - `98` suffix tokens from `util.decomposer.ALL_SUFFIXES`
-- `88` closed-class tokens from `CLOSED_CLASS_TOKEN_SPECS`
+- `102` closed-class lexeme tokens from `CLOSED_CLASS_LEXEMES`
 - total model vocabulary size: `7 + suffix_count + closed_class_count`
 
-These counts are dynamic at runtime. They change if suffix or closed-class inventories change.
+These counts are dynamic at runtime. They change if the suffix or lexeme inventory changes.
 
 ## Sequence Flattening
 
@@ -95,7 +95,7 @@ Every feature stream has the same length:
 
 For each word:
 
-1. Append the root token and all suffix or closed-class tokens in that word.
+1. Append the root token and all suffix tokens in that word.
 2. Append `WORD_SEP`.
 3. After all words are processed, prepend `BOS`.
 4. Append `EOS`.
@@ -147,7 +147,7 @@ Default config in `ml/config.py`:
 
 For every sequence position, the model concatenates:
 
-1. suffix/closed-class/special token embedding,
+1. root/suffix/special token embedding,
 2. suffix-group embedding,
 3. within-word-position embedding,
 4. absolute position embedding.
@@ -321,7 +321,7 @@ Masking behavior:
 2. If a sequence has eligible tokens but none were selected, force one selected token.
 3. For selected tokens:
    - 80% become `MASK`,
-   - 10% become a random suffix/closed-class vocabulary token,
+   - 10% become a random suffix or lexeme vocabulary token,
    - 10% stay unchanged.
 4. The target is the original token ID at selected positions.
 5. Unselected positions are set to `PAD` in the target and ignored by cross-entropy.
@@ -450,9 +450,9 @@ Metrics:
 - `suffix_metrics`: per-suffix precision/recall/F1 and counts.
 - `suffix_group_metrics`: suffix metrics aggregated by suffix group.
 
-`suff_acc` and `word_acc` compare morphology tokens after removing `PAD`, `WORD_SEP`, `BOS`, `EOS`, `ROOT_NOUN`, and `ROOT_VERB`. Closed-class tokens can therefore affect those sequence-level metrics.
+`suff_acc` and `word_acc` compare suffix tokens only; special, root and lexeme tokens are removed first.
 
-Per-suffix buckets use `_suffix_name_for_token_id()`, which maps only normal suffix IDs. Closed-class IDs do not become per-suffix names.
+Per-suffix buckets use `_suffix_name_for_token_id()`, which maps only normal suffix IDs.
 
 The CLI test report also prints `Overall Token Metrics`. These count every test
 word in the denominator, including words with only one generated decomposition.
@@ -491,11 +491,10 @@ If the suffix inventory or feature schema changed, optimizer state is discarded.
 - Roots are not included in ML input.
 - Surface characters are not included in ML input.
 - Surface suffix allomorphs are not included in ML input.
-- The model cannot distinguish two candidates that differ only by root if their encoded suffix/closed-class streams are identical.
+- The model cannot distinguish two candidates whose roots share a root token and whose suffix chains are identical (`kaz` and `kazı` + the same chain).
 - The previous coarse category/output-type streams are no longer encoded; final/output-type information is left to `token_id`, `group_id`, sequence position, `WORD_SEP`, and `EOS`.
 - Direct log encoding does not fail on an unknown suffix name; it maps that name to `SUFFIX_OFFSET`, the first suffix-token slot.
 - Full Cartesian sentence candidate products are not generated for training.
 - Validation loss does not include the MLM auxiliary objective.
-- Per-suffix metrics do not give named buckets for closed-class token IDs.
 - Isolated word scoring does not use right context and currently receives no left context from the engine.
 - Bulk relearn only trains entries that can become candidate sets with at least one negative.

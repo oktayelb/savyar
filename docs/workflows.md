@@ -349,7 +349,7 @@ This means manual sentence entry is not free-form morphology parsing. The text m
 
 1. Takes the selected candidate index for each word.
 2. Builds `confirmed_chains`, one encoded chain per word.
-   - Bare roots contribute an empty chain.
+   - Bare roots contribute their root token alone (`ROOT_NOUN` or `ROOT_VERB`).
    - Closed-class candidates contribute their closed-class marker chain during this interactive step.
 3. Logs a sentence entry to `data/sentence_valid_decompositions.jsonl`.
    - The entry has `type: "sentence"`, `original_sentence`, `decomposed_sentence`, and `words`.

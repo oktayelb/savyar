@@ -13,6 +13,8 @@ from ml.ml_ranking_model import (
     SUFFIX_OFFSET,
     GROUP_TO_ID,
     SPECIAL_FEATURE_ID,
+    SPECIAL_ROOT_NOUN,
+    SPECIAL_ROOT_VERB,
 )
 
 _APOSTROPHE_RE = re.compile(r"['’‘]")
@@ -48,6 +50,16 @@ def _build_caches():
     return suffix_to_id, suffix_by_name, cc_surface_to_id, cc_name_to_default_id, cc_offset
 
 _SUFFIX_TO_ID, _SUFFIX_BY_NAME, _CC_SURFACE_TO_ID, _CC_NAME_TO_DEFAULT_ID, _CC_OFFSET = _build_caches()
+
+
+def _suffix_names_attaching_to(start_pos: str) -> set:
+    return {
+        suffix.name
+        for suffixes in sfx.SUFFIX_TRANSITIONS[start_pos].values()
+        for suffix in suffixes
+    }
+
+_VERB_ONLY_SUFFIX_NAMES = _suffix_names_attaching_to("verb") - _suffix_names_attaching_to("noun")
 
 
 def _expand_legacy_suffix_dicts(suffix_dicts: List[Dict]) -> List[Dict]:
@@ -154,9 +166,21 @@ def build_suffix_log_info(word: str, decomposition: Tuple) -> List[Dict[str, Any
     return suffix_info
 
 
-def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int]]:
+def root_token(root_pos: str) -> Tuple[int, int, int]:
+    token_id = SPECIAL_ROOT_VERB if root_pos == "verb" else SPECIAL_ROOT_NOUN
+    return (token_id, SPECIAL_FEATURE_ID, 1)
+
+
+def root_pos_from_suffix_names(suffix_dicts: List[Dict]) -> str:
+    suffix_dicts = _expand_legacy_suffix_dicts(suffix_dicts)
+    if suffix_dicts and suffix_dicts[0]['name'] in _VERB_ONLY_SUFFIX_NAMES:
+        return "verb"
+    return "noun"
+
+
+def encode_suffix_names(suffix_dicts: List[Dict], root_pos: str) -> List[Tuple[int, int, int]]:
     """Encode suffix chain directly from JSONL suffix dicts (name/makes strings)."""
-    encoded = []
+    encoded = [root_token(root_pos)]
     suffix_dicts = _expand_legacy_suffix_dicts(suffix_dicts)
     for idx, sd in enumerate(suffix_dicts):
         name = sd['name']
@@ -168,7 +192,7 @@ def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int]]:
                 _CC_NAME_TO_DEFAULT_ID.get(name, _CC_OFFSET),
             )
             encoded.append((
-                token_id, SPECIAL_FEATURE_ID, idx + 1,
+                token_id, SPECIAL_FEATURE_ID, idx + 2,
             ))
         else:
             if name not in _SUFFIX_TO_ID:
@@ -177,16 +201,14 @@ def encode_suffix_names(suffix_dicts: List[Dict]) -> List[Tuple[int, int, int]]:
             suffix_obj = _SUFFIX_BY_NAME.get(name)
             group_id = GROUP_TO_ID.get(getattr(suffix_obj, 'group', None), SPECIAL_FEATURE_ID)
             encoded.append((
-                token_id, group_id, idx + 1,
+                token_id, group_id, idx + 2,
             ))
     return encoded
 
 
-def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int]]:
-    """Encodes a suffix chain into ML token feature tuples."""
-    if not suffix_chain:
-        return []
-    encoded = []
+def encode_suffix_chain(suffix_chain: List, root_pos: str) -> List[Tuple[int, int, int]]:
+    """Encodes a root and its suffix chain into ML token feature tuples."""
+    encoded = [root_token(root_pos)]
     for idx, s in enumerate(suffix_chain):
         if isinstance(s, ClosedClassMarker):
             token_id = _CC_SURFACE_TO_ID.get(
@@ -194,14 +216,14 @@ def encode_suffix_chain(suffix_chain: List) -> List[Tuple[int, int, int]]:
                 _CC_NAME_TO_DEFAULT_ID.get(s.name, _CC_OFFSET),
             )
             encoded.append((
-                token_id, SPECIAL_FEATURE_ID, idx + 1,
+                token_id, SPECIAL_FEATURE_ID, idx + 2,
             ))
         else:
             token_id = _SUFFIX_TO_ID.get(s.name, SUFFIX_OFFSET)
             encoded.append((
                 token_id,
                 GROUP_TO_ID.get(getattr(s, 'group', None), SPECIAL_FEATURE_ID),
-                idx + 1,
+                idx + 2,
             ))
     return encoded
 
@@ -373,8 +395,8 @@ def analyze_word(word: str, *, include_closed_class: bool = True) -> Dict[str, A
     typing_strings: List[str] = []
 
     for decomp in decomps:
-        root, _, chain, _ = decomp
-        encoded_chains.append(encode_suffix_chain(chain))
+        root, root_pos, chain, _ = decomp
+        encoded_chains.append(encode_suffix_chain(chain, root_pos))
         vm = reconstruct_morphology(word, decomp)
         vms.append(vm)
         if vm.get('has_chain'):
@@ -402,7 +424,7 @@ def analyze_word_with_root(word: str, root: str) -> Dict[str, Any]:
     return {
         'word': word,
         'decomps': decomps,
-        'encoded_chains': [encode_suffix_chain(chain) for _r, _p, chain, _f in decomps],
+        'encoded_chains': [encode_suffix_chain(chain, root_pos) for _r, root_pos, chain, _f in decomps],
     }
 
 

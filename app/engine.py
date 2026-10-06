@@ -432,10 +432,10 @@ class WorkflowEngine:
             # words from training, so the sentences the model learned on had
             # holes where the sentences it is asked about do not, and a bare
             # reading could only ever reach it inside a negative - which made
-            # "no suffix" a flawless marker for a wrong answer. An empty chain
-            # is the correct encoding; a chain the tables cannot encode still
-            # raises, and the caller still drops that sentence.
-            encoded_gold = nlp.encode_suffix_names(sfx_dicts)
+            # "no suffix" a flawless marker for a wrong answer. Its root token
+            # alone is the correct encoding; a chain the tables cannot encode
+            # still raises, and the caller still drops that sentence.
+            encoded_gold = nlp.encode_suffix_names(sfx_dicts, nlp.root_pos_from_suffix_names(sfx_dicts))
             try:
                 word_analysis = nlp.analyze_word(word_entry['word'], include_closed_class=True)
                 matched = nlp.match_decompositions([word_entry], word_analysis['decomps'])
@@ -460,12 +460,11 @@ class WorkflowEngine:
                     except Exception:
                         forced = None
                     if forced and forced['encoded_chains']:
-                        chains = forced['encoded_chains']
-                        target = [tuple(tok) for tok in encoded_gold]
-                        for idx, chain in enumerate(chains):
-                            if [tuple(tok) for tok in chain] == target:
-                                gold_idx, gold_chain, candidates = idx, chain, chains
-                                break
+                        forced_matched = nlp.match_decompositions([word_entry], forced['decomps'])
+                        if forced_matched:
+                            gold_idx = forced_matched[0]
+                            candidates = forced['encoded_chains']
+                            gold_chain = candidates[gold_idx]
             gold_chains.append(gold_chain)
             candidate_lists.append(candidates)
             gold_indices.append(gold_idx)
@@ -934,9 +933,7 @@ class WorkflowEngine:
             sfx_dicts = word_entry.get("suffixes", [])
             if not sfx_dicts:
                 continue
-            encoded_gold = nlp.encode_suffix_names(sfx_dicts)
-            if not encoded_gold:
-                continue
+            encoded_gold = nlp.encode_suffix_names(sfx_dicts, nlp.root_pos_from_suffix_names(sfx_dicts))
 
             try:
                 word_analysis = nlp.analyze_word(word_entry["word"], include_closed_class=True)
@@ -1297,8 +1294,7 @@ class WorkflowEngine:
             if not decomps: cache[word] = word
             elif len(decomps) == 1: cache[word] = nlp.format_detailed_decomp(decomps[0])
             else:
-                suffix_chains = [chain for _, _, chain, _ in decomps]
-                encoded_chains = [nlp.encode_suffix_chain(chain) for chain in suffix_chains]
+                encoded_chains = [nlp.encode_suffix_chain(chain, root_pos) for _, root_pos, chain, _ in decomps]
                 best_idx = 0
                 if self.training_count > 0:
                     try: best_idx, _ = self.trainer.predict(encoded_chains)

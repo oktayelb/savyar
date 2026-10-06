@@ -6,8 +6,9 @@ from ml.ml_ranking_model import (
     SPECIAL_BOS,
     SPECIAL_EOS,
     SPECIAL_MASK,
-    SPECIAL_NO_SUFFIX,
     SPECIAL_PAD,
+    SPECIAL_ROOT_NOUN,
+    SPECIAL_ROOT_VERB,
     SPECIAL_WORD_SEP,
     SUFFIX_OFFSET,
     Trainer,
@@ -15,46 +16,72 @@ from ml.ml_ranking_model import (
     build_sentence_sequence,
 )
 
-SUFFIXED = [(SUFFIX_OFFSET + 3, 4, 1)]
+NOUN = nlp.root_token("noun")
+VERB = nlp.root_token("verb")
+SUFFIXED = [NOUN, (SUFFIX_OFFSET + 3, 4, 2)]
 
 
-class NoSuffixTokenTest(unittest.TestCase):
-    def test_token_is_distinct_from_the_other_specials(self):
+class RootTokenTest(unittest.TestCase):
+    def test_tokens_are_distinct_from_the_other_specials(self):
         specials = (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS, SPECIAL_MASK, SPECIAL_EOS)
-        self.assertNotIn(SPECIAL_NO_SUFFIX, specials)
-        self.assertLess(SPECIAL_NO_SUFFIX, SUFFIX_OFFSET)
+        self.assertNotIn(SPECIAL_ROOT_NOUN, specials)
+        self.assertNotIn(SPECIAL_ROOT_VERB, specials)
+        self.assertNotEqual(SPECIAL_ROOT_NOUN, SPECIAL_ROOT_VERB)
+        self.assertLess(max(SPECIAL_ROOT_NOUN, SPECIAL_ROOT_VERB), SUFFIX_OFFSET)
 
-    def test_no_suffix_id_can_never_collide_with_a_real_suffix(self):
+    def test_root_ids_can_never_collide_with_a_real_suffix(self):
         ids = [nlp._SUFFIX_TO_ID[s.name] for s in sfx.ALL_SUFFIXES]
-        self.assertNotIn(SPECIAL_NO_SUFFIX, ids)
+        self.assertNotIn(SPECIAL_ROOT_NOUN, ids)
+        self.assertNotIn(SPECIAL_ROOT_VERB, ids)
         self.assertTrue(all(i >= SUFFIX_OFFSET for i in ids))
 
-    def test_a_bare_word_emits_exactly_one_no_suffix_token(self):
-        s, g, p = _chain_tokens([[]])
-        self.assertEqual(s, [SPECIAL_NO_SUFFIX, SPECIAL_WORD_SEP])
+    def test_every_word_opens_with_its_root_token(self):
+        dative = {s.name: s for s in sfx.ALL_SUFFIXES}["dative_e"]
+        self.assertEqual(nlp.encode_suffix_chain([], "noun"), [NOUN])
+        self.assertEqual(nlp.encode_suffix_chain([], "verb"), [VERB])
+        self.assertEqual(nlp.encode_suffix_chain([dative], "noun")[0], NOUN)
+
+    def test_suffixes_follow_the_root(self):
+        encoded = nlp.encode_suffix_names([{"name": "dative_e", "makes": "NOUN"}], "noun")
+        self.assertEqual(encoded[0], NOUN)
+        self.assertEqual(encoded[1][2], 2)
+
+    def test_a_bare_word_emits_its_root_token_and_nothing_else(self):
+        s, g, p = _chain_tokens([[NOUN]])
+        self.assertEqual(s, [SPECIAL_ROOT_NOUN, SPECIAL_WORD_SEP])
         self.assertEqual(len(s), len(g))
         self.assertEqual(len(s), len(p))
 
-    def test_one_token_per_bare_word(self):
-        s, _, _ = _chain_tokens([[], SUFFIXED, []])
-        self.assertEqual(s.count(SPECIAL_NO_SUFFIX), 2)
+    def test_one_root_token_per_word(self):
+        s, _, _ = _chain_tokens([[NOUN], SUFFIXED, [VERB]])
+        self.assertEqual(s.count(SPECIAL_ROOT_NOUN) + s.count(SPECIAL_ROOT_VERB), 3)
 
-    def test_bare_and_suffixed_candidates_differ_in_content(self):
-        # The point of the token: the two readings of one word are no longer
-        # distinguished only by the suffixed one being longer.
-        bare = build_sentence_sequence([[]])[0]
-        suffixed = build_sentence_sequence([SUFFIXED])[0]
-        self.assertEqual(len(bare), len(suffixed))
-        self.assertNotEqual(bare, suffixed)
+    def test_noun_and_verb_readings_of_a_bare_word_differ(self):
+        analysis = nlp.analyze_word("yaz")
+        chains = [tuple(chain) for chain in analysis["encoded_chains"]]
+        self.assertIn((NOUN,), chains)
+        self.assertIn((VERB,), chains)
 
-    def test_it_occupies_the_first_suffix_slot(self):
-        _, _, p = _chain_tokens([[]])
-        self.assertEqual(p[0], 1)
+    def test_suffix_metrics_ignore_root_tokens(self):
+        seq = build_sentence_sequence([[NOUN], SUFFIXED, [VERB]])
+        morph = Trainer._morph_tokens_from_sequence(seq)
+        self.assertNotIn(SPECIAL_ROOT_NOUN, morph)
+        self.assertNotIn(SPECIAL_ROOT_VERB, morph)
+        self.assertEqual(morph, [SUFFIX_OFFSET + 3])
 
-    def test_suffix_metrics_ignore_it(self):
-        # Keeps suffix precision/recall/F1 comparable with earlier runs.
-        seq = build_sentence_sequence([[], SUFFIXED])
-        self.assertNotIn(SPECIAL_NO_SUFFIX, Trainer._morph_tokens_from_sequence(seq))
+
+class FallbackRootPosTest(unittest.TestCase):
+    def names(self, *names):
+        return [{"name": name} for name in names]
+
+    def test_a_verb_only_first_suffix_means_a_verb_root(self):
+        self.assertEqual(nlp.root_pos_from_suffix_names(self.names("pasttense_di", "conjugation_1sg")), "verb")
+        self.assertEqual(nlp.root_pos_from_suffix_names(self.names("infinitive_me")), "verb")
+
+    def test_anything_else_defaults_to_a_noun_root(self):
+        self.assertEqual(nlp.root_pos_from_suffix_names(self.names("dative_e")), "noun")
+        self.assertEqual(nlp.root_pos_from_suffix_names(self.names("conjugation_1sg")), "noun")
+        self.assertEqual(nlp.root_pos_from_suffix_names([]), "noun")
 
 
 class NoHardcodedPriorTest(unittest.TestCase):
@@ -88,7 +115,20 @@ class GoldChainsIncludeBareRootsTest(unittest.TestCase):
         self.assertIsNotNone(parts, "a bare-root word must not be dropped from the sequence")
         gold_chains, _cands, _idx, word_count = parts
         self.assertEqual(word_count, 1)
-        self.assertEqual(gold_chains[0], [])
+        self.assertEqual(gold_chains[0], [NOUN])
+
+    def test_gold_root_pos_comes_from_the_matched_decomposition(self):
+        entry = {
+            "word": "yazdım",
+            "root": "yaz",
+            "suffixes": [
+                {"name": "pasttense_di", "makes": "NOUN"},
+                {"name": "conjugation_1sg", "makes": "NOUN"},
+            ],
+            "final_pos": "noun",
+        }
+        gold_chains, _cands, _idx, _count = self.parts([entry])
+        self.assertEqual(gold_chains[0][0], VERB)
 
     def test_a_sentence_keeps_all_of_its_words(self):
         entries = [

@@ -94,16 +94,12 @@ SPECIAL_WORD_SEP      = 1
 SPECIAL_BOS           = 2
 SPECIAL_MASK          = 3
 SPECIAL_EOS           = 4
-# A word that takes no suffix used to contribute nothing but the separator
-# ending it, so "this word is a bare root" had no embedding of its own and the
-# model had no parameter with which to learn how often that happens. It was
-# compensated for by a flat penalty applied at inference and absent from the
-# loss. This token replaces that guess with something learnable.
-SPECIAL_NO_SUFFIX     = 5
-SUFFIX_OFFSET         = 6
+SPECIAL_ROOT_NOUN     = 5
+SPECIAL_ROOT_VERB     = 6
+SUFFIX_OFFSET         = 7
 
 SPECIAL_FEATURE_ID    = 0
-FEATURE_SCHEMA_VERSION = 5
+FEATURE_SCHEMA_VERSION = 6
 
 GROUP_TO_ID = {None: SPECIAL_FEATURE_ID}
 for idx, group in enumerate(SuffixGroup):
@@ -129,12 +125,6 @@ def _chain_tokens(
     group_ids:    List[int] = []
     pos_ids:      List[int] = []
     for chain in word_chains:
-        if not chain:
-            # Occupies the first suffix slot, so a bare root is a positive
-            # statement the encoder can attend to rather than an absence.
-            suffix_ids.append(SPECIAL_NO_SUFFIX)
-            group_ids.append(SPECIAL_FEATURE_ID)
-            pos_ids.append(1)
         for (sid, gid, pos_in_word) in chain:
             suffix_ids.append(sid)
             group_ids.append(gid)
@@ -902,7 +892,10 @@ class Trainer:
     def _morph_tokens_from_sequence(seq: FlatSequence) -> List[int]:
         return [
             tok for tok in seq[0]
-            if tok not in (SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS, SPECIAL_EOS, SPECIAL_NO_SUFFIX)
+            if tok not in (
+                SPECIAL_PAD, SPECIAL_WORD_SEP, SPECIAL_BOS, SPECIAL_EOS,
+                SPECIAL_ROOT_NOUN, SPECIAL_ROOT_VERB,
+            )
         ]
 
     @classmethod

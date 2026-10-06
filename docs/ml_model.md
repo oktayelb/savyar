@@ -18,7 +18,7 @@ Candidate `0` is always treated as gold during training and validation.
 
 The model input is built from encoded chains created in `app/nlp_pipeline.py`.
 
-Each normal suffix token is encoded as:
+Every word opens with a root token, `ROOT_NOUN` or `ROOT_VERB`, taken from the part of speech of the decomposition's root. Suffix tokens follow it. Each token is encoded as:
 
 ```python
 (token_id, group_id, position_in_word)
@@ -26,23 +26,20 @@ Each normal suffix token is encoded as:
 
 Meaning:
 
-- `token_id`: suffix identity, starting at ID `5`.
-- `group_id`: suffix group ID from `SuffixGroup`, or `0` for missing/special.
-- `position_in_word`: one-based position inside the current word's suffix chain.
+- `token_id`: root token (`5`/`6`) or suffix identity, starting at ID `7`.
+- `group_id`: suffix group ID from `SuffixGroup`, or `0` for root/special tokens.
+- `position_in_word`: one-based position inside the word; the root token is `1`, the first suffix `2`.
 
-Closed-class words are encoded as one marker token:
+Closed-class words are encoded as `ROOT_NOUN` followed by one marker token whose ID comes after the suffix inventory.
 
-- token IDs come after the suffix inventory,
-- group feature is `0`,
-- position still shows that it is the first token of a word-level chain.
-
-Bare-root candidates have an empty chain:
+A bare-root candidate is its root token alone:
 
 ```python
-[]
+[ROOT_NOUN]   # elma
+[ROOT_VERB]   # yaz- (imperative)
 ```
 
-When converted into a sentence sequence, a bare-root word contributes only a word separator. There is no learned root token.
+Gold chains take their root token from the decomposition they match. When no decomposition matches, `root_pos_from_suffix_names()` picks `ROOT_VERB` if the first gold suffix attaches only to verbs, otherwise `ROOT_NOUN`. A word whose noun and verb readings share the same chain matches the noun reading first, because the corpus does not record the root's part of speech.
 
 ## Special Token IDs
 
@@ -54,14 +51,16 @@ From `ml/ml_ranking_model.py`:
 2 = BOS
 3 = MASK
 4 = EOS
-5 = first suffix token
+5 = ROOT_NOUN
+6 = ROOT_VERB
+7 = first suffix token
 ```
 
 Current inventory sizes in this repository:
 
 - `98` suffix tokens from `util.decomposer.ALL_SUFFIXES`
 - `88` closed-class tokens from `CLOSED_CLASS_TOKEN_SPECS`
-- total model vocabulary size: `5 + suffix_count + closed_class_count`
+- total model vocabulary size: `7 + suffix_count + closed_class_count`
 
 These counts are dynamic at runtime. They change if suffix or closed-class inventories change.
 
@@ -78,16 +77,10 @@ word_chains = [
 ]
 ```
 
-Before adding the terminal sentence marker, the word-level stream is:
+The full stream is:
 
 ```text
-[BOS, plural_ler, ablative_den, WORD_SEP, pasttense_di, conjugation_1sg, WORD_SEP]
-```
-
-With the explicit sentence terminator included, the actual stream is:
-
-```text
-[BOS, plural_ler, ablative_den, WORD_SEP, pasttense_di, conjugation_1sg, WORD_SEP, EOS]
+[BOS, ROOT_NOUN, plural_ler, ablative_den, WORD_SEP, ROOT_VERB, pasttense_di, conjugation_1sg, WORD_SEP, EOS]
 ```
 
 Every feature stream has the same length:
@@ -102,37 +95,23 @@ Every feature stream has the same length:
 
 For each word:
 
-1. Append all suffix or closed-class tokens in that word.
+1. Append the root token and all suffix or closed-class tokens in that word.
 2. Append `WORD_SEP`.
 3. After all words are processed, prepend `BOS`.
 4. Append `EOS`.
 5. The `group_ids` and `word_pos_ids` values for `BOS`, `WORD_SEP`, `EOS`, and padding are all the special feature value `0`.
 
-For a bare-root word:
+A one-word bare-root candidate is:
 
 ```text
-[] -> WORD_SEP
+[BOS, ROOT_NOUN, WORD_SEP, EOS]
 ```
-
-So before adding the terminal marker, a one-word bare-root candidate is:
-
-```text
-[BOS, WORD_SEP]
-```
-
-With `EOS`, the full model sequence is:
-
-```text
-[BOS, WORD_SEP, EOS]
-```
-
-There is still no root identity in that sequence.
 
 ## What Is Not Encoded
 
 The following are not model inputs:
 
-- root string,
+- root string (only its part of speech is encoded),
 - lemma ID,
 - dictionary row ID,
 - raw word characters,
@@ -149,7 +128,7 @@ Roots affect the model only indirectly:
 
 1. The decomposer uses roots to decide which candidate suffix chains exist.
 2. Logs store roots so a future relearn can match the logged gold analysis back to a generated decomposition.
-3. If two different roots create exactly the same suffix-token sequence, the ML model cannot distinguish them from the encoded sequence alone.
+3. If two different roots of the same part of speech create exactly the same suffix-token sequence, the ML model cannot distinguish them from the encoded sequence alone.
 
 ## Model Architecture
 
@@ -433,28 +412,12 @@ In the current engine, isolated word prediction passes no context. It scores eac
 BOS + candidate_chain + WORD_SEP + EOS
 ```
 
-Bare-root candidates receive:
-
-```python
-config.bare_root_prior_logprob
-```
-
-Current value:
-
-```text
-bare_root_prior_logprob = -0.75
-```
-
-This is added after the neural score. It is not learned.
-
 ### Sentence Scoring
 
 `score_sentence_chains(word_chains)`:
 
 1. Builds a full sentence sequence from all word chains.
-2. Counts empty chains.
-3. Adds `bare_root_prior_logprob` once for every empty chain.
-4. Returns neural rank score plus that prior.
+2. Returns its neural rank score.
 
 Sentence beam search repeatedly scores partial sentence chains and keeps the best beams.
 
@@ -487,7 +450,7 @@ Metrics:
 - `suffix_metrics`: per-suffix precision/recall/F1 and counts.
 - `suffix_group_metrics`: suffix metrics aggregated by suffix group.
 
-`suff_acc` and `word_acc` compare morphology tokens after removing `PAD`, `WORD_SEP`, `BOS`, and `EOS`. Closed-class tokens can therefore affect those sequence-level metrics.
+`suff_acc` and `word_acc` compare morphology tokens after removing `PAD`, `WORD_SEP`, `BOS`, `EOS`, `ROOT_NOUN`, and `ROOT_VERB`. Closed-class tokens can therefore affect those sequence-level metrics.
 
 Per-suffix buckets use `_suffix_name_for_token_id()`, which maps only normal suffix IDs. Closed-class IDs do not become per-suffix names.
 

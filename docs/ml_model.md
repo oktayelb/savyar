@@ -454,13 +454,13 @@ Metrics:
 
 Per-suffix buckets use `_suffix_name_for_token_id()`, which maps only normal suffix IDs.
 
-The CLI test report also prints `Overall Token Metrics`. These count every test
-word in the denominator, including words with only one generated decomposition.
-Root-only gold words and gold annotations that fall back to a gold-only encoded
-candidate are counted as single-candidate correct predictions. Words with no
-generated candidate are counted as incorrect. This is the literature-style token
-accuracy; the candidate-set metrics remain the harsher ambiguous-only reranking
-view.
+The CLI test report also prints `Overall Token Metrics`. Every test word, bare
+roots included, is scored once: each of its candidates is placed in the sentence
+with the gold analyses of the other words as context, and the highest-scoring
+candidate is its prediction. Words with one candidate count as correct; words
+whose gold the decomposer cannot produce (`Gold unmatched`) or that have no
+candidate count as incorrect. The `test detail` failure examples come from the
+same per-word predictions.
 
 ## Checkpointing
 

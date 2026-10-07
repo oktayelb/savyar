@@ -148,7 +148,7 @@ class AppCLI:
         worst_suffixes = detail.get('worst_suffixes', [])
         examples = detail.get('examples', {})
         print("\n Worst Performing Suffixes:")
-        print(f"  Diagnostic sequences: {detail.get('diagnostic_sequences', 0)}")
+        print(f"  Diagnostic words:     {detail.get('diagnostic_words', 0)}")
         print(f"  Diagnostic skipped:   {detail.get('diagnostic_skipped', 0)}")
         if not worst_suffixes:
             print("  No suffix failures found.")

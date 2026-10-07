@@ -4,8 +4,8 @@ from collections import Counter
 
 import itertools
 
-from util.decomposer import ALL_SUFFIXES, decompose
-from util.suffix import Type
+from util.decomposer import ALL_SUFFIXES, SUFFIX_TRANSITIONS, decompose
+from util.suffix import DISABLED_SUFFIX_NAMES, SuffixGroup, Type
 from util.words.closed_class import IRREGULAR_STEMS, irregular_stem, lexeme_of
 import util.word_methods as wrd
 from util.word_methods import tr_lower
@@ -164,7 +164,78 @@ def parse_conllu(filepath, *, preserve_mwt=False, keep_feature_order=False):
     return sentences
 
 
+DECOMPOSED_LEMMAS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "decomposed_lemmas.tsv")
+
+
+def load_decomposed_lemmas(path=DECOMPOSED_LEMMAS_PATH):
+    table = {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                lemma, pos, base, names = line.rstrip("\n").split("\t")
+                table.setdefault(lemma, {})[pos] = (base, names.split())
+    except FileNotFoundError:
+        pass
+    return table
+
+
+DECOMPOSED_LEMMAS = load_decomposed_lemmas()
+
+
+def _suffix_names_attaching_to(start_pos):
+    return {suffix.name for suffixes in SUFFIX_TRANSITIONS[start_pos].values() for suffix in suffixes}
+
+
+VERB_ONLY_SUFFIX_NAMES = _suffix_names_attaching_to("verb") - _suffix_names_attaching_to("noun")
+
+
+def expand_decomposed_lemma(lemma, suffix_names, verb_lemma=False):
+    splits = DECOMPOSED_LEMMAS.get(lemma)
+    if not splits:
+        return lemma, list(suffix_names)
+    starts_like_a_verb = bool(suffix_names) and suffix_names[0] in VERB_ONLY_SUFFIX_NAMES
+    if starts_like_a_verb or (verb_lemma and "verb" in splits):
+        if wrd.can_be_verb(lemma):
+            return lemma, list(suffix_names)
+        if "verb" in splits:
+            base, prefix = splits["verb"]
+        elif wrd.can_be_noun(lemma):
+            return lemma, list(suffix_names)
+        else:
+            base, prefix = splits["noun"]
+    else:
+        if wrd.can_be_noun(lemma) or wrd.can_be_verb(lemma):
+            return lemma, list(suffix_names)
+        if "noun" in splits and not ("verb" in splits and _inflection_only(splits["noun"][1])):
+            base, prefix = splits["noun"]
+        else:
+            base, prefix = splits["verb"]
+    return base, prefix + list(suffix_names)
+
+
+INFLECTION_GROUPS = {
+    SuffixGroup.PLURAL, SuffixGroup.POSSESSIVE, SuffixGroup.CASE, SuffixGroup.MARKING_KI,
+    SuffixGroup.WITH_LE, SuffixGroup.PREDICATIVE, SuffixGroup.CONJUGATION,
+}
+
+
+def _inflection_only(suffix_names):
+    return all(SUFFIX_BY_NAME[name].group in INFLECTION_GROUPS for name in suffix_names)
+
+
+VERB_LEMMA_CORRECTIONS = {
+    "bile": "bil",
+}
+
+
+def is_verb_lemma(word):
+    layers = word.get("feature_layers") or []
+    return bool(layers) and layers[0]["upos"] in ("VERB", "Verb")
+
+
 def bare_root_entry(surface_lower):
+    if expand_decomposed_lemma(surface_lower, [])[0] != surface_lower:
+        return build_treebank_forced_entry(surface_lower, surface_lower, [])
     return {
         "word": surface_lower,
         "morphology_string": surface_lower,
@@ -315,7 +386,7 @@ def reconcile_suffix_names(surface, lemma, names):
 
 def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
     surface_lower = tr_lower(surface)
-    root = tr_lower(lemma)
+    root, expected_suffix_names = expand_decomposed_lemma(tr_lower(lemma), expected_suffix_names)
 
     suffixes = []
     current_stem = root
@@ -622,6 +693,8 @@ def adapt_normalized_treebank(
             surface = strip_quotes(word["surface"])
             surface_lower = tr_lower(surface)
             lemma = strip_quotes(word["lemma"])
+            if is_verb_lemma(word):
+                lemma = VERB_LEMMA_CORRECTIONS.get(tr_lower(lemma), lemma)
 
             if should_skip_word(word):
                 skipped_words.append(surface_lower)
@@ -678,12 +751,15 @@ def adapt_normalized_treebank(
                 bare_root_words.append(surface_lower)
                 continue
 
-            if not expected_suffixes:
+            if not expected_suffixes or any(name in DISABLED_SUFFIX_NAMES for name in expected_suffixes):
                 no_suffix_words += 1
                 bare_root_words.append(surface_lower)
                 word_entries.append(bare_root_entry(surface_lower))
                 continue
 
+            lemma, expected_suffixes = expand_decomposed_lemma(
+                tr_lower(lemma), expected_suffixes, verb_lemma=is_verb_lemma(word)
+            )
             expected_suffixes = reconcile_suffix_names(surface_lower, lemma, expected_suffixes)
             entry = build_treebank_forced_entry(surface_lower, lemma, expected_suffixes)
             word_entries.append(entry)

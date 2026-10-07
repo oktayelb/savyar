@@ -34,6 +34,7 @@ import util.decomposer as sfx
 import util.word_methods as wrd
 from util.suffix import SuffixGroup
 from util.words.closed_class import lexeme_of
+from data.treebank_adapter_commons import DECOMPOSED_LEMMAS
 
 DEFAULT_REPORT = REPO_ROOT / "data" / "nonexistant_report.json"
 
@@ -98,6 +99,8 @@ def selected_roots(report_path: Path, min_count: int, include_unanalysable: bool
             # all carries it across its own surface forms.
             continue
         if is_inflected_closed_class_form(record["root"]):
+            continue
+        if wrd.lexicon_key(record["root"]) in DECOMPOSED_LEMMAS:
             continue
         roots.append(record)
     return roots

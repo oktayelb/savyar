@@ -93,6 +93,9 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     if last_g == SuffixGroup.CONJUGATION and next_g == SuffixGroup.PREDICATIVE:
         if last_suffix.name == "conjugation_3pl":
             return True
+
+    if last_suffix.name == "plural_ler" and next_suffix.name == "relative_ce":
+        return True
     ## şelale hallediyor diye silindi
     # isim tamlamasından sonra yalnızca ki gelebilir
     # if last_g == SuffixGroup.CASE and not next_g >= SuffixGroup.MARKING_KI:

@@ -110,7 +110,11 @@ Closed-class lexemes (`util/words/closed_class.py`) are ordinary noun roots, so 
 
 `decompose_with_fallback()` is what callers use: it returns `decompose()`'s analyses, or hypothesised roots when there are none.
 
-### 8. Caching Strategy
+### 8. Clearly Suffixed Words Are Not Roots
+
+A word the suffix tables can build from a shorter root (`bulun` = bul+un, `olan` = ol+an, `durum` = dur+um, `yerine` = yer+i+ne) is not a lexicon entry, however lexicalised it is; the model cannot see roots, so it cannot learn which such words a treebank happens to treat as one unit. `data/decomposed_lemmas.tsv` records every removed word with the split it now gets. The treebank adapters expand a removed lemma through it (gold `kullan+ıyor` becomes `kul+la+n+ıyor`), using the verb split when the treebank tags the lemma as a verb (`alın` = al+ın), and `tools/build_derived_lexicons.py` does not add these words back. Words that only look suffixed (`gece`, `kara`, `yer`, `dolar`, `ekmek`, `yastık`, `tarife`) stay roots.
+
+### 9. Caching Strategy
 
 Two levels of caching prevent redundant computation:
 

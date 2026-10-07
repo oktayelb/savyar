@@ -560,6 +560,8 @@ def features_to_suffix_names(word, unmapped_sink):
                 # VerbForm nominalisations don't take verb-side person; they
                 # take possessive (handled above). Plain finite verbs do.
                 pm = V_PERSON_MAP.get((person, number), "__MISSING__")
+                if mood == "Imp" and (person, number) == ("3", "Sing"):
+                    pm = "conjugation_3sg"
                 if pm is None:
                     pass
                 elif pm == "__MISSING__":

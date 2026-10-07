@@ -52,7 +52,7 @@ def form_for_diminutive_cik(word, suffix_obj, current_chain=None):
     base3 = Suffix._apply_consonant_hardening(word, base3)
 
 
-    return [base,base2,base3]
+    return [base, base2, base3, Suffix._apply_softening(base), Suffix._apply_softening(base2)]
 
 
 actor_ci            = Suffix("actor_ci", "ci", Type.NOUN, Type.NOUN, has_major_harmony=True, has_minor_harmony=True, group=SuffixGroup.N2N_DERIVATIONAL)

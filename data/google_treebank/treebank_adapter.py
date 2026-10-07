@@ -538,6 +538,8 @@ def features_to_suffix_names(word, unmapped_sink):
             # We skip 2sg conj on imperatives entirely.
             if is_imp and v_person == "V2sg":
                 pass
+            elif is_imp and v_person == "V3sg":
+                suffix_names.append("conjugation_3sg")
             else:
                 mapped = V_PERSON_MAP.get(v_person, "__MISSING__")
                 if mapped is None:

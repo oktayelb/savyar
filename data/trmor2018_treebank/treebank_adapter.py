@@ -198,7 +198,7 @@ UPOS_TO_CC_CATEGORY = {
     "Ques": "particle",
 }
 
-SKIP_UPOS = {"Num", "?", "Dup"}
+SKIP_UPOS = {"?", "Dup"}
 POS_TAGS = {
     "Noun", "Verb", "Adj", "Adverb", "Det", "Conj", "Pron", "Postp",
     "Num", "Ques", "Interj", "Punct", "Dup", "?",
@@ -295,10 +295,14 @@ def _append_mapped(out, mapped):
         out.append(mapped)
 
 
+ORDINAL_ENDINGS = ("ıncı", "inci", "uncu", "üncü", "ncı", "nci", "ncu", "ncü")
+
+
 def features_to_suffix_names(word, unmapped_sink):
     suffix_names = []
     unmapped_on_word = []
     has_unmappable = False
+    lemma_is_ordinal = word["lemma"].lower().endswith(ORDINAL_ENDINGS)
 
     for layer in word["feature_layers"]:
         upos = layer["upos"]
@@ -314,6 +318,10 @@ def features_to_suffix_names(word, unmapped_sink):
         imp_seen = "Imp" in feats
 
         for feat in feats:
+            if imp_seen and feat == "A3sg" and is_verb_context:
+                suffix_names.append("conjugation_3sg")
+                continue
+
             if feat in ZERO_FEATURES:
                 continue
 
@@ -437,7 +445,8 @@ def features_to_suffix_names(word, unmapped_sink):
                 continue
 
             if feat == "Ord":
-                suffix_names.append("ordinal_inci")
+                if not lemma_is_ordinal:
+                    suffix_names.append("ordinal_inci")
                 continue
 
             has_unmappable = True
@@ -467,7 +476,10 @@ def features_to_suffix_names(word, unmapped_sink):
 # =============================================================================
 
 def should_skip_word(word):
-    return word["feature_layers"][0]["upos"] in SKIP_UPOS
+    upos = word["feature_layers"][0]["upos"]
+    if upos == "Num":
+        return any(ch.isdigit() for ch in word["surface"])
+    return upos in SKIP_UPOS
 
 
 def closed_class_category(word):

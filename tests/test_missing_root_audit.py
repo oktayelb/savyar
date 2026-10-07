@@ -42,7 +42,7 @@ class ResolvabilityTest(unittest.TestCase):
 
     def test_derived_lexicon_roots_resolve(self):
         # nouns_derived.txt / verbs_derived.txt load into the same sets.
-        self.assertTrue(audit.is_resolvable("kullan"))
+        self.assertTrue(audit.is_resolvable("dolar"))
 
     def test_absent_roots_do_not_resolve(self):
         self.assertFalse(audit.is_resolvable("zzzyok"))

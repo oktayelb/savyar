@@ -76,7 +76,8 @@ def form_for_active_it(word, suffix_obj, current_chain=None):
     it_base = Suffix._apply_minor_harmony(word, it_base, suffix_obj.has_minor_harmony)
     result_list.append(it_base)
 
-    if word[-1] in (["r"] + VOWELS):
+    ends_in_polysyllabic_l = word[-1] == "l" and sum(1 for ch in word if ch in VOWELS) >= 2
+    if word[-1] in (["r"] + VOWELS) or ends_in_polysyllabic_l:
         result_list.append("t")
 
     return result_list

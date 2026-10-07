@@ -168,8 +168,6 @@ class DataManager:
         dependency_paths = [
             Path(self.paths.words_path),
             Path(self.paths.verbs_path),
-            Path(self.paths.derived_words_path),
-            Path(self.paths.derived_verbs_path),
             Path(self.paths.unsuffixable_words_path),
         ]
         signature = {

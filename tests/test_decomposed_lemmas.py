@@ -125,10 +125,32 @@ class LexiconHygieneTest(unittest.TestCase):
         self.assertTrue(wrd.can_be_noun("adam"))
 
 
-class DerivedLexiconGuardTest(unittest.TestCase):
-    def test_decomposed_lemmas_are_not_added_back(self):
-        import tools.build_derived_lexicons as builder
-        self.assertIn("kullan", builder.DECOMPOSED_LEMMAS)
+class DictionaryOnlyLexiconTest(unittest.TestCase):
+    def test_corpus_only_words_are_not_entries(self):
+        for word in ("mehmet", "arkadaşın", "bilirim", "yapmışım", "sanırım", "yerin"):
+            self.assertFalse(wrd.can_be_noun(word) or wrd.can_be_verb(word), word)
+
+    def test_dictionary_roots_the_old_cleanup_dropped_are_back(self):
+        for word in ("güneş", "önem", "halı", "havlu", "tarak", "işte"):
+            self.assertTrue(wrd.can_be_noun(word), word)
+
+    def test_a_soft_l_inside_a_word_does_not_hide_it(self):
+        for word in ("kalp", "mahalle", "hayalet", "golf"):
+            self.assertTrue(wrd.can_be_noun(word), word)
+
+    def test_a_stem_the_dictionary_only_lists_inflected_is_a_root(self):
+        self.assertTrue(wrd.can_be_noun("üzer"))
+        self.assertEqual(expand_decomposed_lemma("üzeri", []), ("üzer", ["possessive_3sg"]))
+
+    def test_words_built_with_a_disabled_suffix_stay_roots(self):
+        for word in ("satıcı", "sürücü", "yaratıcı", "öğretmen", "eleştirmen", "yorgun", "aşkın"):
+            self.assertTrue(wrd.can_be_noun(word), word)
+
+    def test_dictionary_words_the_tables_build_are_not_entries(self):
+        for word, pos in (("kaynar", "noun"), ("döner", "noun"), ("bilmezlik", "noun"), ("çıkarım", "noun"),
+                          ("edil", "verb"), ("sulan", "verb"), ("tanıt", "verb")):
+            self.assertFalse(is_root(word, pos), word)
+            self.assertIn(pos, DECOMPOSED_LEMMAS[word], word)
 
 
 if __name__ == "__main__":

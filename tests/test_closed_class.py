@@ -156,13 +156,10 @@ class ClosedClassGoldTest(unittest.TestCase):
         self.assertEqual(self.gold("çoğu", "çoğu", ["possessive_3sg"]), ("çok", ["possessive_3sg"]))
 
 
-class DerivedLexiconGuardTest(unittest.TestCase):
-    def test_inflected_closed_class_forms_are_refused(self):
-        import tools.build_derived_lexicons as builder
-        for root in ("bunlara", "kendisine", "misiniz", "birbirlerine"):
-            self.assertTrue(builder.is_inflected_closed_class_form(root), root)
-        for root in ("bilgi", "birlik", "deniz"):
-            self.assertFalse(builder.is_inflected_closed_class_form(root), root)
+class ClosedClassFormsTest(unittest.TestCase):
+    def test_inflected_closed_class_forms_are_not_entries(self):
+        for word in ("bunlara", "kendisine", "misiniz", "birbirlerine", "onlar", "bana"):
+            self.assertFalse(wrd.can_be_noun(word) or wrd.can_be_verb(word), word)
 
 
 if __name__ == "__main__":

@@ -2,9 +2,6 @@ class FilePaths:
 
     words_path: str                 = "data/words.txt"
     verbs_path: str                 = "data/verbs.txt"
-    # Corpus-derived lemmas, loaded together with the two files above.
-    derived_words_path: str         = "data/nouns_derived.txt"
-    derived_verbs_path: str         = "data/verbs_derived.txt"
     unsuffixable_words_path: str    = "data/ekistemez.txt"
     training_count_path: str        = "data/training_count.txt"
     final_suffix_metrics_path: str  = "data/final_suffix_metrics.json"

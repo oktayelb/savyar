@@ -112,7 +112,9 @@ Closed-class lexemes (`util/words/closed_class.py`) are ordinary noun roots, so 
 
 ### 8. Clearly Suffixed Words Are Not Roots
 
-A word the suffix tables can build from a shorter root (`bulun` = bul+un, `olan` = ol+an, `durum` = dur+um, `yerine` = yer+i+ne) is not a lexicon entry, however lexicalised it is; the model cannot see roots, so it cannot learn which such words a treebank happens to treat as one unit. `data/decomposed_lemmas.tsv` records every removed word with the split it now gets. The treebank adapters expand a removed lemma through it (gold `kullan+ıyor` becomes `kul+la+n+ıyor`), using the verb split when the treebank tags the lemma as a verb (`alın` = al+ın), and `tools/build_derived_lexicons.py` does not add these words back. Words that only look suffixed (`gece`, `kara`, `yer`, `dolar`, `ekmek`, `yastık`, `tarife`) stay roots.
+`data/words.txt` and `data/verbs.txt` are built from the dictionary alone; no word is added, kept or removed because of the treebanks, so the test sentences cannot shape the candidates. A dictionary word the suffix tables build from a shorter root (`bulun` = bul+un, `durum` = dur+um, `kaynar` = kayna+r) is not an entry, however lexicalised it is. Words that only look suffixed (`gece`, `kara`, `yer`, `dolar`, `ekmek`, `yastık`, `tarife`) stay roots, and so do words built with a suffix the tables do not use (`satıcı`, `öğretmen`, `yorgun`).
+
+`data/decomposed_lemmas.tsv` gives the split of every such word, plus treebank lemma conventions such as `olan` = ol+an. The treebank adapters expand a removed lemma through it (gold `kullan+ıyor` becomes `kul+la+n+ıyor`), using the verb split when the treebank tags the lemma as a verb (`alın` = al+ın). The table only rewrites gold labels; it never adds a candidate.
 
 ### 9. Caching Strategy
 

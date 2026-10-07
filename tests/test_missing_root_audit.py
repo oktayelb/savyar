@@ -40,8 +40,7 @@ class ResolvabilityTest(unittest.TestCase):
         self.assertTrue(audit.is_resolvable("ve"))
         self.assertTrue(audit.is_resolvable(next(iter(wrd.UNSUFFIXABLE_SET))))
 
-    def test_derived_lexicon_roots_resolve(self):
-        # nouns_derived.txt / verbs_derived.txt load into the same sets.
+    def test_words_that_only_look_suffixed_resolve(self):
         self.assertTrue(audit.is_resolvable("dolar"))
 
     def test_absent_roots_do_not_resolve(self):

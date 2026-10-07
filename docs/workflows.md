@@ -145,7 +145,7 @@ Closed-class words are decomposed like any other noun root; there is no separate
 - `bana`, `sana`, `hepsi`, `birisi`, `birileri`, `hiçbirisi` start from `IRREGULAR_STEMS`.
 - Conjunctions, `de`/`da`, `bile`, `ile` and `evet` take no suffix as nouns.
 
-Inflected forms of these lexemes (`bana`, `onlar`, `kendisine`, `misiniz`) are not lexicon entries, so each word has exactly one analysis per reading. `decompose()` also drops any repeated `(root, pos, chain)` before returning, and `tools/build_derived_lexicons.py` refuses to add such forms back.
+Inflected forms of these lexemes (`bana`, `onlar`, `kendisine`, `misiniz`) are not lexicon entries, so each word has exactly one analysis per reading. `decompose()` also drops any repeated `(root, pos, chain)` before returning.
 
 ## NLP Adapter Output
 

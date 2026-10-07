@@ -22,16 +22,8 @@ DATA_FILE = _DATA_DIR / "words.txt"
 VERB_DATA_FILE = _DATA_DIR / "verbs.txt"
 UNSUFFIXABLE_FILE = _DATA_DIR / "ekistemez.txt"
 
-# Lemmas the treebanks annotate as roots which savyar can also reach from a
-# shorter lemma ("bilgi" as bil+gi, "kullan" as kul+la+n). They live in their
-# own files so the hand-curated core lexicon stays separable from these
-# corpus-derived additions, but they load into the same sets and are looked up
-# exactly like any other entry.
-DERIVED_DATA_FILE = _DATA_DIR / "nouns_derived.txt"
-DERIVED_VERB_DATA_FILE = _DATA_DIR / "verbs_derived.txt"
-
-NOUN_FILES = (DATA_FILE, DERIVED_DATA_FILE)
-VERB_FILES = (VERB_DATA_FILE, DERIVED_VERB_DATA_FILE)
+NOUN_FILES = (DATA_FILE,)
+VERB_FILES = (VERB_DATA_FILE,)
 
 
 ## Vowel Classes
@@ -68,12 +60,13 @@ VERB_SET: set = set()
 UNSUFFIXABLE_SET: set = set()
 
 # Which file each entry came from, so a delete rewrites only the file that
-# owns the word instead of collapsing the core and derived lexicons into one.
+# owns the word.
 _FILE_ENTRIES: dict = {}
 
 _NOUN_KEYS: set = set()
 _VERB_KEYS: set = set()
 _UNSUFFIXABLE_KEYS: set = set()
+_PALATAL_L_KEYS: set = set()
 
 
 def lexicon_key(word: str) -> str:
@@ -85,18 +78,25 @@ def lexicon_key(word: str) -> str:
     "ankara" find "Ankara"; it is also the single place to add any further
     difference the lexicon should not care about.
     """
-    return tr_lower(word)
+    return tr_lower(word).replace("ł", "l")
+
+
+def has_palatal_l(entry: str) -> bool:
+    folded = tr_lower(entry)
+    last_vowel = max((i for i, ch in enumerate(folded) if ch in VOWELS), default=-1)
+    return "ł" in folded[last_vowel + 1:]
 
 
 def _reindex_dictionary():
     """Rebuild the folded lookup indexes from the loaded entries."""
-    global _NOUN_KEYS, _VERB_KEYS, _UNSUFFIXABLE_KEYS
+    global _NOUN_KEYS, _VERB_KEYS, _UNSUFFIXABLE_KEYS, _PALATAL_L_KEYS
     noun_keys = {lexicon_key(word) for word in WORDS_SET}
     noun_keys.update(CLOSED_CLASS_LEXEMES)
     noun_keys.update(LEXEME_SPELLINGS)
     _NOUN_KEYS = noun_keys
     _VERB_KEYS = {lexicon_key(word) for word in VERB_SET}
     _UNSUFFIXABLE_KEYS = {lexicon_key(word) for word in UNSUFFIXABLE_SET}
+    _PALATAL_L_KEYS = {lexicon_key(word) for word in WORDS_SET | VERB_SET if has_palatal_l(word)}
 
 
 def _read_entries(path) -> set:
@@ -153,7 +153,7 @@ def _in_index(word: str, index: set) -> bool:
     """
     if word in index:
         return True
-    return not word.islower() and lexicon_key(word) in index
+    return (not word.islower() or "ł" in word) and lexicon_key(word) in index
 
 
 def delete_word(word: str) -> bool:
@@ -212,16 +212,7 @@ def is_uninflected_noun(word: str) -> bool:
 def can_be_noun(word: str) -> bool:
     if not word:
         return False
-
-    if _in_index(word, _NOUN_KEYS):
-        return True
-
-    if word.endswith("l"):
-        soft_l = word[:-1] + "ł"
-        if _in_index(soft_l, _NOUN_KEYS):
-            return True
-
-    return False
+    return _in_index(word, _NOUN_KEYS)
 
 def can_be_verb(word: str) -> bool:
     """Checks if a root is a verb by looking it up in the verb index."""
@@ -230,10 +221,8 @@ def can_be_verb(word: str) -> bool:
 # --- Harmony functions ---
 def major_harmony(word: str) -> MajorHarmony | None:
     """Determines major vowel harmony based on last vowel"""
-    if word.endswith("l"):              
-        soft_l = word[:-1] + "ł"
-        if can_be_noun(soft_l):
-            return MajorHarmony.FRONT
+    if _in_index(word, _PALATAL_L_KEYS):
+        return MajorHarmony.FRONT
     for ch in reversed(word):
         if ch in VOWELS:
             return MajorHarmony.BACK if ch in BACK_VOWELS else MajorHarmony.FRONT

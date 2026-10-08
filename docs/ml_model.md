@@ -371,7 +371,7 @@ Bulk training replaces the scheduler with a schedule matched to the planned numb
 
 For every word position:
 
-1. Iterate that word's candidates.
+1. Iterate that word's candidates, starting at a position derived from a hash of the sentence and the word index. Starting at the first candidate made the same reading the negative every time: a gold plural+possessive_3sg was trained against possessive_3pl in 94% of words, the reverse in 15%, and the model stopped predicting possessive_3pl.
 2. Skip the gold candidate.
 3. Copy the gold sentence chains.
 4. Replace only that one word with the wrong candidate.

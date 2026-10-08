@@ -373,6 +373,13 @@ class WorkflowEngine:
         return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big") % modulus
 
     @classmethod
+    def _candidate_offset(cls, gold_chains: List[List], word_idx: int, modulus: int) -> int:
+        if modulus <= 1:
+            return 0
+        payload = repr((cls._chains_signature(gold_chains), word_idx)).encode("utf-8")
+        return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big") % modulus
+
+    @classmethod
     def _single_substitution_negatives(
         cls, gold_chains: List[List], candidate_lists: List[List[List]], gold_indices: List[int], limit: Optional[int] = None,
     ) -> List[List[List]]:
@@ -398,6 +405,11 @@ class WorkflowEngine:
         # as a negative it cannot possibly score below the gold.
         seen = {cls._chains_signature(gold_chains)}
         cursors = [0] * len(order)
+        candidate_orders = []
+        for word_idx in order:
+            count = len(candidate_lists[word_idx])
+            start = cls._candidate_offset(gold_chains, word_idx, count)
+            candidate_orders.append([(start + step) % count for step in range(count)])
 
         while len(negatives) < limit:
             produced = False
@@ -407,7 +419,7 @@ class WorkflowEngine:
                 gold_idx = gold_indices[word_idx]
                 cursor = cursors[slot]
                 while cursor < len(candidates):
-                    cand_idx = cursor
+                    cand_idx = candidate_orders[slot][cursor]
                     cursor += 1
                     if cand_idx == gold_idx: continue
                     neg = list(gold_chains)

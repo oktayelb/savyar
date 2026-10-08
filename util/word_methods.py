@@ -9,6 +9,7 @@ from util.words.closed_class import (
     UNINFLECTED_LEXEMES,
     lexeme_of,
 )
+from util.words.root_classes import VOWEL_DROPPING_ROOTS
 
 _TR_LOWER_TABLE = str.maketrans("İI", "iı")
 
@@ -263,6 +264,15 @@ def ends_with_consonant(word: str) -> bool:
     return word and word[-1] not in VOWELS
 
 
+SOFTENED_TO_HARD = {'b': 'p', 'c': 'ç', 'd': 't', 'ğ': 'k', 'g': 'k'}
+
+
+def unsoftened(form: str) -> str:
+    if form and form[-1] in SOFTENED_TO_HARD:
+        return form[:-1] + SOFTENED_TO_HARD[form[-1]]
+    return form
+
+
 def get_root_candidates(surface_root: str) -> List[str]:
     """Analyzes the text segment and returns Surface Forms that are Dictionary Lemmas."""
     candidates = [] 
@@ -270,14 +280,7 @@ def get_root_candidates(surface_root: str) -> List[str]:
     def check_and_add_softened(form_to_check):
         if not form_to_check: return
 
-        last_char = form_to_check[-1]
-        candidate = form_to_check
-
-        if last_char   == 'b':  candidate = form_to_check[:-1] + 'p'
-        elif last_char == 'c':  candidate = form_to_check[:-1] + 'ç'
-        elif last_char == 'd':  candidate = form_to_check[:-1] + 't'
-        elif last_char == 'ğ':  candidate = form_to_check[:-1] + 'k'
-        elif last_char == 'g':  candidate = form_to_check[:-1] + 'k'
+        candidate = unsoftened(form_to_check)
 
         if (can_be_noun(candidate) or can_be_verb(candidate)) and candidate not in candidates:
             candidates.append(candidate)
@@ -289,10 +292,10 @@ def get_root_candidates(surface_root: str) -> List[str]:
         suffix_char = surface_root[-1]
         
         for vowel in ['ı', 'i', 'u', 'ü']:
-            restored = prefix + vowel + suffix_char 
-            if can_be_noun(restored) or can_be_verb(restored):
-                candidates.append(restored)
-            check_and_add_softened(restored)
+            restored = prefix + vowel + suffix_char
+            for lemma in (restored, unsoftened(restored)):
+                if lemma in VOWEL_DROPPING_ROOTS and exists(lemma) and lemma not in candidates:
+                    candidates.append(lemma)
 
     if not can_be_noun(surface_root) and len(surface_root) > 1:
         for terminal_vowel in ['a', 'e']:

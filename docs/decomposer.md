@@ -108,6 +108,8 @@ The algorithm:
 
 Closed-class lexemes (`util/words/closed_class.py`) are ordinary noun roots, so `bana` is `("ben", "noun", [dative_e], "noun")`. Their irregular forms come from the suffix rules (pronominal `n` after `o`/`bu`/`şu`, genitive `-im` after `ben`/`biz`) and from `IRREGULAR_STEMS` (e.g. `bana`, `hepsi`, `birisi`). Conjunctions and clitics take no suffix as nouns. `decompose()` returns each `(root, pos, chain)` once.
 
+`değil` takes only predicative, person and `-ken` suffixes, and a genitive followed by `-lA` (`onunla`, `benimle`) is accepted only on the pronouns in `GENITIVE_COMITATIVE_PRONOUNS`. `decompose()` drops any other analysis.
+
 `decompose_with_fallback()` is what callers use: it returns `decompose()`'s analyses, or hypothesised roots when there are none.
 
 ### 8. Clearly Suffixed Words Are Not Roots
@@ -116,7 +118,16 @@ Closed-class lexemes (`util/words/closed_class.py`) are ordinary noun roots, so 
 
 `data/decomposed_lemmas.tsv` gives the split of every such word, plus treebank lemma conventions such as `olan` = ol+an. The treebank adapters expand a removed lemma through it (gold `kullan+ıyor` becomes `kul+la+n+ıyor`), using the verb split when the treebank tags the lemma as a verb (`alın` = al+ın). The table only rewrites gold labels; it never adds a candidate.
 
-### 9. Caching Strategy
+### 9. Root-Dependent Allomorphs
+
+The model never sees the root, so every rule that depends on it lives in the decomposer. `util/words/root_classes.py` lists the roots each rule applies to:
+
+- `CAUSATIVE_IR_ROOTS`, `CAUSATIVE_AR_ROOTS`: the only roots that take the `-Ir` (`geç-ir`) and `-Ar` (`çık-ar`) causatives.
+- `AORIST_IR_MONOSYLLABLES`: the 13 one-syllable verbs whose aorist is `-Ir` (`gel-ir`); every other one-syllable root takes `-Ar` (`bit-er`).
+- `VOWEL_DROPPING_NOUNS`, `VOWEL_DROPPING_VERBS`: roots that lose their last vowel before a vowel-initial suffix (`ağz-ı`, `ayr-ıl`).
+- `FINAL_VOWEL_ELIDING_ROOTS`: roots whose final vowel may drop before a consonant (`nerde`, `yumurtla`).
+
+### 10. Caching Strategy
 
 Two levels of caching prevent redundant computation:
 

@@ -1,5 +1,6 @@
 from util.suffix import Suffix, Type,  SuffixGroup
 import util.word_methods as wrd
+from util.words.root_classes import AORIST_IR_MONOSYLLABLES
 
 
 
@@ -40,6 +41,11 @@ class Participle(Suffix):
         )
 
 
+def is_bare_monosyllabic_root(word, current_chain):
+    vowel_count = sum(1 for ch in word if ch in wrd.VOWELS)
+    return not current_chain and vowel_count == 1 and word[-1] not in wrd.VOWELS
+
+
 def form_for_factative_ir(word, suffix_obj, current_chain=None):
     """
     Form function for factative_ir suffix (Geniş Zaman Sıfat-Fiil)
@@ -63,13 +69,20 @@ def form_for_factative_ir(word, suffix_obj, current_chain=None):
     ir_base = 'ir'
     ir_base = Suffix._apply_major_harmony(word, ir_base, suffix_obj.has_major_harmony)
     ir_base = Suffix._apply_minor_harmony(word, ir_base, True)
-    result_list.append(ir_base)
-    
+
     # er form with harmony (Gider, Yapar)
     er_base = 'er'
     er_base = Suffix._apply_major_harmony(word, er_base, suffix_obj.has_major_harmony)
-    result_list.append(er_base)
-    
+
+    if is_bare_monosyllabic_root(word, current_chain):
+        if word in AORIST_IR_MONOSYLLABLES:
+            result_list.append(ir_base)
+        else:
+            result_list.append(er_base)
+    else:
+        result_list.append(ir_base)
+        result_list.append(er_base)
+
     # Vowel drop variant for vowel-ending words (Oku-r)
     if word and word[-1] in ["a","e","ı","i","o","ö","u","ü"]:
         r_form = 'r'

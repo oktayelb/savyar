@@ -125,9 +125,11 @@ This module manages the word dictionary and provides all phonological utilities.
 `get_root_candidates(surface_root)` handles Turkish root mutations that occur when suffixes attach. Given a surface root that isn't in the dictionary, it tries:
 
 1. **Consonant devoicing reversal** — b→p, c→ç, d→t, ğ→k, g→k (e.g. surface "kitab" → dictionary "kitap")
-2. **Vowel drop restoration** — inserts ı/i/u/ü before final consonant (e.g. "oğl" → "oğul")
+2. **Vowel drop restoration** — inserts ı/i/u/ü before final consonant (e.g. "oğl" → "oğul"), only for roots in `VOWEL_DROPPING_ROOTS`
 3. **Terminal vowel restoration** — appends a/e (e.g. "ney" → "neye")
 4. **Consonant gemination reversal** — if last two chars are identical, try single (e.g. "hiss" → "his", "hakk" → "hak", "redd" → "ret")
+
+`decompose()` uses these only before a vowel-initial suffix, except that the roots in `FINAL_VOWEL_ELIDING_ROOTS` may lose their final vowel before a consonant (`nerde`, `ordan`).
 
 ### Derived Word Detection
 `is_derived_word(word)` returns True if a dictionary word is a derived form (e.g. "güzellik" = güzel + lik). The decomposer skips these as root candidates, forcing decomposition through the true root.

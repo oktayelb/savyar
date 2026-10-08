@@ -57,6 +57,10 @@ N_STEM_PRONOUNS = {"o", "bu", "şu"}
 
 GENITIVE_IM_STEMS = {"ben", "biz"}
 
+GENITIVE_COMITATIVE_PRONOUNS = {"ben", "sen", "o", "biz", "siz", "bu", "şu", "kim"}
+
+PREDICATE_ONLY_LEXEMES = {"değil"}
+
 IRREGULAR_STEMS: Dict[str, Tuple[str, str, str]] = {
     "bana": ("ben", "dative_e", "a"),
     "sana": ("sen", "dative_e", "a"),

@@ -12,7 +12,8 @@ from util.suffixes.v2n_suffixes import VERB2NOUN
 
 import util.word_methods as wrd
 from util.suffix import Type, Suffix, SuffixGroup, is_enabled
-from util.words.closed_class import IRREGULAR_STEMS
+from util.words.closed_class import IRREGULAR_STEMS, PREDICATE_ONLY_LEXEMES, GENITIVE_COMITATIVE_PRONOUNS
+from util.words.root_classes import FINAL_VOWEL_ELIDING_ROOTS
 
 ALL_SUFFIXES = NOUN2NOUN + NOUN2VERB + VERB2NOUN + VERB2VERB
 SUFFIX_BY_NAME = {suffix.name: suffix for suffix in ALL_SUFFIXES}
@@ -291,6 +292,31 @@ def find_suffix_chain(word: str, start_pos: str, root: str,
     return results
 
 
+PREDICATE_SUFFIX_GROUPS = {SuffixGroup.PREDICATIVE, SuffixGroup.CONJUGATION, SuffixGroup.NOUN_TO_ADVERB}
+
+
+def has_genitive_comitative(chain: List[Suffix]) -> bool:
+    for previous, current in zip(chain, chain[1:]):
+        if previous.name == "noun_compound" and current.name == "confactuous_le":
+            return True
+    return False
+
+
+def respects_root_restrictions(root: str, chain: List[Suffix]) -> bool:
+    if root in PREDICATE_ONLY_LEXEMES and chain and chain[0].group not in PREDICATE_SUFFIX_GROUPS:
+        return False
+    if has_genitive_comitative(chain) and root not in GENITIVE_COMITATIVE_PRONOUNS:
+        return False
+    return True
+
+
+def allowed_analyses(analyses: List[Tuple]) -> List[Tuple]:
+    return [
+        analysis for analysis in analyses
+        if respects_root_restrictions(analysis[0], analysis[2])
+    ]
+
+
 def unique_analyses(analyses: List[Tuple]) -> List[Tuple]:
     seen = set()
     unique = []
@@ -355,6 +381,16 @@ def append_progressive_vowel_drop_candidates(word: str, surface_root: str, analy
             append_analysis(lemma_root + rest, "verb", lemma_root, analyses_list, shared_cache)
 
 
+def is_followed_by_vowel(word: str, prefix_length: int) -> bool:
+    return prefix_length < len(word) and word[prefix_length] in wrd.VOWELS
+
+
+def is_alternation_allowed(word: str, prefix_length: int, lemma_root: str) -> bool:
+    if is_followed_by_vowel(word, prefix_length):
+        return True
+    return prefix_length < len(word) and lemma_root in FINAL_VOWEL_ELIDING_ROOTS
+
+
 @functools.lru_cache(maxsize=100000)
 def decompose_with_root(word: str, root: str) -> List[Tuple]:
     """Every analysis of `word` that uses `root` as its lemma.
@@ -384,7 +420,7 @@ def decompose_with_root(word: str, root: str) -> List[Tuple]:
         for pos in ("noun", "verb"):
             append_analysis(surface, pos, root, analyses, shared_cache)
 
-    return unique_analyses(analyses)
+    return unique_analyses(allowed_analyses(analyses))
 
 
 @functools.lru_cache(maxsize=100000)
@@ -426,6 +462,8 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
         if (not force ) and (not wrd.exists(root)):
             root_pairs = wrd.get_root_candidates(word[:i])
             for lemma_root in root_pairs:
+                if not is_alternation_allowed(word, i, lemma_root):
+                    continue
                 virtual_word = lemma_root + word[i:]
 
                 if wrd.can_be_noun(lemma_root):
@@ -437,4 +475,4 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
         if (not force) and wrd.exists(root):
             append_progressive_vowel_drop_candidates(word, root, analyses, shared_cache)
 
-    return unique_analyses(analyses)
+    return unique_analyses(allowed_analyses(analyses))

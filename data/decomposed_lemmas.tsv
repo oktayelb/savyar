@@ -204,12 +204,10 @@ afallaştırma	noun	afalla	reflexive_is active_dir infinitive_me
 affedil	verb	affet	passive_il
 affedilme	noun	affet	passive_il infinitive_me
 affedilmek	noun	affet	passive_il infinitive_mek
-affetirmek	noun	affet	active_ir infinitive_mek
 affetme	noun	affet	infinitive_me
 affetmek	noun	affet	infinitive_mek
 affettir	verb	affet	active_dir
 affettirme	noun	affet	active_dir infinitive_me
-affeyle	noun	afif	dative_e confactuous_le
 affolunma	noun	affolun	infinitive_me
 afganistanda	noun	afganistan	locative_de
 afili	noun	afi	compositive_li
@@ -1071,8 +1069,6 @@ ardaklan	verb	ardak	applicative_le passive_il
 ardaklanma	noun	ardak	applicative_le passive_il infinitive_me
 ardiyeci	noun	ardiye	actor_ci
 ardiyecilik	noun	ardiye	actor_ci suitative_lik
-ardıl	verb	arıt	passive_il
-ardılma	noun	arıt	passive_il infinitive_me
 ardında	noun	art	possessive_3sg locative_de
 ardından	noun	art	possessive_3sg ablative_den
 ardışıklık	noun	ardışık	suitative_lik
@@ -1120,7 +1116,6 @@ armoniler	noun	armoni	plural_ler
 armudumsu	noun	armut	approximative_si
 armutlu	noun	armut	compositive_li
 armutçu	noun	armut	actor_ci
-arna	noun	arın	adverbial_e
 arnavutlaş	verb	arnavut	applicative_le reflexive_is
 arnavutlaşma	noun	arnavut	applicative_le reflexive_is infinitive_me
 arnavutlaştır	verb	arnavut	applicative_le reflexive_is active_dir
@@ -1510,7 +1505,6 @@ aydınlık	noun	aydın	suitative_lik
 aydınlıkta	noun	aydın	suitative_lik locative_de
 aydınlıktanın	noun	aydın	suitative_lik ablative_den conjugation_2sg
 aygınlık	noun	aygın	suitative_lik
-aykan	noun	ayık	factative_en
 aykırıla	verb	aykırı	applicative_le
 aykırılama	noun	aykırı	applicative_le infinitive_me
 aykırılaş	verb	aykırı	applicative_le reflexive_is
@@ -1657,10 +1651,10 @@ azatlı	noun	azat	compositive_li
 azatlık	noun	azat	suitative_lik
 azatsız	noun	azat	privative_siz
 azcık	noun	az	diminutive_cik
-azdır	verb	azıt	active_ir
-azdırma	noun	azıt	active_ir infinitive_me
-azdırıl	verb	azıt	active_ir passive_il
-azdırılma	noun	azıt	active_ir passive_il infinitive_me
+azdır	verb	az	active_dir
+azdırma	noun	az	active_dir infinitive_me
+azdırıl	verb	az	active_dir passive_il
+azdırılma	noun	az	active_dir passive_il infinitive_me
 azerbaycanlı	noun	azerbaycan	compositive_li
 azerice	noun	azeri	relative_ce
 azgınlaş	verb	azgın	applicative_le reflexive_is
@@ -1829,7 +1823,7 @@ ağlamsı	noun	ağla	nounifier_im approximative_si
 ağlan	verb	ağla	passive_il
 ağlanma	noun	ağla	passive_il infinitive_me
 ağlar	noun	ağ	plural_ler
-ağlarsa	noun	ağla	active_er wish_suffix
+ağlarsa	noun	ağla	factative_ir if_se
 ağlat	verb	ağla	active_it
 ağlatma	noun	ağla	active_it infinitive_me
 ağlatış	noun	ağla	active_it nounifier_iş
@@ -2810,7 +2804,6 @@ belirtili	noun	belirti	compositive_li
 belirtilir	noun	belir	active_it passive_il factative_ir
 belirtilme	noun	belir	active_it passive_il infinitive_me
 belirtim	noun	belir	active_it nounifier_im
-belirtirerek	noun	belir	active_it active_ir adverbial_erek
 belirtisiz	noun	belirti	privative_siz
 belirtisizlik	noun	belirti	privative_siz suitative_lik
 belirtken	noun	belir	active_it constofactative_gen
@@ -2873,7 +2866,6 @@ benlik	noun	ben	suitative_lik
 benlikçi	noun	ben	suitative_lik actor_ci
 benlikçilik	noun	ben	suitative_lik actor_ci suitative_lik
 benmerkezcilik	noun	benmerkezci	suitative_lik
-benzdeki	noun	beniz	locative_de marking_ki
 benzeme	noun	benze	infinitive_me
 benzemek	noun	benze	infinitive_mek
 benzemeklik	noun	benze	infinitive_mek suitative_lik
@@ -3115,7 +3107,6 @@ bilardoculuk	noun	bilardo	actor_ci suitative_lik
 bildik	noun	bil	adjectifier_dik
 bildiklik	noun	bil	adjectifier_dik suitative_lik
 bildir	verb	bil	active_dir
-bildirererek	noun	bil	active_dir active_er adverbial_erek
 bildirici	noun	bildiri	actor_ci
 bildiril	verb	bil	active_dir passive_il
 bildirilir	noun	bil	active_dir passive_il factative_ir
@@ -3206,7 +3197,7 @@ bilinçsiz	noun	bilinç	privative_siz
 bilinçsizlik	noun	bilinç	privative_siz suitative_lik
 bilip	noun	bil	adverbial_ip
 bilir	noun	bil	factative_ir
-bilirim	noun	bil	active_ir nounifier_im
+bilirim	noun	bil	factative_ir conjugation_1sg
 bilirkişilik	noun	bilirkişi	suitative_lik
 bilisiz	noun	bili	privative_siz
 bilisizlik	noun	bili	privative_siz suitative_lik
@@ -3332,7 +3323,7 @@ birleştirilme	noun	bir	applicative_le reflexive_is active_dir passive_il infini
 birleştirme	noun	bir	applicative_le reflexive_is active_dir infinitive_me
 birli	noun	bir	compositive_li
 birlik	noun	bir	suitative_lik
-birliklerine	noun	bir	suitative_lik applicative_le active_er reflexive_in adverbial_e
+birliklerine	noun	bir	suitative_lik possessive_3pl dative_e
 birliktelik	noun	birlikte	suitative_lik
 birlikteliklerini	noun	birlikte	suitative_lik possessive_3pl accusative_i
 birlikteliğimizden	noun	birlikte	suitative_lik possessive_1pl ablative_den
@@ -3911,7 +3902,6 @@ burkul	verb	burk	passive_il
 burkulma	noun	burk	passive_il infinitive_me
 burma	noun	bur	infinitive_me
 burmak	noun	bur	infinitive_mek
-burncundanım	noun	burun	actor_ci possessive_2sg ablative_den conjugation_1sg
 bursalı	noun	bursa	compositive_li
 burslu	noun	burs	compositive_li
 burssuz	noun	burs	privative_siz
@@ -4194,7 +4184,6 @@ büzüş	verb	büz	reflexive_is
 büzüşme	noun	büz	reflexive_is infinitive_me
 büzüşmek	noun	büz	reflexive_is infinitive_mek
 büğeme	noun	büğe	infinitive_me
-büğlü	noun	bük	compositive_li
 bıkkınlık	noun	bıkkın	suitative_lik
 bıkma	noun	bık	infinitive_me
 bıkmak	noun	bık	infinitive_mek
@@ -4420,7 +4409,6 @@ cesaretlendirilme	noun	cesaret	applicative_le passive_il active_dir passive_il i
 cesaretlendirilmek	noun	cesaret	applicative_le reflexive_in active_dir passive_il infinitive_mek
 cesaretlendirme	noun	cesaret	applicative_le passive_il active_dir infinitive_me
 cesaretlenme	noun	cesaret	applicative_le passive_il infinitive_me
-cesaretlerdirdiğini	noun	cesaret	applicative_le active_ir active_dir adjectifier_dik possessive_3sg accusative_i
 cesaretli	noun	cesaret	compositive_li
 cesaretlilik	noun	cesaret	compositive_li suitative_lik
 cesaretsiz	noun	cesaret	privative_siz
@@ -4950,7 +4938,6 @@ dağlatış	noun	dağ	applicative_le active_it nounifier_iş
 dağlayış	noun	dağ	applicative_le nounifier_iş
 dağlı	noun	dağ	compositive_li
 dağlık	noun	dağ	suitative_lik
-dağlımındaki	noun	dağıl	nounifier_im possessive_3sg locative_de marking_ki
 dağılma	noun	dağıl	infinitive_me
 dağılmak	noun	dağıl	infinitive_mek
 dağılım	noun	dağıl	nounifier_im
@@ -5187,15 +5174,13 @@ denktaşlık	noun	denktaş	suitative_lik
 denkçi	noun	denk	actor_ci
 denkçilik	noun	denk	actor_ci suitative_lik
 denlilik	noun	denli	suitative_lik
-denme	noun	dene	infinitive_me
+denme	noun	de	passive_il infinitive_me
 denmek	noun	de	passive_il infinitive_mek
 densizlen	verb	densiz	applicative_le passive_il
 densizlenme	noun	densiz	applicative_le passive_il infinitive_me
 densizleş	verb	densiz	applicative_le reflexive_is
 densizleşme	noun	densiz	applicative_le reflexive_is infinitive_me
 densizlik	noun	densiz	suitative_lik
-denşir	verb	dene	reflexive_is active_ir
-denşirme	noun	dene	reflexive_is active_ir infinitive_me
 depocu	noun	depo	actor_ci
 depoculuk	noun	depo	actor_ci suitative_lik
 depola	verb	depo	applicative_le
@@ -5412,23 +5397,18 @@ değerlendiril	verb	değ	factative_ir applicative_le reflexive_in active_dir pas
 değerlendirilme	noun	değ	factative_ir applicative_le passive_il active_dir passive_il infinitive_me
 değerlendirilmek	noun	değ	factative_ir applicative_le reflexive_in active_dir passive_il infinitive_mek
 değerlendirme	noun	değ	factative_ir applicative_le reflexive_in active_dir infinitive_me
-değerlenirilip	noun	değ	factative_ir applicative_le reflexive_in active_ir passive_il adverbial_ip
 değerlenme	noun	değ	factative_ir applicative_le passive_il infinitive_me
 değerli	noun	değ	factative_ir compositive_li
 değerlik	noun	değ	factative_ir suitative_lik
 değerlilik	noun	değ	factative_ir compositive_li suitative_lik
 değersiz	noun	değ	factative_ir privative_siz
 değersizlik	noun	değ	factative_ir privative_siz suitative_lik
-değille	verb	değil	applicative_le
 değim	noun	değ	nounifier_im
 değimli	noun	değ	nounifier_im compositive_li
 değimsiz	noun	değ	nounifier_im privative_siz
 değin	verb	değ	reflexive_in
 değiniş	noun	değ	reflexive_in nounifier_iş
 değinme	noun	değ	reflexive_in infinitive_me
-değir	verb	değ	active_ir
-değirme	noun	değ	active_ir infinitive_me
-değirmek	noun	değ	active_ir infinitive_mek
 değirmenci	noun	değirmen	actor_ci
 değirmencilik	noun	değirmen	actor_ci suitative_lik
 değirmenlik	noun	değirmen	suitative_lik
@@ -6764,7 +6744,6 @@ ehliyetsiz	noun	ehliyet	privative_siz
 ehliyetsizlik	noun	ehliyet	privative_siz suitative_lik
 ehvenlik	noun	ehven	suitative_lik
 ekecek	noun	eke	diminutive_cik
-ekibleri	noun	ekip	possessive_3pl
 ekicilik	noun	ekici	suitative_lik
 ekil	verb	ek	passive_il
 ekilme	noun	ek	passive_il infinitive_me
@@ -6887,7 +6866,6 @@ eleştirmeci	noun	ele	reflexive_is active_dir infinitive_me actor_ci
 eleştirmecilik	noun	ele	reflexive_is active_dir infinitive_me actor_ci suitative_lik
 eleştirmeli	noun	ele	reflexive_is active_dir infinitive_me compositive_li
 eleştirmenlik	noun	eleştirmen	suitative_lik
-elgin	noun	elik	noun_compound
 elim	noun	el	possessive_1sg
 elimi	noun	el	possessive_1sg accusative_i
 elimiz	noun	el	possessive_1pl
@@ -7076,9 +7054,9 @@ ereksel	noun	erek	relative_sel
 erekçilik	noun	erek	actor_ci suitative_lik
 erenler	noun	eren	plural_ler
 ergen	noun	er	constofactative_gen
-ergenleş	verb	ergene	applicative_le reflexive_is
-ergenleşme	noun	ergene	applicative_le reflexive_is infinitive_me
-ergenlik	noun	ergene	suitative_lik
+ergenleş	verb	er	constofactative_gen applicative_le reflexive_is
+ergenleşme	noun	er	constofactative_gen applicative_le reflexive_is infinitive_me
+ergenlik	noun	er	constofactative_gen suitative_lik
 ergi	noun	er	nounifier_gi
 ergilik	noun	er	nounifier_gi suitative_lik
 ergime	noun	ergi	infinitive_me
@@ -7199,8 +7177,6 @@ esenleş	verb	esen	applicative_le reflexive_is
 esenleşme	noun	esen	applicative_le reflexive_is infinitive_me
 esenlik	noun	esen	suitative_lik
 esenlikli	noun	esen	suitative_lik compositive_li
-eser	verb	es	active_er
-eserme	noun	es	active_er infinitive_me
 esim	noun	es	nounifier_im
 esindir	verb	es	reflexive_in active_dir
 esindirme	noun	es	reflexive_in active_dir infinitive_me
@@ -7276,8 +7252,8 @@ esrarlı	noun	esrar	compositive_li
 esriklik	noun	esrik	suitative_lik
 esrime	noun	esri	infinitive_me
 esrit	verb	esri	active_it
-esritme	noun	esir	active_it infinitive_me
-esritmek	noun	esir	active_it infinitive_mek
+esritme	noun	esri	active_it infinitive_me
+esritmek	noun	esri	active_it infinitive_mek
 esterleşme	noun	ester	applicative_le reflexive_is infinitive_me
 estetikçi	noun	estetik	actor_ci
 estetikçilik	noun	estetik	actor_ci suitative_lik
@@ -7331,7 +7307,7 @@ etkileşimli	noun	et	nounifier_gi applicative_le reflexive_is nounifier_im compo
 etkileşme	noun	et	nounifier_gi applicative_le reflexive_is infinitive_me
 etkili	noun	et	nounifier_gi compositive_li
 etkililik	noun	et	nounifier_gi compositive_li suitative_lik
-etkime	noun	etik	possessive_1sg dative_e
+etkime	noun	et	nounifier_gi possessive_1sg dative_e
 etkinci	noun	etkin	actor_ci
 etkincilik	noun	etkin	actor_ci suitative_lik
 etkinleş	verb	etkin	applicative_le reflexive_is
@@ -7519,9 +7495,9 @@ eziyetli	noun	eziyet	compositive_li
 eziyetsiz	noun	eziyet	privative_siz
 ezme	noun	ez	infinitive_me
 ezmek	noun	ez	infinitive_mek
-eğdir	verb	eğit	active_ir
-eğdiriş	noun	eğit	active_ir nounifier_iş
-eğdirme	noun	eğit	active_ir infinitive_me
+eğdir	verb	eğ	active_dir
+eğdiriş	noun	eğ	active_dir nounifier_iş
+eğdirme	noun	eğ	active_dir infinitive_me
 eğele	verb	eğe	applicative_le
 eğeleme	noun	eğe	applicative_le infinitive_me
 eğiklik	noun	eğik	suitative_lik
@@ -7838,7 +7814,6 @@ fidecilik	noun	fide	actor_ci suitative_lik
 fidele	verb	fide	applicative_le
 fideleme	noun	fide	applicative_le infinitive_me
 fidelik	noun	fide	suitative_lik
-figrler	noun	figür	applicative_le factative_ir
 figüranlık	noun	figüran	suitative_lik
 figürlü	noun	figür	compositive_li
 figürsüz	noun	figür	privative_siz
@@ -7864,7 +7839,7 @@ filigranlı	noun	filigran	compositive_li
 filikacı	noun	filika	actor_ci
 filistinli	noun	filistin	compositive_li
 filistinliler	noun	filistin	compositive_li applicative_le factative_ir
-filistinlilere	noun	filistin	compositive_li applicative_le active_er adverbial_e
+filistinlilere	noun	filistin	compositive_li plural_ler dative_e
 filistinlilerin	noun	filistin	compositive_li plural_ler possessive_2sg
 filistinlilerle	noun	filistin	compositive_li applicative_le factative_ir confactuous_le
 filistinlinin	noun	filistin	compositive_li noun_compound
@@ -8195,7 +8170,6 @@ gaklama	noun	gak	applicative_le infinitive_me
 galerici	noun	galeri	actor_ci
 galericilik	noun	galeri	actor_ci suitative_lik
 galeyanlı	noun	galeyan	compositive_li
-galler	noun	gale	applicative_le factative_ir
 galoşlu	noun	galoş	compositive_li
 galoşsuz	noun	galoş	privative_siz
 galvanizci	noun	galvaniz	actor_ci
@@ -8376,7 +8350,7 @@ gelinlikçi	noun	gelin	suitative_lik actor_ci
 gelinme	noun	gel	passive_il infinitive_me
 gelip	noun	gel	adverbial_ip
 gelir	noun	gel	factative_ir
-gelirim	noun	gel	active_ir nounifier_im
+gelirim	noun	gel	factative_ir conjugation_1sg
 gelirli	noun	gel	factative_ir compositive_li
 gelirlilik	noun	gel	factative_ir compositive_li suitative_lik
 gelirsiz	noun	gel	factative_ir privative_siz
@@ -8779,7 +8753,6 @@ giydir	verb	giy	active_dir
 giydiril	verb	giy	active_dir passive_il
 giydirilme	noun	giy	active_dir passive_il infinitive_me
 giydirilmek	noun	giy	active_dir passive_il infinitive_mek
-giydirirerek	noun	giy	active_dir active_ir adverbial_erek
 giydiriş	noun	giy	active_dir nounifier_iş
 giydirme	noun	giy	active_dir infinitive_me
 giyecek	noun	giy	nounifier_ecek
@@ -8835,7 +8808,6 @@ golcü	noun	gol	actor_ci
 golcülük	noun	gol	actor_ci suitative_lik
 golfçü	noun	golf	actor_ci
 golfçülük	noun	golf	actor_ci suitative_lik
-golllerde	noun	gol	applicative_le factative_ir locative_de
 gollü	noun	gol	compositive_li
 gollük	noun	gol	suitative_lik
 golsüz	noun	gol	privative_siz
@@ -8857,7 +8829,6 @@ gribi	noun	grip	possessive_3sg
 grimsi	noun	gri	approximative_si
 gripli	noun	grip	compositive_li
 grostonluk	noun	groston	suitative_lik
-grubları	noun	grup	possessive_3pl
 grupla	verb	grup	applicative_le
 gruplan	verb	grup	applicative_le passive_il
 gruplandır	verb	grup	applicative_le passive_il active_dir
@@ -8958,7 +8929,6 @@ gönüllen	verb	gönül	applicative_le passive_il
 gönüllendir	verb	gönül	applicative_le passive_il active_dir
 gönüllendirme	noun	gönül	applicative_le passive_il active_dir infinitive_me
 gönüllenme	noun	gönül	applicative_le passive_il infinitive_me
-gönülllüler	noun	gönül	compositive_li applicative_le factative_ir
 gönüllü	noun	gönül	compositive_li
 gönüllüce	noun	gönül	compositive_li relative_ce
 gönüllülük	noun	gönül	compositive_li suitative_lik
@@ -9055,7 +9025,6 @@ görüntüsel	noun	görüntü	relative_sel
 görünüm	noun	gör	reflexive_in nounifier_im
 görünümlü	noun	gör	reflexive_in nounifier_im compositive_li
 görünür	noun	gör	reflexive_in factative_ir
-görünür	verb	gör	reflexive_in active_ir
 görünürde	noun	gör	reflexive_in factative_ir locative_de
 görünürlerde	noun	gör	reflexive_in factative_ir plural_ler locative_de
 görünürlük	noun	gör	reflexive_in factative_ir suitative_lik
@@ -9194,13 +9163,7 @@ göçebeleş	verb	göçebe	applicative_le reflexive_is
 göçebeleşme	noun	göçebe	applicative_le reflexive_is infinitive_me
 göçebelik	noun	göçebe	suitative_lik
 göçer	noun	göç	factative_ir
-göçer	verb	göç	active_er
 göçerler	noun	göç	factative_ir plural_ler
-göçerme	noun	göç	active_er infinitive_me
-göçermek	noun	göç	active_er infinitive_mek
-göçert	verb	göç	active_er active_it
-göçertme	noun	göç	active_er active_it infinitive_me
-göçertmek	noun	göç	active_er active_it infinitive_mek
 göçme	noun	göç	infinitive_me
 göçmek	noun	göç	infinitive_mek
 göçmenler	noun	göçmen	applicative_le factative_ir
@@ -10106,7 +10069,6 @@ helezonlaşma	noun	helezon	applicative_le reflexive_is infinitive_me
 helezonlu	noun	helezon	compositive_li
 helezonsuz	noun	helezon	privative_siz
 helik	noun	he	suitative_lik
-helli	noun	hele	compositive_li
 helmelen	verb	helme	applicative_le passive_il
 helmelenme	noun	helme	applicative_le passive_il infinitive_me
 helmeleşme	noun	helme	applicative_le reflexive_is infinitive_me
@@ -10252,7 +10214,6 @@ hissedilmek	noun	hisset	passive_il infinitive_mek
 hissediş	noun	hisset	nounifier_iş
 hisseli	noun	hisse	compositive_li
 hissesiz	noun	hisse	privative_siz
-hissetirilen	noun	hisset	active_ir passive_il factative_en
 hissetme	noun	hisset	infinitive_me
 hissetmek	noun	hisset	infinitive_mek
 hissetmektir	noun	hisset	infinitive_mek nounaorist_dir
@@ -10604,7 +10565,6 @@ iddialı	noun	iddia	compositive_li
 iddialıysa	noun	iddia	compositive_li if_se
 iddiasız	noun	iddia	privative_siz
 iddiasızlık	noun	iddia	privative_siz suitative_lik
-iddiları	noun	iddia	possessive_3pl
 idealistlik	noun	idealist	suitative_lik
 idealisttir	noun	idealist	nounaorist_dir
 idealizm	noun	ideal	ideologicative_izm
@@ -10803,7 +10763,7 @@ ilişkilendir	verb	iliş	nounifier_gi applicative_le passive_il active_dir
 ilişkilendirme	noun	iliş	nounifier_gi applicative_le passive_il active_dir infinitive_me
 ilişkili	noun	iliş	nounifier_gi compositive_li
 ilişkiliydi	noun	iliş	nounifier_gi compositive_li pasttense_noundi
-ilişkimiz	noun	ilişik	possessive_1pl
+ilişkimiz	noun	iliş	nounifier_gi possessive_1pl
 ilişkinlik	noun	ilişkin	suitative_lik
 ilişkisiz	noun	iliş	nounifier_gi privative_siz
 ilişkisizlik	noun	iliş	nounifier_gi privative_siz suitative_lik
@@ -11632,8 +11592,6 @@ kabalaş	verb	kaba	applicative_le reflexive_is
 kabalaşma	noun	kaba	applicative_le reflexive_is infinitive_me
 kabalaştır	verb	kaba	applicative_le reflexive_is active_dir
 kabalaştırma	noun	kaba	applicative_le reflexive_is active_dir infinitive_me
-kaballa	verb	kabala	applicative_le
-kaballama	noun	kabala	applicative_le infinitive_me
 kabalık	noun	kaba	suitative_lik
 kabaralı	noun	kabara	compositive_li
 kabarcıklı	noun	kabarcık	compositive_li
@@ -12805,7 +12763,7 @@ kaydırılma	noun	kay	active_dir passive_il infinitive_me
 kaydırış	noun	kay	active_dir nounifier_iş
 kaygan	noun	kay	constofactative_gen
 kayganalık	noun	kaygana	suitative_lik
-kayganlık	noun	kaygana	suitative_lik
+kayganlık	noun	kay	constofactative_gen suitative_lik
 kaygılan	verb	kaygı	applicative_le passive_il
 kaygılandır	verb	kaygı	applicative_le passive_il active_dir
 kaygılandırma	noun	kaygı	applicative_le passive_il active_dir infinitive_me
@@ -12918,7 +12876,7 @@ kazanılma	noun	kazan	passive_il infinitive_me
 kazanım	noun	kazan	nounifier_im
 kazanımlar	noun	kazan	nounifier_im applicative_le factative_ir
 kazanımların	noun	kazan	nounifier_im plural_ler possessive_2sg
-kazanımlarına	noun	kazan	nounifier_im applicative_le active_er reflexive_in adverbial_e
+kazanımlarına	noun	kazan	nounifier_im possessive_3pl dative_e
 kazanınca	noun	kazan	adverbial_ince
 kazanış	noun	kazan	nounifier_iş
 kazaskerlik	noun	kazasker	suitative_lik
@@ -12965,7 +12923,6 @@ kaçakçılık	noun	kaç	toolative_ek actor_ci suitative_lik
 kaçamaklı	noun	kaçamak	compositive_li
 kaçan	noun	kaç	factative_en
 kaçar	noun	kaç	factative_ir
-kaçaran	noun	kaç	active_er factative_en
 kaçlı	noun	kaç	compositive_li
 kaçlık	noun	kaç	suitative_lik
 kaçma	noun	kaç	infinitive_me
@@ -13155,8 +13112,6 @@ kemiriş	noun	kemir	nounifier_iş
 kemirme	noun	kemir	infinitive_me
 kemirmek	noun	kemir	infinitive_mek
 kemlik	noun	kem	suitative_lik
-kemrele	verb	kemir	randomative_ele
-kemreleme	noun	kemir	randomative_ele infinitive_me
 kemrelik	noun	kemre	suitative_lik
 kenarcı	noun	kenar	actor_ci
 kenarlı	noun	kenar	compositive_li
@@ -13302,7 +13257,6 @@ kesmek	noun	kes	infinitive_mek
 kesmeli	noun	kes	infinitive_me compositive_li
 kesmelik	noun	kes	infinitive_me suitative_lik
 kesmikli	noun	kesmik	compositive_li
-kessler	noun	kes	applicative_le factative_ir
 kestaneci	noun	kestane	actor_ci
 kestanecik	noun	kestane	diminutive_cik
 kestanecilik	noun	kestane	actor_ci suitative_lik
@@ -13373,7 +13327,6 @@ kibirli	noun	kibir	compositive_li
 kibirlilik	noun	kibir	compositive_li suitative_lik
 kibirsiz	noun	kibir	privative_siz
 kibirsizlik	noun	kibir	privative_siz suitative_lik
-kibler	noun	kip	applicative_le factative_ir
 kibritlik	noun	kibrit	suitative_lik
 kibritçi	noun	kibrit	actor_ci
 kifaflan	verb	kifaf	applicative_le passive_il
@@ -13689,7 +13642,6 @@ koltukçu	noun	koltuk	actor_ci
 koltukçuluk	noun	koltuk	actor_ci suitative_lik
 komalık	noun	koma	suitative_lik
 kombili	noun	kombi	compositive_li
-kombinlemek	noun	kombine	applicative_le infinitive_mek
 komedyacı	noun	komedya	actor_ci
 komikleş	verb	komik	applicative_le reflexive_is
 komikleşme	noun	komik	applicative_le reflexive_is infinitive_me
@@ -14951,10 +14903,10 @@ kırbaçlanma	noun	kırbaç	applicative_le passive_il infinitive_me
 kırca	noun	kır	relative_ce
 kırcı	noun	kır	actor_ci
 kırdan	noun	kır	ablative_den
-kırdır	verb	kırıt	active_ir
-kırdırma	noun	kırıt	active_ir infinitive_me
+kırdır	verb	kır	active_dir
+kırdırma	noun	kır	active_dir infinitive_me
 kırdırt	verb	kır	active_dir active_it
-kırdırtma	noun	kırıt	active_ir active_it infinitive_me
+kırdırtma	noun	kır	active_dir active_it infinitive_me
 kırdırtmak	noun	kır	active_dir active_it infinitive_mek
 kırgınlık	noun	kırgın	suitative_lik
 kırgınlıkla	noun	kırgın	suitative_lik confactuous_le
@@ -15055,7 +15007,6 @@ kısalış	noun	kısal	nounifier_iş
 kısarak	noun	kıs	adverbial_erek
 kıskacı	noun	kıska	actor_ci
 kıskacılık	noun	kıska	actor_ci suitative_lik
-kıskanclığı	noun	kıskanç	suitative_lik possessive_3sg
 kıskandır	verb	kıskan	active_dir
 kıskandırma	noun	kıskan	active_dir infinitive_me
 kıskanma	noun	kıskan	infinitive_me
@@ -15261,7 +15212,6 @@ kızıllaşma	noun	kızıl	applicative_le reflexive_is infinitive_me
 kızıllık	noun	kızıl	suitative_lik
 kızılma	noun	kız	passive_il infinitive_me
 kızılsı	noun	kızıl	approximative_si
-kızılır	verb	kız	passive_il active_ir
 kızılış	noun	kız	passive_il nounifier_iş
 kızış	noun	kız	nounifier_iş
 kızış	verb	kız	reflexive_is
@@ -15408,7 +15358,6 @@ lehimletme	noun	lehim	applicative_le active_it infinitive_me
 lehimli	noun	lehim	compositive_li
 lehine	noun	leh	possessive_3sg dative_e
 lehçeci	noun	lehçe	actor_ci
-lejandlar	noun	lejant	applicative_le factative_ir
 lekeci	noun	leke	actor_ci
 lekecilik	noun	leke	actor_ci suitative_lik
 lekele	verb	leke	applicative_le
@@ -15626,7 +15575,6 @@ mahkemeleş	verb	mahkeme	applicative_le reflexive_is
 mahkemeleşme	noun	mahkeme	applicative_le reflexive_is infinitive_me
 mahkemeli	noun	mahkeme	compositive_li
 mahkemelik	noun	mahkeme	suitative_lik
-mahkemye	noun	mahkeme	dative_e
 mahmurlaş	verb	mahmur	applicative_le reflexive_is
 mahmurlaşma	noun	mahmur	applicative_le reflexive_is infinitive_me
 mahmurluk	noun	mahmur	suitative_lik
@@ -15762,7 +15710,6 @@ mankenlik	noun	manken	suitative_lik
 mankurtlaş	verb	mankurt	applicative_le reflexive_is
 mankurtlaşma	noun	mankurt	applicative_le reflexive_is infinitive_me
 manolyagiller	noun	manolya	familative_gil plural_ler
-mansız	noun	mana	privative_siz
 mantarcı	noun	mantar	actor_ci
 mantarcılık	noun	mantar	actor_ci suitative_lik
 mantarla	verb	mantar	applicative_le
@@ -15895,7 +15842,7 @@ mavileştir	verb	mavi	applicative_le reflexive_is active_dir
 mavileştirme	noun	mavi	applicative_le reflexive_is active_dir infinitive_me
 mavili	noun	mavi	compositive_li
 mavilik	noun	mavi	suitative_lik
-mavililere	noun	mavi	compositive_li applicative_le active_er adverbial_e
+mavililere	noun	mavi	compositive_li plural_ler dative_e
 mavililerin	noun	mavi	compositive_li plural_ler possessive_2sg
 mavimsi	noun	mavi	approximative_si
 mavnacı	noun	mavna	actor_ci
@@ -16705,7 +16652,6 @@ müzminleşme	noun	müzmin	applicative_le reflexive_is infinitive_me
 müzminleştir	verb	müzmin	applicative_le reflexive_is active_dir
 müzminleştirme	noun	müzmin	applicative_le reflexive_is active_dir infinitive_me
 müzminlik	noun	müzmin	suitative_lik
-müçtehidler	noun	müçtehit	applicative_le factative_ir
 müşavirlik	noun	müşavir	suitative_lik
 müşavirliğinden	noun	müşavir	suitative_lik possessive_3sg ablative_den
 müşavirliğinin	noun	müşavir	suitative_lik possessive_3sg noun_compound
@@ -16753,8 +16699,6 @@ mızraksız	noun	mızrak	privative_siz
 mızraplı	noun	mızrap	compositive_li
 mızıkacı	noun	mızıka	actor_ci
 mızıkalı	noun	mızıka	compositive_li
-mızıklan	verb	mızıka	applicative_le passive_il
-mızıklanma	noun	mızıka	applicative_le passive_il infinitive_me
 mızıkçılık	noun	mızıkçı	suitative_lik
 mızıldanma	noun	mızıldan	infinitive_me
 mızıma	noun	mızı	infinitive_me
@@ -16842,7 +16786,6 @@ nankörlük	noun	nankör	suitative_lik
 narcıl	noun	nar	philicative_cil
 narenciyeci	noun	narenciye	actor_ci
 narenciyecilik	noun	narenciye	actor_ci suitative_lik
-nargiller	noun	nargile	plural_ler
 narinlik	noun	narin	suitative_lik
 narkozcu	noun	narkoz	actor_ci
 narkozculuk	noun	narkoz	actor_ci suitative_lik
@@ -17435,7 +17378,7 @@ ondülesiz	noun	ondüle	privative_siz
 ongunculuk	noun	ongun	actor_ci suitative_lik
 ongunluk	noun	ongun	suitative_lik
 onlar	noun	on	plural_ler
-onlara	noun	on	applicative_le active_ir adverbial_e
+onlara	noun	o	plural_ler dative_e
 onlarca	noun	on	plural_ler relative_ce
 onlarda	noun	on	plural_ler locative_de
 onlardan	noun	on	plural_ler ablative_den
@@ -18477,7 +18420,6 @@ presle	verb	pres	applicative_le
 presleme	noun	pres	applicative_le infinitive_me
 preslen	verb	pres	applicative_le passive_il
 preslenme	noun	pres	applicative_le passive_il infinitive_me
-prestji	noun	prestij	possessive_3sg
 presçi	noun	pres	actor_ci
 presçilik	noun	pres	actor_ci suitative_lik
 primatlar	noun	primat	plural_ler
@@ -19295,7 +19237,7 @@ sanıklık	noun	sanık	suitative_lik
 sanıl	verb	san	passive_il
 sanılma	noun	san	passive_il infinitive_me
 sanıp	noun	san	adverbial_ip
-sanırım	noun	san	active_ir nounifier_im
+sanırım	noun	san	factative_ir conjugation_1sg
 sapak	noun	sap	toolative_ek
 sapaklık	noun	sap	toolative_ek suitative_lik
 sapkı	noun	sap	nounifier_gi
@@ -19798,7 +19740,7 @@ senaryocu	noun	senaryo	actor_ci
 senaryoculuk	noun	senaryo	actor_ci suitative_lik
 senatörlük	noun	senatör	suitative_lik
 sence	noun	sen	relative_ce
-sende	noun	senit	dative_e
+sende	noun	sen	locative_de
 sendeleme	noun	sendele	infinitive_me
 senden	noun	sen	ablative_den
 sendikacı	noun	sendika	actor_ci
@@ -19859,8 +19801,6 @@ sergileyiş	noun	ser	nounifier_gi applicative_le nounifier_iş
 sergilik	noun	ser	nounifier_gi suitative_lik
 sergisi	noun	ser	nounifier_gi possessive_3sg
 sergüzeştçi	noun	sergüzeşt	actor_ci
-serhadlı	noun	serhat	compositive_li
-serhadlıyla	noun	serhat	compositive_li confactuous_le
 serhatlı	noun	serhat	compositive_li
 serici	noun	seri	actor_ci
 seril	verb	ser	passive_il
@@ -20031,7 +19971,6 @@ sevişme	noun	sev	reflexive_is infinitive_me
 sevişmek	noun	sev	reflexive_is infinitive_mek
 sevme	noun	sev	infinitive_me
 sevmek	noun	sev	infinitive_mek
-seydiler	noun	seyit	accusative_i conjugation_3pl
 seyirci	noun	seyir	actor_ci
 seyircilik	noun	seyir	actor_ci suitative_lik
 seyirlik	noun	seyir	suitative_lik
@@ -20107,7 +20046,6 @@ seğirmek	noun	seğir	infinitive_mek
 seğirt	verb	seğir	active_it
 seğirtme	noun	seğir	active_it infinitive_me
 seğirtmek	noun	seğir	active_it infinitive_mek
-seğrime	noun	seğir	nounifier_im dative_e
 sicili	noun	sicil	possessive_3sg
 sicilli	noun	sicil	compositive_li
 sicilyalı	noun	sicilya	compositive_li
@@ -20632,15 +20570,6 @@ soğulma	noun	sok	passive_il infinitive_me
 soğulmak	noun	sok	passive_il infinitive_mek
 soğuma	noun	soğu	infinitive_me
 soğumak	noun	soğu	infinitive_mek
-soğur	verb	sok	active_ir
-soğurgan	noun	soğu	active_ir constofactative_gen
-soğurganlık	noun	soğu	active_ir constofactative_gen suitative_lik
-soğurma	noun	soğu	active_ir infinitive_me
-soğurmak	noun	sok	active_ir infinitive_mek
-soğurmalı	noun	soğu	active_ir infinitive_me compositive_li
-soğurul	verb	soğu	active_ir passive_il
-soğurulma	noun	soğu	active_ir passive_il infinitive_me
-soğuruş	noun	sok	active_ir nounifier_iş
 soğut	verb	soğu	active_it
 soğutkan	noun	soğu	active_it constofactative_gen
 soğutma	noun	soğu	active_it infinitive_me
@@ -20874,7 +20803,6 @@ söylenilmek	noun	söyle	reflexive_in passive_il infinitive_mek
 söyleniş	noun	söyle	passive_il nounifier_iş
 söylenme	noun	söyle	passive_il infinitive_me
 söyler	noun	söyle	factative_ir
-söylerek	noun	söyle	active_ir toolative_ek
 söylet	verb	söyle	active_it
 söyletme	noun	söyle	active_it infinitive_me
 söylevci	noun	söylev	actor_ci
@@ -20914,10 +20842,6 @@ söğüşledik	noun	sök	nounifier_iş applicative_le adjectifier_dik
 söğüşlemeyi	noun	sök	nounifier_iş applicative_le infinitive_me accusative_i
 söğüşlük	noun	söğüş	suitative_lik
 sübekli	noun	sübek	compositive_li
-süblimleş	verb	süblime	applicative_le reflexive_is
-süblimleşme	noun	süblime	applicative_le reflexive_is infinitive_me
-süblimleştir	verb	süblime	applicative_le reflexive_is active_dir
-süblimleştirme	noun	süblime	applicative_le reflexive_is active_dir infinitive_me
 südreme	noun	südre	infinitive_me
 süflileş	verb	süfli	applicative_le reflexive_is
 süflileşme	noun	süfli	applicative_le reflexive_is infinitive_me
@@ -21392,9 +21316,6 @@ sızıltılı	noun	sızıltı	compositive_li
 sızıltısız	noun	sızıltı	privative_siz
 sızılı	noun	sızı	compositive_li
 sızıntılı	noun	sızıntı	compositive_li
-sızır	verb	sız	active_ir
-sızırma	noun	sız	active_ir infinitive_me
-sızırmak	noun	sız	active_ir infinitive_mek
 sızısız	noun	sızı	privative_siz
 sızış	noun	sız	nounifier_iş
 sıçangiller	noun	sıçan	familative_gil plural_ler
@@ -22006,9 +21927,9 @@ taşınma	noun	taşı	passive_il infinitive_me
 taşınmaz	noun	taşı	passive_il negative_me factative_ir
 taşınır	noun	taşı	passive_il factative_ir
 taşınış	noun	taşı	reflexive_in nounifier_iş
-taşır	verb	taşı	active_ir
-taşırma	noun	taşı	active_ir infinitive_me
-taşırmak	noun	taşı	active_ir infinitive_mek
+taşır	verb	taş	active_ir
+taşırma	noun	taş	active_ir infinitive_me
+taşırmak	noun	taş	active_ir infinitive_mek
 taşıt	verb	taşı	active_it
 taşıtma	noun	taşı	active_it infinitive_me
 taşıtmak	noun	taşı	active_it infinitive_mek
@@ -22057,7 +21978,6 @@ tefecilik	noun	tefe	actor_ci suitative_lik
 tefeli	noun	tefe	compositive_li
 teferruatlı	noun	teferruat	compositive_li
 teferruatsız	noun	teferruat	privative_siz
-tehdidçi	noun	tehdit	actor_ci
 tehditli	noun	tehdit	compositive_li
 tehditsiz	noun	tehdit	privative_siz
 tehirli	noun	tehir	compositive_li
@@ -22294,7 +22214,6 @@ terbiyesizcesine	noun	terbiye	privative_siz adverbial_cesine
 terbiyesizleş	verb	terbiye	privative_siz applicative_le reflexive_is
 terbiyesizleşme	noun	terbiye	privative_siz applicative_le reflexive_is infinitive_me
 terbiyesizlik	noun	terbiye	privative_siz suitative_lik
-terchinin	noun	tercih	possessive_3sg noun_compound
 tercihtir	noun	tercih	nounaorist_dir
 tercümanlık	noun	tercüman	suitative_lik
 tereci	noun	tere	actor_ci
@@ -22469,7 +22388,6 @@ tiritlen	verb	tirit	applicative_le passive_il
 tiritlenme	noun	tirit	applicative_le passive_il infinitive_me
 tiritleş	verb	tirit	applicative_le reflexive_is
 tiritleşme	noun	tirit	applicative_le reflexive_is infinitive_me
-tirli	noun	tire	compositive_li
 tiryakilik	noun	tiryaki	suitative_lik
 tirşeleş	verb	tirşe	applicative_le reflexive_is
 tirşeleşme	noun	tirşe	applicative_le reflexive_is infinitive_me
@@ -22806,12 +22724,12 @@ tutma	noun	tut	infinitive_me
 tutmak	noun	tut	infinitive_mek
 tutmalık	noun	tut	infinitive_me suitative_lik
 tutsaklık	noun	tutsak	suitative_lik
-tuttur	verb	tut	active_ir
+tuttur	verb	tut	active_dir
 tutturabildiğine	noun	tut	active_dir possibilitative_ebil adjectifier_dik possessive_3sg dative_e
 tutturma	noun	tut	active_dir infinitive_me
 tutturmak	noun	tut	active_dir infinitive_mek
 tutturmalık	noun	tut	active_dir infinitive_me suitative_lik
-tutturuş	noun	tut	active_ir nounifier_iş
+tutturuş	noun	tut	active_dir nounifier_iş
 tuttuştukları	noun	tut	reflexive_is adjectifier_dik possessive_3pl
 tutuculaş	verb	tutucu	applicative_le reflexive_is
 tutuculaşma	noun	tutucu	applicative_le reflexive_is infinitive_me
@@ -23035,9 +22953,9 @@ tütsülen	verb	tütsü	applicative_le passive_il
 tütsülenme	noun	tütsü	applicative_le passive_il infinitive_me
 tütsülü	noun	tütsü	compositive_li
 tütsülük	noun	tütsü	suitative_lik
-tüttür	verb	tüt	active_ir
+tüttür	verb	tüt	active_dir
 tüttürme	noun	tüt	active_dir infinitive_me
-tüttürmek	noun	tüt	active_ir infinitive_mek
+tüttürmek	noun	tüt	active_dir infinitive_mek
 tütüncü	noun	tütün	actor_ci
 tütüncülük	noun	tütün	actor_ci suitative_lik
 tütünlük	noun	tütün	suitative_lik
@@ -23248,7 +23166,7 @@ ulumak	noun	ulu	infinitive_mek
 ulusallaştır	verb	ulusal	applicative_le reflexive_is active_dir
 ulusallaştırma	noun	ulusal	applicative_le reflexive_is active_dir infinitive_me
 ulusallık	noun	ulusal	suitative_lik
-uluslara	noun	ulus	applicative_le active_er adverbial_e
+uluslara	noun	ulus	plural_ler dative_e
 uluslararasıcı	noun	uluslararası	actor_ci
 uluslararasıcılık	noun	uluslararası	actor_ci suitative_lik
 uluslaş	verb	ulus	applicative_le reflexive_is
@@ -23267,7 +23185,7 @@ uman	noun	um	factative_en
 umar	noun	um	factative_ir
 umarsız	noun	um	factative_ir privative_siz
 umarsızlık	noun	um	factative_ir privative_siz suitative_lik
-umarım	noun	um	active_er nounifier_im
+umarım	noun	um	factative_ir conjugation_1sg
 umdur	verb	um	active_dir
 umdurma	noun	um	active_dir infinitive_me
 umma	noun	um	infinitive_me
@@ -23303,7 +23221,7 @@ unutma	noun	unut	infinitive_me
 unutmak	noun	unut	infinitive_mek
 unuttur	verb	unut	active_dir
 unutturma	noun	unut	active_dir infinitive_me
-unutturuyorsun	noun	unut	active_ir continuous_iyor conjugation_2sg
+unutturuyorsun	noun	unut	active_dir continuous_iyor conjugation_2sg
 unutul	verb	unut	passive_il
 unutulan	noun	unut	passive_il factative_en
 unutulma	noun	unut	passive_il infinitive_me
@@ -23435,7 +23353,6 @@ uykunun	noun	uyku	noun_compound
 uykusuz	noun	uyku	privative_siz
 uykusuzluk	noun	uyku	privative_siz suitative_lik
 uykusuzluğa	noun	uyku	privative_siz suitative_lik dative_e
-uylaşma	noun	uylaşım	dative_e
 uyma	noun	uy	infinitive_me
 uymaca	noun	uy	infinitive_me relative_ce
 uymacılık	noun	uy	infinitive_me actor_ci suitative_lik
@@ -23463,7 +23380,7 @@ uyumsuzluk	noun	uy	nounifier_im privative_siz suitative_lik
 uyun	verb	uyu	passive_il
 uyunma	noun	uyu	passive_il infinitive_me
 uyup	noun	uy	adverbial_ip
-uyur	noun	uy	factative_ir
+uyur	noun	uyu	factative_ir
 uyurgezerlik	noun	uyurgezer	suitative_lik
 uyut	verb	uyu	active_it
 uyutma	noun	uyu	active_it infinitive_me
@@ -23636,8 +23553,6 @@ vakitli	noun	vakit	compositive_li
 vakitsiz	noun	vakit	privative_siz
 vakitsizlik	noun	vakit	privative_siz suitative_lik
 vakitçe	noun	vakit	relative_ce
-vakla	verb	vaka	applicative_le
-vaklama	noun	vaka	applicative_le infinitive_me
 vaktimiz	noun	vakit	possessive_1pl
 vaktinde	noun	vakit	possessive_3sg locative_de
 vaktiyle	noun	vakit	accusative_i confactuous_le
@@ -24198,9 +24113,7 @@ yansız	noun	yan	privative_siz
 yansızlaştır	verb	yan	privative_siz applicative_le reflexive_is active_dir
 yansızlaştırma	noun	yan	privative_siz applicative_le reflexive_is active_dir infinitive_me
 yansızlık	noun	yan	privative_siz suitative_lik
-yantlayan	noun	yanıt	applicative_le factative_en
 yantutmazlık	noun	yantutmaz	suitative_lik
-yantının	noun	yanıt	possessive_3sg noun_compound
 yanı	noun	yan	possessive_3sg
 yanıbaşı	noun	yanıbaş	possessive_3sg
 yanıklık	noun	yanık	suitative_lik
@@ -24475,7 +24388,6 @@ yatkınlık	noun	yatkın	suitative_lik
 yatma	noun	yat	infinitive_me
 yatmak	noun	yat	infinitive_mek
 yatmalık	noun	yat	infinitive_me suitative_lik
-yattara	noun	yat	active_er adverbial_e
 yatçı	noun	yat	actor_ci
 yatçılık	noun	yat	actor_ci suitative_lik
 yatıl	verb	yat	passive_il
@@ -24483,7 +24395,6 @@ yatılma	noun	yat	passive_il infinitive_me
 yatım	noun	yat	nounifier_im
 yatınca	noun	yat	adverbial_ince
 yatıp	noun	yat	adverbial_ip
-yatır	noun	yat	factative_ir
 yatır	verb	yat	active_ir
 yatırma	noun	yat	active_ir infinitive_me
 yatırıl	verb	yat	active_ir passive_il
@@ -24733,10 +24644,10 @@ yedilik	noun	yedi	suitative_lik
 yediliklerden	noun	yedi	suitative_lik applicative_le factative_ir ablative_den
 yedilme	noun	yed	passive_il infinitive_me
 yedinci	noun	yedi	ordinal_inci
-yedir	verb	yed	active_ir
-yediril	verb	yed	active_ir passive_il
-yedirilme	noun	yed	active_ir passive_il infinitive_me
-yedirme	noun	yed	active_ir infinitive_me
+yedir	verb	ye	active_dir
+yediril	verb	ye	active_dir passive_il
+yedirilme	noun	ye	active_dir passive_il infinitive_me
+yedirme	noun	ye	active_dir infinitive_me
 yedme	noun	yed	infinitive_me
 yekiniş	noun	yekin	nounifier_iş
 yekinme	noun	yekin	infinitive_me
@@ -24836,7 +24747,7 @@ yeniliş	noun	yen	passive_il nounifier_iş
 yenilme	noun	yen	passive_il infinitive_me
 yenilmezlik	noun	yen	passive_il negative_me factative_ir suitative_lik
 yenimsi	noun	yeni	approximative_si
-yenirce	noun	yen	factative_ir relative_ce
+yenirce	noun	ye	passive_il factative_ir relative_ce
 yeniçerilik	noun	yeniçeri	suitative_lik
 yeniş	verb	yen	reflexive_is
 yenişeme	verb	yen	reflexive_is negative_able
@@ -24853,14 +24764,10 @@ yerelleştir	verb	yerel	applicative_le reflexive_is active_dir
 yerelleştirme	noun	yerel	applicative_le reflexive_is active_dir infinitive_me
 yerellik	noun	yerel	suitative_lik
 yergicilik	noun	yergici	suitative_lik
-yeril	verb	ye	active_ir passive_il
-yerilme	noun	ye	active_ir passive_il infinitive_me
 yerimiz	noun	yer	possessive_1pl
-yerin	verb	ye	active_ir reflexive_in
 yerinde	noun	yer	possessive_3sg locative_de
 yerindeyse	noun	yer	possessive_3sg locative_de if_se
 yerine	noun	yer	possessive_3sg dative_e
-yerinme	noun	ye	active_ir reflexive_in infinitive_me
 yerleş	verb	yer	applicative_le reflexive_is
 yerleşiklik	noun	yerleşik	suitative_lik
 yerleşil	verb	yer	applicative_le reflexive_is passive_il
@@ -24900,8 +24807,6 @@ yetingen	noun	yet	reflexive_in constofactative_gen
 yetingenlik	noun	yet	reflexive_in constofactative_gen suitative_lik
 yetinme	noun	yet	reflexive_in infinitive_me
 yetinmek	noun	yet	reflexive_in infinitive_mek
-yetir	verb	yet	active_ir
-yetirme	noun	yet	active_ir infinitive_me
 yetişil	verb	yetiş	passive_il
 yetişilme	noun	yetiş	passive_il infinitive_me
 yetişim	noun	yetiş	nounifier_im
@@ -25229,7 +25134,7 @@ yutkunma	noun	yutkun	infinitive_me
 yutma	noun	yut	infinitive_me
 yutmak	noun	yut	infinitive_mek
 yuttu	noun	yut	pasttense_di
-yuttur	verb	yut	active_ir
+yuttur	verb	yut	active_dir
 yutturma	noun	yut	active_dir infinitive_me
 yutturmaca	noun	yut	active_dir infinitive_me relative_ce
 yutturmak	noun	yut	active_dir infinitive_mek
@@ -25487,7 +25392,7 @@ yılanyastığıgiller	noun	yılanyastığı	familative_gil plural_ler
 yıldır	noun	yıl	nounaorist_dir
 yıldır	verb	yıl	active_dir
 yıldırama	noun	yıldıra	infinitive_me
-yıldırma	noun	yıldıra	infinitive_me
+yıldırma	noun	yıl	active_dir infinitive_me
 yıldırıl	verb	yıl	active_dir passive_il
 yıldırılma	noun	yıl	active_dir passive_il infinitive_me
 yıldırımlı	noun	yıldırım	compositive_li
@@ -25933,9 +25838,6 @@ zıvanasız	noun	zıvana	privative_siz
 çakşırsız	noun	çakşır	privative_siz
 çalacak	noun	çal	nounifier_ecek
 çalar	noun	çal	factative_ir
-çalar	verb	çal	active_er
-çalarma	noun	çal	active_er infinitive_me
-çalarmak	noun	çal	active_er infinitive_mek
 çaldır	verb	çal	active_dir
 çaldırma	noun	çal	active_dir infinitive_me
 çaldırıl	verb	çal	active_dir passive_il
@@ -26812,7 +26714,6 @@ zıvanasız	noun	zıvana	privative_siz
 çocukçu	noun	çocuk	actor_ci
 çokbilmişlik	noun	çokbilmiş	suitative_lik
 çokları	noun	çok	possessive_3pl
-çoklarınca	noun	çok	applicative_le active_ir adverbial_ince
 çoklu	noun	çok	compositive_li
 çokluk	noun	çok	suitative_lik
 çoklukla	noun	çok	suitative_lik confactuous_le
@@ -27055,7 +26956,7 @@ zıvanasız	noun	zıvana	privative_siz
 çıkılanma	noun	çıkıla	passive_il infinitive_me
 çıkılat	verb	çıkıla	active_it
 çıkılatma	noun	çıkıla	active_it infinitive_me
-çıkılma	noun	çıkıla	infinitive_me
+çıkılma	noun	çık	passive_il infinitive_me
 çıkın	verb	çık	reflexive_in
 çıkınca	noun	çık	adverbial_ince
 çıkınla	verb	çıkın	applicative_le
@@ -27063,7 +26964,6 @@ zıvanasız	noun	zıvana	privative_siz
 çıkıntılı	noun	çıkıntı	compositive_li
 çıkıntısız	noun	çıkıntı	privative_siz
 çıkıp	noun	çık	adverbial_ip
-çıkırtma	noun	çık	active_ir active_it infinitive_me
 çıkış	noun	çık	nounifier_iş
 çıkış	verb	çık	reflexive_is
 çıkışlı	noun	çık	nounifier_iş compositive_li
@@ -27277,9 +27177,6 @@ zıvanasız	noun	zıvana	privative_siz
 ölçeksiz	noun	ölç	toolative_ek privative_siz
 ölçeksizlik	noun	ölç	toolative_ek privative_siz suitative_lik
 ölçer	noun	ölç	factative_ir
-ölçer	verb	ölç	active_er
-ölçerme	noun	ölç	active_er infinitive_me
-ölçermek	noun	ölç	active_er infinitive_mek
 ölçme	noun	ölç	infinitive_me
 ölçmek	noun	ölç	infinitive_mek
 ölçtür	verb	ölç	active_dir
@@ -27332,7 +27229,7 @@ zıvanasız	noun	zıvana	privative_siz
 ölünme	noun	öl	passive_il infinitive_me
 ölüp	noun	öl	adverbial_ip
 ölür	noun	öl	factative_ir
-ölürüm	noun	öl	active_ir nounifier_im
+ölürüm	noun	öl	factative_ir conjugation_1sg
 ölüş	noun	öl	nounifier_iş
 ömürlü	noun	ömür	compositive_li
 ömürsüz	noun	ömür	privative_siz
@@ -27404,8 +27301,8 @@ zıvanasız	noun	zıvana	privative_siz
 öpüş	noun	öp	nounifier_iş
 öpüş	verb	öp	reflexive_is
 öpüşme	noun	öp	reflexive_is infinitive_me
-ördür	verb	ört	active_ir
-ördürme	noun	ört	active_ir infinitive_me
+ördür	verb	ör	active_dir
+ördürme	noun	ör	active_dir infinitive_me
 örenlik	noun	ören	suitative_lik
 örgen	noun	ör	constofactative_gen
 örgensel	noun	ör	constofactative_gen relative_sel
@@ -27455,9 +27352,9 @@ zıvanasız	noun	zıvana	privative_siz
 örtme	noun	ört	infinitive_me
 örtmece	noun	ört	infinitive_me relative_ce
 örtmek	noun	ört	infinitive_mek
-örttür	verb	ört	active_ir
+örttür	verb	ört	active_dir
 örttürme	noun	ört	active_dir infinitive_me
-örttürmek	noun	ört	active_ir infinitive_mek
+örttürmek	noun	ört	active_dir infinitive_mek
 örtül	verb	ört	passive_il
 örtülme	noun	ört	passive_il infinitive_me
 örtülü	noun	örtü	compositive_li
@@ -27484,7 +27381,7 @@ zıvanasız	noun	zıvana	privative_siz
 örümceksi	noun	örümcek	approximative_si
 örümceğimsiler	noun	örümcek	approximative_si plural_ler
 örüş	noun	ör	nounifier_iş
-ötekilere	noun	öteki	applicative_le active_er adverbial_e
+ötekilere	noun	öteki	plural_ler dative_e
 ötekileri	noun	öteki	possessive_3pl
 ötekisi	noun	öteki	possessive_3sg
 ötele	verb	öte	applicative_le
@@ -27667,7 +27564,7 @@ zıvanasız	noun	zıvana	privative_siz
 öğlende	noun	öğlen	locative_de
 öğrencilik	noun	öğrenci	suitative_lik
 öğrenciyim	noun	öğrenci	conjugation_1sg
-öğrenciyken	noun	öğür	factative_en actor_ci when_ken
+öğrenciyken	noun	öğrenci	when_ken
 öğrendim	noun	öğren	pasttense_di conjugation_1sg
 öğrenil	verb	öğren	passive_il
 öğrenilme	noun	öğren	passive_il infinitive_me
@@ -27873,7 +27770,6 @@ zıvanasız	noun	zıvana	privative_siz
 üyelik	noun	üye	suitative_lik
 üyeliğe	noun	üye	suitative_lik dative_e
 üyeliğine	noun	üye	suitative_lik possessive_3sg dative_e
-üyleri	noun	üye	possessive_3pl
 üzengile	verb	üzengi	applicative_le
 üzengileme	noun	üzengi	applicative_le infinitive_me
 üzengilen	verb	üzengi	applicative_le passive_il
@@ -27922,9 +27818,6 @@ zıvanasız	noun	zıvana	privative_siz
 üşme	noun	üş	infinitive_me
 üşüme	noun	üşü	infinitive_me
 üşümek	noun	üşü	infinitive_mek
-üşür	verb	üşü	active_ir
-üşürme	noun	üşü	active_ir infinitive_me
-üşürmek	noun	üşü	active_ir infinitive_mek
 üşüt	verb	üşü	active_it
 üşütme	noun	üşü	active_it infinitive_me
 üşütmek	noun	üşü	active_it infinitive_mek
@@ -28250,10 +28143,10 @@ zıvanasız	noun	zıvana	privative_siz
 şaşa	noun	şaş	adverbial_e
 şaşaalı	noun	şaşaa	compositive_li
 şaşaasız	noun	şaşaa	privative_siz
-şaşala	verb	şaşaa	applicative_le
-şaşalama	noun	şaşaa	applicative_le infinitive_me
-şaşalat	verb	şaşaa	applicative_le active_it
-şaşalatma	noun	şaşaa	applicative_le active_it infinitive_me
+şaşala	verb	şaş	randomative_ele
+şaşalama	noun	şaş	randomative_ele infinitive_me
+şaşalat	verb	şaş	randomative_ele active_it
+şaşalatma	noun	şaş	randomative_ele active_it infinitive_me
 şaşkınca	noun	şaşkın	relative_ce
 şaşkınlaş	verb	şaşkın	applicative_le reflexive_is
 şaşkınlaşma	noun	şaşkın	applicative_le reflexive_is infinitive_me
@@ -28582,8 +28475,6 @@ zıvanasız	noun	zıvana	privative_siz
 şıralı	noun	şıra	compositive_li
 şıralık	noun	şıra	suitative_lik
 şırasız	noun	şıra	privative_siz
-şırla	verb	şıra	applicative_le
-şırlama	noun	şıra	applicative_le infinitive_me
 şırıldama	noun	şırılda	infinitive_me
 şırıngala	verb	şırınga	applicative_le
 şırıngalama	noun	şırınga	applicative_le infinitive_me

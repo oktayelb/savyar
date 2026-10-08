@@ -8,6 +8,10 @@ from app.nlp_pipeline import sanitize_word, sanitize_sentence
 MAX_MANUAL_SENTENCE_MATCHES = 100
 
 
+def is_multi_word(raw: str) -> bool:
+    return len(sanitize_sentence(raw)) > 1
+
+
 class AppCLI:
     """Thin I/O layer for the interactive flow.
 
@@ -21,9 +25,9 @@ class AppCLI:
 
     def welcome(self):
         print("\n Commands:")
-        print("  - Enter a word to analyze and train")
+        print("  - Enter a word or a sentence to analyze and train")
         print("  - 'sentence <text>' - Train on a full sentence")
-        print("  - 'eval sentence <text>' - Evaluate model's top 10 guesses on a sentence")
+        print("  - 'eval sentence <text>' or 'eval <text>' - Evaluate model's top 10 guesses on a sentence")
         print("  - 'auto' - Start auto mode (random words from dictionary)")
         print("  - 'eval <word>' - Evaluate model on a word")
         print("  - 'relearn' - Train on all logged decompositions")
@@ -436,6 +440,11 @@ class AppCLI:
                     if result is None and self.confirm_save():
                         self.engine.save()
                         break
+                elif cmd.startswith('eval ') and is_multi_word(raw[5:]):
+                    result = self.handle_eval_sentence(raw[5:].strip())
+                    if result is None and self.confirm_save():
+                        self.engine.save()
+                        break
                 elif cmd.startswith('eval '):
                     word = sanitize_word(raw[5:])
                     vm = self.engine.evaluate_word(word)
@@ -446,6 +455,11 @@ class AppCLI:
                         self.show_message("\n  No decompositions found")
                 elif cmd.startswith('sentence '):
                     result = self.handle_sentence(raw[9:].strip())
+                    if result is None and self.confirm_save():
+                        self.engine.save()
+                        break
+                elif is_multi_word(raw):
+                    result = self.handle_sentence(raw)
                     if result is None and self.confirm_save():
                         self.engine.save()
                         break

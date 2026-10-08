@@ -12,6 +12,7 @@ import tempfile
 import shutil
 import time
 import torch
+from collections import Counter
 from typing import List, Optional, Tuple, Dict, Any, Callable, Sequence
 
 import util.decomposer as sfx
@@ -1041,6 +1042,73 @@ class WorkflowEngine:
             "scoring_errors": statuses.count("scoring_error"),
         }
 
+    @classmethod
+    def _word_suffix_names(cls, chain: List) -> List[str]:
+        return [name for name in cls._encoded_chain_suffix_names(chain) if name is not None]
+
+    @staticmethod
+    def _gold_rank(scores: List[float], gold_idx: int) -> int:
+        gold_score = scores[gold_idx]
+        higher = [idx for idx, score in enumerate(scores) if idx != gold_idx and score > gold_score]
+        return 1 + len(higher)
+
+    @staticmethod
+    def _scored_ambiguous_words(word_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [result for result in word_results if result["status"] == "ambiguous" and result["scores"]]
+
+    @classmethod
+    def _ambiguous_word_metrics(cls, word_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        scored = cls._scored_ambiguous_words(word_results)
+        suffix_buckets: Dict[str, Dict[str, int]] = {}
+        correct = 0
+        top2 = 0
+        top3 = 0
+        candidate_total = 0
+        margins: List[float] = []
+        for result in scored:
+            gold_idx = result["gold_idx"]
+            pred_idx = result["pred_idx"]
+            scores = result["scores"]
+            rank = cls._gold_rank(scores, gold_idx)
+            if pred_idx == gold_idx:
+                correct += 1
+            if rank <= 2:
+                top2 += 1
+            if rank <= 3:
+                top3 += 1
+            candidate_total += len(scores)
+            best_other = max(score for idx, score in enumerate(scores) if idx != gold_idx)
+            margins.append(scores[gold_idx] - best_other)
+            Trainer.update_suffix_name_buckets(
+                suffix_buckets,
+                cls._word_suffix_names(result["candidates"][gold_idx]),
+                cls._word_suffix_names(result["candidates"][pred_idx]),
+            )
+
+        total = len(scored)
+        matched = sum(bucket["tp"] for bucket in suffix_buckets.values())
+        gold_total = sum(bucket["gold_count"] for bucket in suffix_buckets.values())
+        pred_total = sum(bucket["pred_count"] for bucket in suffix_buckets.values())
+        precision = matched / pred_total if pred_total else 0.0
+        recall = matched / gold_total if gold_total else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0.0 else 0.0
+        return {
+            "words": total,
+            "word_acc": correct / total if total else 0.0,
+            "top2_acc": top2 / total if total else 0.0,
+            "top3_acc": top3 / total if total else 0.0,
+            "suff_precision": precision,
+            "suff_recall": recall,
+            "suff_f1": f1,
+            "margin": sum(margins) / len(margins) if margins else 0.0,
+            "mean_candidates": candidate_total / total if total else 0.0,
+            "suffix_metrics": Trainer._finalize_suffix_metric_buckets(suffix_buckets),
+        }
+
+    @staticmethod
+    def _names_joined(names: Counter) -> str:
+        return ", ".join(sorted(names.elements())) or "(none)"
+
     def _collect_test_detail(
         self,
         word_results: List[Dict[str, Any]],
@@ -1063,15 +1131,17 @@ class WorkflowEngine:
             name: [] for name in worst_names
         }
 
-        scored = [result for result in word_results if result["status"] == "ambiguous"]
+        scored = self._scored_ambiguous_words(word_results)
         for result in scored:
             gold_idx = result["gold_idx"]
             pred_idx = result["pred_idx"]
             if pred_idx == gold_idx:
                 continue
             word = result["word_entry"].get("word", "")
-            gold_names = self._encoded_chain_suffix_names(result["candidates"][gold_idx])
-            pred_names = self._encoded_chain_suffix_names(result["candidates"][pred_idx])
+            gold_counts = Counter(self._word_suffix_names(result["candidates"][gold_idx]))
+            pred_counts = Counter(self._word_suffix_names(result["candidates"][pred_idx]))
+            missed = gold_counts - pred_counts
+            extra = pred_counts - gold_counts
             example_base = {
                 "sentence": result["entry"].get("original_sentence") or word,
                 "word": word,
@@ -1080,24 +1150,21 @@ class WorkflowEngine:
                 "gold_score": result["scores"][gold_idx],
                 "pred_score": result["scores"][pred_idx],
             }
-            for pos in range(max(len(gold_names), len(pred_names))):
-                gold_name = gold_names[pos] if pos < len(gold_names) else None
-                pred_name = pred_names[pos] if pos < len(pred_names) else None
-                if gold_name == pred_name:
-                    continue
-                if gold_name in examples_by_suffix and len(examples_by_suffix[gold_name]) < 10:
-                    examples_by_suffix[gold_name].append({
+            for name in missed:
+                if name in examples_by_suffix and len(examples_by_suffix[name]) < 10:
+                    examples_by_suffix[name].append({
                         **example_base,
                         "failure": "missed",
-                        "expected": gold_name,
-                        "got": pred_name or "(none)",
+                        "expected": name,
+                        "got": self._names_joined(extra),
                     })
-                if pred_name in examples_by_suffix and len(examples_by_suffix[pred_name]) < 10:
-                    examples_by_suffix[pred_name].append({
+            for name in extra:
+                if name in examples_by_suffix and len(examples_by_suffix[name]) < 10:
+                    examples_by_suffix[name].append({
                         **example_base,
                         "failure": "false_positive",
-                        "expected": gold_name or "(none)",
-                        "got": pred_name,
+                        "expected": self._names_joined(missed),
+                        "got": name,
                     })
 
         return {
@@ -1120,10 +1187,12 @@ class WorkflowEngine:
                 'skipped': 0,
                 'metrics': None,
                 'overall_metrics': None,
+                'word_metrics': None,
             }
         test_seqs, total_words, skipped = self._entries_to_sequences(entries)
         metrics = self.trainer.validate(test_seqs) if test_seqs else None
         word_results = self._score_test_words(entries)
+        word_metrics = self._ambiguous_word_metrics(word_results)
         report = {
             'entries': len(entries),
             'sequences': len(test_seqs),
@@ -1131,11 +1200,12 @@ class WorkflowEngine:
             'skipped': skipped,
             'metrics': metrics,
             'overall_metrics': self._overall_test_token_metrics(word_results),
+            'word_metrics': word_metrics,
         }
-        if detailed and metrics:
+        if detailed:
             report["detail"] = self._collect_test_detail(
                 word_results,
-                metrics.get("suffix_metrics", {}),
+                word_metrics["suffix_metrics"],
             )
         return report
 

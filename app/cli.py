@@ -126,20 +126,28 @@ class AppCLI:
             print(f"  No candidates:        {int(overall.get('no_candidate', 0))}")
             print(f"  Gold unmatched:       {int(overall.get('unmatched_gold', 0))}")
             print(f"  Scoring errors:       {int(overall.get('scoring_errors', 0))}")
-        if not metrics:
+        word_metrics = report.get('word_metrics')
+        if word_metrics:
+            print("\n Ambiguous Word Metrics (every candidate, gold context):")
+            print(f"  Words:            {int(word_metrics.get('words', 0))}")
+            print(f"  Mean candidates:  {word_metrics.get('mean_candidates', 0.0):.2f}")
+            print(f"  Word accuracy:    {word_metrics.get('word_acc', 0.0):.4f}")
+            print(f"  Top-2 accuracy:   {word_metrics.get('top2_acc', 0.0):.4f}")
+            print(f"  Top-3 accuracy:   {word_metrics.get('top3_acc', 0.0):.4f}")
+            print(f"  Suffix precision: {word_metrics.get('suff_precision', 0.0):.4f}")
+            print(f"  Suffix recall:    {word_metrics.get('suff_recall', 0.0):.4f}")
+            print(f"  Suffix F1:        {word_metrics.get('suff_f1', 0.0):.4f}")
+            print(f"  Margin:           {word_metrics.get('margin', 0.0):.4f}")
+        if metrics:
+            print("\n Sentence Candidate-Set Metrics (gold sentence vs sampled one-word substitutions):")
+            print(f"  Rank loss:        {metrics.get('loss', 0.0):.4f}")
+            print(f"  Rank accuracy:    {metrics.get('rank_acc', 0.0):.4f}")
+            print(f"  Top-2 accuracy:   {metrics.get('top2_acc', 0.0):.4f}")
+            print(f"  Top-3 accuracy:   {metrics.get('top3_acc', 0.0):.4f}")
+            print(f"  Margin:           {metrics.get('margin', 0.0):.4f}")
+        if not metrics and not word_metrics:
             print("  No test metrics available.")
             return
-        print("\n Ambiguous Candidate-Set Metrics:")
-        print(f"  Rank loss:        {metrics.get('loss', 0.0):.4f}")
-        print(f"  Rank accuracy:    {metrics.get('rank_acc', 0.0):.4f}")
-        print(f"  Top-2 accuracy:   {metrics.get('top2_acc', 0.0):.4f}")
-        print(f"  Top-3 accuracy:   {metrics.get('top3_acc', 0.0):.4f}")
-        print(f"  Suffix accuracy:  {metrics.get('suff_acc', 0.0):.4f}")
-        print(f"  Word accuracy:    {metrics.get('word_acc', 0.0):.4f}")
-        print(f"  Suffix precision: {metrics.get('suff_precision', 0.0):.4f}")
-        print(f"  Suffix recall:    {metrics.get('suff_recall', 0.0):.4f}")
-        print(f"  Suffix F1:        {metrics.get('suff_f1', 0.0):.4f}")
-        print(f"  Margin:           {metrics.get('margin', 0.0):.4f}")
 
         detail = report.get('detail')
         if not detail:

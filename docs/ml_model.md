@@ -444,9 +444,9 @@ Metrics:
 - `top2_acc`: gold candidate is in the top 2.
 - `top3_acc`: gold candidate is in the top 3.
 - `margin`: `score(gold) - max(score(negative))`.
-- `suff_acc`: average token-position match rate between gold and predicted morphology tokens.
+- `suff_acc`: suffix tokens shared by gold and prediction (as multisets), over the longer of the two.
 - `word_acc`: exact match of gold morphology-token sequence vs predicted morphology-token sequence.
-- `suff_precision`, `suff_recall`, `suff_f1`: micro suffix-token precision/recall/F1.
+- `suff_precision`, `suff_recall`, `suff_f1`: micro suffix-token precision/recall/F1, matching suffixes as multisets so one wrong suffix count does not shift every later suffix.
 - `suffix_metrics`: per-suffix precision/recall/F1 and counts.
 - `suffix_group_metrics`: suffix metrics aggregated by suffix group.
 
@@ -459,8 +459,18 @@ roots included, is scored once: each of its candidates is placed in the sentence
 with the gold analyses of the other words as context, and the highest-scoring
 candidate is its prediction. Words with one candidate count as correct; words
 whose gold the decomposer cannot produce (`Gold unmatched`) or that have no
-candidate count as incorrect. The `test detail` failure examples come from the
-same per-word predictions.
+candidate count as incorrect.
+
+`Ambiguous Word Metrics` come from the same per-word predictions, restricted to
+words with more than one candidate: word accuracy, top-2/top-3, margin, and
+suffix precision/recall/F1 with each word's gold and predicted suffixes matched
+as multisets. The `test detail` per-suffix table and its failure examples use
+these numbers too.
+
+`Sentence Candidate-Set Metrics` are `validate()` on sentence candidate sets:
+the gold sentence against up to `max_negative_candidates_cap` sampled one-word
+substitutions, which is what training optimises. Rank accuracy there is the
+share of sentences whose gold beats every sampled substitution.
 
 ## Checkpointing
 

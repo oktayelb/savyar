@@ -3,7 +3,7 @@ import os
 import random
 import time
 import warnings
-from itertools import zip_longest
+from collections import Counter
 
 warnings.filterwarnings(
     "ignore",
@@ -900,10 +900,7 @@ class Trainer:
     def _suffix_token_stats(cls, gold: FlatSequence, pred: FlatSequence) -> Tuple[int, int, int]:
         gold_tokens = cls._morph_tokens_from_sequence(gold)
         pred_tokens = cls._morph_tokens_from_sequence(pred)
-        matches = sum(
-            1 for gold_tok, pred_tok in zip(gold_tokens, pred_tokens)
-            if gold_tok == pred_tok
-        )
+        matches = sum((Counter(gold_tokens) & Counter(pred_tokens)).values())
         return matches, len(gold_tokens), len(pred_tokens)
 
     @staticmethod
@@ -930,32 +927,33 @@ class Trainer:
         gold_tokens: List[int],
         pred_tokens: List[int],
     ) -> None:
-        for gold_tok, pred_tok in zip_longest(gold_tokens, pred_tokens):
-            gold_name = cls._suffix_name_for_token_id(gold_tok)
-            pred_name = cls._suffix_name_for_token_id(pred_tok)
+        gold_names = [cls._suffix_name_for_token_id(tok) for tok in gold_tokens]
+        pred_names = [cls._suffix_name_for_token_id(tok) for tok in pred_tokens]
+        cls.update_suffix_name_buckets(
+            suffix_buckets,
+            [name for name in gold_names if name is not None],
+            [name for name in pred_names if name is not None],
+        )
 
-            if gold_name is not None:
-                bucket = suffix_buckets.setdefault(
-                    gold_name,
-                    {'tp': 0, 'fp': 0, 'fn': 0, 'gold_count': 0, 'pred_count': 0},
-                )
-                bucket['gold_count'] += 1
-
-            if pred_name is not None:
-                bucket = suffix_buckets.setdefault(
-                    pred_name,
-                    {'tp': 0, 'fp': 0, 'fn': 0, 'gold_count': 0, 'pred_count': 0},
-                )
-                bucket['pred_count'] += 1
-
-            if gold_name is not None and gold_name == pred_name:
-                suffix_buckets[gold_name]['tp'] += 1
-                continue
-
-            if gold_name is not None:
-                suffix_buckets[gold_name]['fn'] += 1
-            if pred_name is not None:
-                suffix_buckets[pred_name]['fp'] += 1
+    @staticmethod
+    def update_suffix_name_buckets(
+        suffix_buckets: Dict[str, Dict[str, int]],
+        gold_names: List[str],
+        pred_names: List[str],
+    ) -> None:
+        gold_counts = Counter(gold_names)
+        pred_counts = Counter(pred_names)
+        for name in set(gold_counts) | set(pred_counts):
+            bucket = suffix_buckets.setdefault(
+                name,
+                {'tp': 0, 'fp': 0, 'fn': 0, 'gold_count': 0, 'pred_count': 0},
+            )
+            matched = min(gold_counts[name], pred_counts[name])
+            bucket['tp'] += matched
+            bucket['fn'] += gold_counts[name] - matched
+            bucket['fp'] += pred_counts[name] - matched
+            bucket['gold_count'] += gold_counts[name]
+            bucket['pred_count'] += pred_counts[name]
 
     @classmethod
     def _finalize_suffix_metric_buckets(

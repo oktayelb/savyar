@@ -74,6 +74,7 @@ from data.treebank_adapter_commons import (
     record_unmapped as _record_unmapped,
     resolve_ambiguous_vnoun_suffixes,
 )
+from util.word_methods import tr_lower
 
 
 # =============================================================================
@@ -387,6 +388,15 @@ def _layer_is_nomp(layer):
     return layer["xpos"] == "NOMP"
 
 
+PLURAL_PERSON_ENDINGS = ("lar", "ler")
+
+
+def shows_plural_person_ending(word):
+    surface = tr_lower(word["surface"])
+    after_lemma = surface[len(tr_lower(word["lemma"])):]
+    return any(ending in after_lemma for ending in PLURAL_PERSON_ENDINGS)
+
+
 def features_to_suffix_names(word, unmapped_sink):
     """Convert a merged word's feature_layers into the ordered list of Savyar
     suffix names expected for the surface form.
@@ -416,6 +426,8 @@ def features_to_suffix_names(word, unmapped_sink):
         pn_values = [v for k, v in feats_multi if k == "PersonNumber"]
         a_person = next((v for v in pn_values if v.startswith("A")), None)
         v_person = next((v for v in pn_values if v.startswith("V")), None)
+        if v_person == "V3pl" and not shows_plural_person_ending(word):
+            v_person = "V3sg"
 
         is_nomp = _layer_is_nomp(layer)
         is_verb = _layer_is_verb_context(layer)

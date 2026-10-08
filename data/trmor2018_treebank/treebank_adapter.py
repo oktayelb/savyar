@@ -199,6 +199,7 @@ UPOS_TO_CC_CATEGORY = {
 }
 
 SKIP_UPOS = {"?", "Dup"}
+UNANALYSED_LEMMA = "*UNKNOWN*"
 POS_TAGS = {
     "Noun", "Verb", "Adj", "Adverb", "Det", "Conj", "Pron", "Postp",
     "Num", "Ques", "Interj", "Punct", "Dup", "?",
@@ -476,6 +477,8 @@ def features_to_suffix_names(word, unmapped_sink):
 # =============================================================================
 
 def should_skip_word(word):
+    if word["lemma"] == UNANALYSED_LEMMA:
+        return True
     upos = word["feature_layers"][0]["upos"]
     if upos == "Num":
         return any(ch.isdigit() for ch in word["surface"])

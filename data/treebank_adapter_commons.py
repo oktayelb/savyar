@@ -316,7 +316,33 @@ ANNOTATION_CORRECTIONS = [
     # Turkish and nothing else; the third person optative is not spelled this
     # way. 427 words.
     (("alım", "elim"), "conjugation_3pl", "conjugation_1pl"),
+    (("ız", "iz", "uz", "üz"), "conjugation_3pl", "conjugation_1pl"),
+    (("ınız", "iniz", "unuz", "ünüz"), "possessive_2sg", "possessive_2pl"),
 ]
+
+BARE_ROOT_WORDS = {"ise", "iken"}
+
+
+ZERO_FORM_SUFFIX_NAMES = {suffix.name for suffix in ALL_SUFFIXES if not suffix.suffix}
+
+
+def is_spelled_as_lemma_with_suffixes(surface_lower, lemma, suffix_names):
+    return surface_lower == tr_lower(lemma) and any(
+        name not in ZERO_FORM_SUFFIX_NAMES for name in suffix_names
+    )
+
+
+def is_known_lemma(lemma):
+    return wrd.exists(lemma) or lemma in DECOMPOSED_LEMMAS or lexeme_of(lemma) is not None
+
+
+def is_unknown_word_read_as_possessive(surface_lower, lemma, suffix_names):
+    lemma = tr_lower(lemma)
+    return (
+        suffix_names == ["possessive_2sg"]
+        and surface_lower == lemma + "n"
+        and not is_known_lemma(lemma)
+    )
 
 
 def apply_collapses(names):
@@ -337,8 +363,8 @@ def apply_annotation_corrections(surface, names):
     """Fix known source-data errors the surface form contradicts."""
     out = list(names)
     for endings, wrong, right in ANNOTATION_CORRECTIONS:
-        if wrong in out and surface.endswith(tuple(endings)):
-            out = [right if n == wrong else n for n in out]
+        if out and out[-1] == wrong and surface.endswith(tuple(endings)):
+            out[-1] = right
     return out
 
 
@@ -703,6 +729,13 @@ def adapt_normalized_treebank(
                 no_suffix_words += 1
                 continue
 
+            if surface_lower in BARE_ROOT_WORDS:
+                word_entries.append(bare_root_entry(surface_lower))
+                matched_words += 1
+                sentence_has_any = True
+                trainable_words_in_sentence += 1
+                continue
+
             is_function_word = bool(closed_class_category(word))
             if is_function_word or is_closed_class_lemma(tr_lower(lemma)):
                 expected_suffixes, _unmapped, has_unmappable = translate_word(word, {})
@@ -751,7 +784,12 @@ def adapt_normalized_treebank(
                 bare_root_words.append(surface_lower)
                 continue
 
-            if not expected_suffixes or any(name in DISABLED_SUFFIX_NAMES for name in expected_suffixes):
+            if (
+                not expected_suffixes
+                or any(name in DISABLED_SUFFIX_NAMES for name in expected_suffixes)
+                or is_unknown_word_read_as_possessive(surface_lower, lemma, expected_suffixes)
+                or is_spelled_as_lemma_with_suffixes(surface_lower, lemma, expected_suffixes)
+            ):
                 no_suffix_words += 1
                 bare_root_words.append(surface_lower)
                 word_entries.append(bare_root_entry(surface_lower))
@@ -883,6 +921,24 @@ def _iter_suffix_tails(current_stem, suffix_names, suffix_by_name, limit=256):
 
     visit(current_stem, suffix_names, "", [])
     return results
+
+
+def allomorph_choices(name):
+    for family in SUFFIX_FAMILIES:
+        if name in family:
+            return sorted(family)
+    return [name]
+
+
+def spells_word(surface, lemma, suffix_names):
+    surface = tr_lower(surface)
+    lemma = tr_lower(lemma)
+    choices = [allomorph_choices(name) for name in apply_collapses(suffix_names)]
+    for names in itertools.product(*choices):
+        for tail in _iter_suffix_tails(lemma, list(names), SUFFIX_BY_NAME):
+            if len(lemma) + len(tail) == len(surface) and surface.endswith(tail):
+                return True
+    return False
 
 
 def resolve_ambiguous_suffix_by_surface(

@@ -11,6 +11,10 @@ def roots(word):
     return {root for root, _chain in readings(word)}
 
 
+def readings_with_pos(word):
+    return {(root, pos, tuple(s.name for s in chain)) for root, pos, chain, _ in sfx.decompose(word)}
+
+
 class CausativeTest(unittest.TestCase):
     def test_listed_roots_take_the_ir_causative(self):
         self.assertIn(("geç", ("active_ir", "pasttense_di")), readings("geçirdi"))
@@ -83,6 +87,50 @@ class RootRestrictionTest(unittest.TestCase):
             ("saç", ("plural_ler", "noun_compound", "confactuous_le")),
             readings("saçlarınla"),
         )
+
+    def test_only_pronouns_take_a_first_or_second_person_ending_after_the_genitive(self):
+        self.assertIn(("ben", ("noun_compound", "conjugation_2sg")), readings("benimsin"))
+        self.assertIn(("sen", ("noun_compound", "conjugation_1sg")), readings("seninim"))
+        self.assertNotIn(("kitap", ("noun_compound", "conjugation_1pl")), readings("kitabınız"))
+        self.assertNotIn(("düş", ("noun_compound", "if_se", "conjugation_1sg")), readings("düşünsem"))
+
+    def test_any_genitive_takes_a_third_person_predicate(self):
+        self.assertIn(("biz", ("noun_compound", "nounaorist_dir")), readings("bizimdir"))
+        self.assertIn(("firma", ("plural_ler", "noun_compound", "if_se")), readings("firmalarınsa"))
+
+    def test_pronouns_do_not_take_a_verbifier(self):
+        self.assertEqual(roots("olan"), {"ol"})
+        self.assertNotIn("o", roots("olarak"))
+        self.assertNotIn(("ne", ("applicative_le", "factative_ir")), readings("neler"))
+
+    def test_nouns_built_on_a_pronoun_still_do(self):
+        self.assertIn(
+            ("kim", ("suitative_lik", "privative_siz", "applicative_le", "reflexive_is", "infinitive_me")),
+            readings("kimliksizleşme"),
+        )
+
+
+class PersonEndingTest(unittest.TestCase):
+    def test_imperative_endings_need_a_verb_stem(self):
+        self.assertIn(("yaz", "verb", ("conjugation_2pl",)), readings_with_pos("yazın"))
+        self.assertNotIn(("yaz", "noun", ("conjugation_2pl",)), readings_with_pos("yazın"))
+        self.assertNotIn(("ol", "noun", ("conjugation_3sg",)), readings_with_pos("olsun"))
+        self.assertIn(("baş", ("applicative_le", "conjugation_2pl")), readings("başlayın"))
+        self.assertIn(("gel", ("negative_me", "conjugation_3sg")), readings("gelmesin"))
+        self.assertIn(("ol", ("conjugation_3pl",)), readings("olsunlar"))
+
+    def test_imperative_endings_do_not_follow_a_tense(self):
+        self.assertEqual(
+            readings("geliyorsun"),
+            {("gel", ("continuous_iyor", "conjugation_2sg"))},
+        )
+        self.assertIn(("iste", ("continuous_iyor", "conjugation_2pl")), readings("istiyorsunuz"))
+
+    def test_second_person_singular_is_never_in(self):
+        for word in ("yazın", "bakın", "evin"):
+            chains = {chain for _root, chain in readings(word)}
+            self.assertFalse(any("conjugation_2sg" in chain for chain in chains), word)
+        self.assertIn(("gel", ("pasttense_di", "conjugation_2sg")), readings("geldin"))
 
 
 if __name__ == "__main__":

@@ -57,7 +57,9 @@ N_STEM_PRONOUNS = {"o", "bu", "şu"}
 
 GENITIVE_IM_STEMS = {"ben", "biz"}
 
-GENITIVE_COMITATIVE_PRONOUNS = {"ben", "sen", "o", "biz", "siz", "bu", "şu", "kim"}
+GENITIVE_STEM_PRONOUNS = {"ben", "sen", "o", "biz", "siz", "bu", "şu", "kim"}
+
+NOUN_ONLY_PRONOUNS = set(PERSONAL_PRONOUNS) | set(DEMONSTRATIVES) | {"ne", "kim", "nere"}
 
 PREDICATE_ONLY_LEXEMES = {"değil"}
 

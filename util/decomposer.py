@@ -12,7 +12,7 @@ from util.suffixes.v2n_suffixes import VERB2NOUN
 
 import util.word_methods as wrd
 from util.suffix import Type, Suffix, SuffixGroup, is_enabled
-from util.words.closed_class import IRREGULAR_STEMS, PREDICATE_ONLY_LEXEMES, GENITIVE_COMITATIVE_PRONOUNS
+from util.words.closed_class import IRREGULAR_STEMS, PREDICATE_ONLY_LEXEMES, GENITIVE_STEM_PRONOUNS, NOUN_ONLY_PRONOUNS
 from util.words.root_classes import FINAL_VOWEL_ELIDING_ROOTS
 
 ALL_SUFFIXES = NOUN2NOUN + NOUN2VERB + VERB2NOUN + VERB2VERB
@@ -185,7 +185,7 @@ def _suffix_iter(start_pos, root, current_chain):
     """Try every suffix and compute forms with the current suffix chain."""
     for target_pos, candidate_suffixes in SUFFIX_TRANSITIONS[start_pos].items():
         for suffix_obj in candidate_suffixes:
-            yield target_pos, suffix_obj, suffix_obj.form(root, current_chain=current_chain)
+            yield target_pos, suffix_obj, suffix_obj.form(root, current_chain=current_chain, stem_pos=start_pos)
 
 
 def find_suffix_chain(word: str, start_pos: str, root: str,
@@ -293,6 +293,7 @@ def find_suffix_chain(word: str, start_pos: str, root: str,
 
 
 PREDICATE_SUFFIX_GROUPS = {SuffixGroup.PREDICATIVE, SuffixGroup.CONJUGATION, SuffixGroup.NOUN_TO_ADVERB}
+FIRST_AND_SECOND_PERSON = {"conjugation_1sg", "conjugation_2sg", "conjugation_1pl", "conjugation_2pl"}
 
 
 def has_genitive_comitative(chain: List[Suffix]) -> bool:
@@ -302,10 +303,22 @@ def has_genitive_comitative(chain: List[Suffix]) -> bool:
     return False
 
 
+def has_genitive_person(chain: List[Suffix]) -> bool:
+    names = [suffix.name for suffix in chain]
+    if "noun_compound" not in names:
+        return False
+    after_genitive = names[names.index("noun_compound") + 1:]
+    return any(name in FIRST_AND_SECOND_PERSON for name in after_genitive)
+
+
 def respects_root_restrictions(root: str, chain: List[Suffix]) -> bool:
     if root in PREDICATE_ONLY_LEXEMES and chain and chain[0].group not in PREDICATE_SUFFIX_GROUPS:
         return False
-    if has_genitive_comitative(chain) and root not in GENITIVE_COMITATIVE_PRONOUNS:
+    if has_genitive_comitative(chain) and root not in GENITIVE_STEM_PRONOUNS:
+        return False
+    if has_genitive_person(chain) and root not in GENITIVE_STEM_PRONOUNS:
+        return False
+    if root in NOUN_ONLY_PRONOUNS and chain and chain[0].makes == Type.VERB:
         return False
     return True
 

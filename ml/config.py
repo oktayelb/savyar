@@ -3,44 +3,32 @@ from dataclasses import dataclass
 
 @dataclass
 class MLConfig:
-    # --- File Paths ---
+
     model_path: Path = "ml/model.pt"
     device: str = "cuda"
     allow_cpu_fallback: bool = False
-    
-    # --- Model Architecture ---
-    # Vocab size is dynamic (passed at runtime), others are static
-    # 512/8 (26.5M) was tried against this corpus and reverted. It moved every
-    # accuracy metric by less than two tenths of a point and left the train-val
-    # gap negative - 58.17% train against 58.29% validation - so the model still
-    # could not fit its own training data at 2.3x the parameters. Whatever binds
-    # performance here, it is not capacity.
-    embed_dim: int = 384        # Main suffix identity dimension
-    num_layers: int = 6         # Increased from 4 for 90k dataset capacity
+
+    embed_dim: int = 384        
+    num_layers: int = 6         
     num_heads: int = 8          
     dropout: float = 0.3        
 
-    # Feature embedding dimensions scaled by cardinality to prevent overfitting
     group_embed_dim: int = 8
     wordpos_embed_dim: int = 16
     pos_embed_dim: int = 384
 
-    # --- Training Hyperparameters ---
     learning_rate: float = 3e-4
     weight_decay: float = 0.05
 
-    # --- MLM Objective (Reintroduced for Regularization) ---
     mlm_mask_prob: float = 0.20
     mlm_use_bert_mix: bool = True
     mlm_ensure_one_mask: bool = True
     focal_gamma: float = 0.0
 
-    # --- Ranking Objective ---
-    # Negatives are drawn round-robin over the ambiguous words of a sentence, so
-    # the budget has to grow with sentence length or late words never get one.
-    max_negative_candidates: int = 5            # floor: budget for a short sentence
-    negatives_per_ambiguous_word: float = 1.0   # 1.0 = one negative per ambiguous word
-    max_negative_candidates_cap: int = 16       # ceiling for the scaled budget
+
+    max_negative_candidates: int = 5            
+    negatives_per_ambiguous_word: float = 2.0   
+    max_negative_candidates_cap: int = 16       
     max_candidate_sequences_per_batch: int = 64
     max_sequence_length: int = 512
     use_torch_compile: bool = False
@@ -52,20 +40,12 @@ class MLConfig:
     curriculum_warmup_epochs: int = 5
     curriculum_mining_epochs: int = 4
     
-    # Dual Objective Weights
     ranking_temperature: float = 0.1
     mlm_weight: float = 0.2
 
-    # --- Bulk-training defaults ---
-    # Every run on this corpus has ended with a validation margin of 0.04-0.06,
-    # the signature of a model still climbing rather than one that has run out
-    # of things to learn. Capacity is held at 384/6 and 11.5M parameters so
-    # that this raise tests the training budget on its own.
-    bulk_epochs: int = 16
+
+    bulk_epochs: int = 6
     bulk_batch_size: int = 1024
-    # Batches are packed to a token budget, so their set count swings by more
-    # than an order of magnitude (5 sets one step, 60 the next). Logging every
-    # one of ~16k batches reports that swing as if it were the loss moving.
     bulk_batch_log_interval: int = 25
     relearn_preprocess_log_interval: int = 1000
     max_batch_padded_tokens: int = 8192
@@ -82,25 +62,15 @@ class MLConfig:
     max_auto_attention_cells: int = 64_000_000
     max_auto_bulk_batch_size: int = 512
 
-    # --- LR Schedule ---
-    # Warmup is counted in optimizer steps, and the packer decides how many
-    # of those an epoch holds - it moved from 2173 batches to 1497 between two
-    # runs on identical data - so the ramp is kept long enough to survive that
-    # drifting.
+
     warmup_steps: int = 500
-    # 0.01 drove the tail of the cosine to 3e-6, where the last epochs stopped
-    # changing anything. A floor of 5% keeps them contributing.
     lr_eta_min_ratio: float = 0.05
 
-    # Gradient accumulation is the only thing damping the batch-size swing
-    # above; six mini-batches per update trade a little step count for a
-    # visibly steadier curve.
+
     steps_per_update: int = 6
 
-    # --- Interactive/Loop Settings ---
-    checkpoint_frequency: int = 4000   # Increased from 1000 to avoid excessive I/O overhead
+    checkpoint_frequency: int = 4000   
     validation_split: float = 0.1
     validation_seed: int = 42
 
-# Create the global config instance
 config = MLConfig()

@@ -61,6 +61,8 @@ GENITIVE_STEM_PRONOUNS = {"ben", "sen", "o", "biz", "siz", "bu", "şu", "kim"}
 
 NOUN_ONLY_PRONOUNS = set(PERSONAL_PRONOUNS) | set(DEMONSTRATIVES) | {"ne", "kim", "nere"}
 
+PRONOUNS_WITHOUT_POSSESSIVE = set(PERSONAL_PRONOUNS) | {"bu", "şu"}
+
 PREDICATE_ONLY_LEXEMES = {"değil"}
 
 IRREGULAR_STEMS: Dict[str, Tuple[str, str, str]] = {

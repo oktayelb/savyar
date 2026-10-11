@@ -103,6 +103,19 @@ class RootRestrictionTest(unittest.TestCase):
         self.assertNotIn("o", roots("olarak"))
         self.assertNotIn(("ne", ("applicative_le", "factative_ir")), readings("neler"))
 
+    def test_personal_and_demonstrative_pronouns_take_no_possessive(self):
+        self.assertEqual(readings("bizi"), {("biz", ("accusative_i",))})
+        self.assertEqual(readings("beni"), {("ben", ("accusative_i",))})
+        self.assertEqual(readings("senin"), {("sen", ("noun_compound",))})
+        self.assertNotIn(("o", ("plural_ler", "possessive_3sg")), readings("onları"))
+        self.assertNotIn(("bu", ("plural_ler", "possessive_3sg")), readings("bunları"))
+        self.assertNotIn(("siz", ("possessive_3pl",)), readings("sizleri"))
+
+    def test_other_pronouns_and_nouns_built_on_one_take_a_possessive(self):
+        self.assertIn(("bura", ("possessive_3sg",)), readings("burası"))
+        self.assertIn(("kendi", ("possessive_3sg",)), readings("kendisi"))
+        self.assertIn(("ben", ("suitative_lik", "possessive_3sg")), readings("benliği"))
+
     def test_nouns_built_on_a_pronoun_still_do(self):
         self.assertIn(
             ("kim", ("suitative_lik", "privative_siz", "applicative_le", "reflexive_is", "infinitive_me")),

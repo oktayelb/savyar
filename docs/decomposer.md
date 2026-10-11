@@ -113,6 +113,7 @@ Closed-class lexemes (`util/words/closed_class.py`) are ordinary noun roots, so 
 - `değil` takes only predicative, person and `-ken` suffixes.
 - A genitive followed by `-lA` (`onunla`) or by a first- or second-person ending (`benimsin`, `seninim`) is accepted only on the pronouns in `GENITIVE_STEM_PRONOUNS`. Any genitive takes a third-person predicate (`bizimdir`, `firmalarınsa`).
 - The pronouns in `NOUN_ONLY_PRONOUNS` never take a verb-making suffix, so `olan` is not `o+la+n`. A noun built on one still can (`kim+lik+siz+leş`).
+- The pronouns in `PRONOUNS_WITHOUT_POSSESSIVE` (personal pronouns, `bu`, `şu`) never take a possessive, directly or after the plural, so `bizi` and `onları` are only accusative. `burası`, `kendisi` and `ben+lik+i` keep theirs.
 
 Person endings depend on the stem. The decomposer passes the stem's part of speech to them, so the imperative endings (3sg `-sIn`, 2pl `-In`, 3pl `-sInlAr`) attach only to a verb stem that has no tense yet: `yazın` is not `yaz` (noun) + 2pl, and `geliyorsun` is not 3sg. The 2sg ending has no `-In` form.
 

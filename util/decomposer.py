@@ -12,7 +12,7 @@ from util.suffixes.v2n_suffixes import VERB2NOUN
 
 import util.word_methods as wrd
 from util.suffix import Type, Suffix, SuffixGroup, is_enabled
-from util.words.closed_class import IRREGULAR_STEMS, PREDICATE_ONLY_LEXEMES, GENITIVE_STEM_PRONOUNS, NOUN_ONLY_PRONOUNS
+from util.words.closed_class import IRREGULAR_STEMS, PREDICATE_ONLY_LEXEMES, GENITIVE_STEM_PRONOUNS, NOUN_ONLY_PRONOUNS, PRONOUNS_WITHOUT_POSSESSIVE
 from util.words.root_classes import FINAL_VOWEL_ELIDING_ROOTS
 
 ALL_SUFFIXES = NOUN2NOUN + NOUN2VERB + VERB2NOUN + VERB2VERB
@@ -311,6 +311,12 @@ def has_genitive_person(chain: List[Suffix]) -> bool:
     return any(name in FIRST_AND_SECOND_PERSON for name in after_genitive)
 
 
+def starts_with_possessive(chain: List[Suffix]) -> bool:
+    if chain and chain[0].name == "plural_ler":
+        chain = chain[1:]
+    return bool(chain) and chain[0].group == SuffixGroup.POSSESSIVE
+
+
 def respects_root_restrictions(root: str, chain: List[Suffix]) -> bool:
     if root in PREDICATE_ONLY_LEXEMES and chain and chain[0].group not in PREDICATE_SUFFIX_GROUPS:
         return False
@@ -319,6 +325,8 @@ def respects_root_restrictions(root: str, chain: List[Suffix]) -> bool:
     if has_genitive_person(chain) and root not in GENITIVE_STEM_PRONOUNS:
         return False
     if root in NOUN_ONLY_PRONOUNS and chain and chain[0].makes == Type.VERB:
+        return False
+    if root in PRONOUNS_WITHOUT_POSSESSIVE and starts_with_possessive(chain):
         return False
     return True
 

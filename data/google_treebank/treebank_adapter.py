@@ -137,8 +137,8 @@ DERIVATION_MAP = {
     "Aff":       "philicative_cil",      # -cil/-cül
     "Doct":      "ideologicative_izm",   # -izm
     # ── User-directed routings (semantic differences intentionally ignored) ──
-    # Inh (-ıcı habitual doer) → if_se per directive.
-    "Inh":       "actor_ci",
+    # Inh (-(y)ıcı habitual doer) → agentive_ici.
+    "Inh":       "agentive_ici",
     # From (-li from-origin) → compositive_li (shares surface -li/-lı).
     "From":      "compositive_li",
     # Everything else previously unmapped routes to suitative_lik (-lık):

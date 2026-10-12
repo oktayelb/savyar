@@ -299,13 +299,20 @@ def _append_mapped(out, mapped):
 ORDINAL_ENDINGS = ("ıncı", "inci", "uncu", "üncü", "ncı", "nci", "ncu", "ncü")
 
 
+def derivational_suffix_name(feat, stem_upos):
+    if feat == "Agt" and stem_upos == "Verb":
+        return "agentive_ici"
+    return N2N_DERIVATIONAL_FEATURES[feat]
+
+
 def features_to_suffix_names(word, unmapped_sink):
     suffix_names = []
     unmapped_on_word = []
     has_unmappable = False
     lemma_is_ordinal = word["lemma"].lower().endswith(ORDINAL_ENDINGS)
 
-    for layer in word["feature_layers"]:
+    for index, layer in enumerate(word["feature_layers"]):
+        stem_upos = word["feature_layers"][index - 1]["upos"] if index else None
         upos = layer["upos"]
         xpos = layer["xpos"]
         feats = layer["features"]
@@ -397,7 +404,7 @@ def features_to_suffix_names(word, unmapped_sink):
                 continue
 
             if feat in N2N_DERIVATIONAL_FEATURES:
-                _append_mapped(suffix_names, N2N_DERIVATIONAL_FEATURES[feat])
+                _append_mapped(suffix_names, derivational_suffix_name(feat, stem_upos))
                 continue
 
             if feat in CONJUGATION_FEATURES:

@@ -127,8 +127,12 @@ class LexiconHygieneTest(unittest.TestCase):
 
 class DictionaryOnlyLexiconTest(unittest.TestCase):
     def test_corpus_only_words_are_not_entries(self):
-        for word in ("mehmet", "arkadaşın", "bilirim", "yapmışım", "sanırım", "yerin"):
+        for word in ("arkadaşın", "bilirim", "yapmışım", "sanırım", "yerin"):
             self.assertFalse(wrd.can_be_noun(word) or wrd.can_be_verb(word), word)
+
+    def test_treebank_proper_nouns_are_entries(self):
+        for word in ("mehmet", "erbakan", "galata"):
+            self.assertTrue(wrd.can_be_noun(word), word)
 
     def test_dictionary_roots_the_old_cleanup_dropped_are_back(self):
         for word in ("güneş", "önem", "halı", "havlu", "tarak", "işte"):

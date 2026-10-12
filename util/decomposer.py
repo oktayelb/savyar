@@ -13,7 +13,7 @@ from util.suffixes.v2n_suffixes import VERB2NOUN
 import util.word_methods as wrd
 from util.suffix import Type, Suffix, SuffixGroup, is_enabled
 from util.words.closed_class import IRREGULAR_STEMS, PREDICATE_ONLY_LEXEMES, GENITIVE_STEM_PRONOUNS, NOUN_ONLY_PRONOUNS, PRONOUNS_WITHOUT_POSSESSIVE
-from util.words.root_classes import FINAL_VOWEL_ELIDING_ROOTS
+from util.words.root_classes import FINAL_VOWEL_ELIDING_ROOTS, VOWEL_RAISING_VERBS
 
 ALL_SUFFIXES = NOUN2NOUN + NOUN2VERB + VERB2NOUN + VERB2VERB
 SUFFIX_BY_NAME = {suffix.name: suffix for suffix in ALL_SUFFIXES}
@@ -389,6 +389,12 @@ def append_irregular_stem_analyses(word: str, analyses_list, shared_cache: dict 
             analyses_list.append((lexeme, "noun", [first_suffix] + chain, final_pos))
 
 
+def append_raised_vowel_analyses(word: str, analyses_list, shared_cache: dict = None):
+    for lemma, surface in VOWEL_RAISING_VERBS.items():
+        if word.startswith(surface + "y"):
+            append_analysis(lemma + word[len(surface):], "verb", lemma, analyses_list, shared_cache)
+
+
 def append_progressive_vowel_drop_candidates(word: str, surface_root: str, analyses_list, shared_cache: dict = None):
     rest = word[len(surface_root):]
     if not any(rest.startswith(v) for v in IYOR_VARIATIONS):
@@ -459,6 +465,7 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
 
     if not force:
         append_irregular_stem_analyses(word, analyses, shared_cache)
+        append_raised_vowel_analyses(word, analyses, shared_cache)
 
     for i in range(1, len(word) + 1):
         root = word[:i]

@@ -29,6 +29,9 @@ class MarkingKi(Suffix):
         last_suffix = current_chain[-1] if current_chain else None
         if last_suffix and last_suffix.name in {"locative_de", "noun_compound"}:
             return ["ki"]
+        if not current_chain:
+            last_vowel = next((ch for ch in reversed(word) if ch in "aeıioöuü"), "")
+            return ["kü"] if last_vowel in ("ö", "ü") else ["ki"]
         return []
 
 ###form fonksiyonu mu dizsek?

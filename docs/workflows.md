@@ -32,7 +32,7 @@ Creating `WorkflowEngine()` does the following:
    - `config.device` defaults to `"cuda"`.
    - CPU fallback is refused unless `config.allow_cpu_fallback`, `SAVYAR_ALLOW_CPU=1`, or an explicit CPU device is used.
 3. Creates `SentenceDisambiguator`.
-   - The current repository has `98` suffix objects in `util.decomposer.ALL_SUFFIXES`.
+   - The current repository has `99` suffix objects in `util.decomposer.ALL_SUFFIXES`.
    - The current closed-class vocabulary has `102` lexemes (`CLOSED_CLASS_LEXEMES`).
 4. Creates `Trainer`.
    - The trainer builds AdamW, the scheduler, AMP scaler, and tries to load `ml/model.pt`.

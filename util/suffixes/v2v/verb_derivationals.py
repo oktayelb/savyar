@@ -1,6 +1,6 @@
 from util.suffix import Suffix, Type, SuffixGroup
 from util.word_methods import VOWELS
-from util.words.root_classes import CAUSATIVE_IR_ROOTS, CAUSATIVE_AR_ROOTS
+from util.words.root_classes import CAUSATIVE_IR_ROOTS, CAUSATIVE_AR_ROOTS, DOUBLE_PASSIVE_VERBS
 # ============================================================================
 # FORM FUNCTIONS
 # ============================================================================
@@ -56,6 +56,8 @@ def form_for_passive_il(word, suffix_obj, current_chain=None):
 
     if word and word[-1] in VOWELS:
         result_list.append("n")
+        if word in DOUBLE_PASSIVE_VERBS:
+            result_list.append(harmonised("nil"))
         return result_list
 
     result_list.append(harmonised("il"))

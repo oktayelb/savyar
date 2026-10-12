@@ -150,8 +150,8 @@ class RootGuidedDecompositionTest(unittest.TestCase):
 
     def test_a_root_the_lexicon_lacks_still_yields_chains(self):
         import util.word_methods as wrd
-        self.assertFalse(wrd.exists("erbakan"))
-        chains = {tuple(s.name for s in c) for _r, _p, c, _f in sfx.decompose_with_root("erbakanın", "erbakan")}
+        self.assertFalse(wrd.exists("tulgar"))
+        chains = {tuple(s.name for s in c) for _r, _p, c, _f in sfx.decompose_with_root("tulgarın", "tulgar")}
         self.assertIn(("noun_compound",), chains)
         self.assertGreater(len(chains), 1, "the word should arrive with alternatives, not one answer")
 

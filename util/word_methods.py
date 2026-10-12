@@ -9,7 +9,7 @@ from util.words.closed_class import (
     UNINFLECTED_LEXEMES,
     lexeme_of,
 )
-from util.words.root_classes import VOWEL_DROPPING_ROOTS
+from util.words.root_classes import FRONT_HARMONY_NOUNS, VOWEL_DROPPING_ROOTS
 
 _TR_LOWER_TABLE = str.maketrans("İI", "iı")
 
@@ -222,7 +222,7 @@ def can_be_verb(word: str) -> bool:
 # --- Harmony functions ---
 def major_harmony(word: str) -> MajorHarmony | None:
     """Determines major vowel harmony based on last vowel"""
-    if _in_index(word, _PALATAL_L_KEYS):
+    if _in_index(word, _PALATAL_L_KEYS) or _in_index(word, FRONT_HARMONY_NOUNS):
         return MajorHarmony.FRONT
     for ch in reversed(word):
         if ch in VOWELS:

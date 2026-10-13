@@ -28,6 +28,7 @@ class MLConfig:
     use_final_punctuation: bool = True
     use_apostrophe_boundary: bool = True
     sum_token_scores: bool = True
+    resample_negatives: bool = True
 
 
     max_negative_candidates: int = 5            

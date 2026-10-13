@@ -29,7 +29,7 @@ warnings.filterwarnings(
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Any, List, Optional, Tuple, Dict
+from typing import Any, Callable, List, Optional, Tuple, Dict
 from .config import config  
 from util.suffix import SuffixGroup
 
@@ -1102,6 +1102,7 @@ class Trainer:
         batch_size: Optional[int] = None,
         epochs: Optional[int] = None,
         validation_seqs: Optional[List] = None,
+        resample: Optional[Callable[[int], List]] = None,
     ) -> float:
         if batch_size is None:
             batch_size = config.bulk_batch_size
@@ -1187,6 +1188,8 @@ class Trainer:
             flush=True,
         )
         for epoch in range(epochs):
+            if resample is not None and epoch > 0:
+                data = self._budget_candidate_sets([cands for cands in resample(epoch) if len(cands) >= 2])
             random.shuffle(data)
             epoch_loss = 0.0
             epoch_rank_loss = 0.0

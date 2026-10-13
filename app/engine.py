@@ -364,7 +364,14 @@ class WorkflowEngine:
         return max(base, min(ceiling, scaled))
 
     @classmethod
-    def _rotation_offset(cls, gold_chains: List[List], modulus: int) -> int:
+    def _negative_seed(cls, gold_chains: List[List], epoch: int) -> Tuple:
+        signature = cls._chains_signature(gold_chains)
+        if epoch == 0:
+            return signature
+        return (signature, epoch)
+
+    @classmethod
+    def _rotation_offset(cls, gold_chains: List[List], modulus: int, epoch: int = 0) -> int:
         """Per-sentence starting word for the round-robin.
 
         When the budget cannot cover every ambiguous word, always starting at
@@ -374,19 +381,20 @@ class WorkflowEngine:
         """
         if modulus <= 1:
             return 0
-        payload = repr(cls._chains_signature(gold_chains)).encode("utf-8")
+        payload = repr(cls._negative_seed(gold_chains, epoch)).encode("utf-8")
         return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big") % modulus
 
     @classmethod
-    def _candidate_offset(cls, gold_chains: List[List], word_idx: int, modulus: int) -> int:
+    def _candidate_offset(cls, gold_chains: List[List], word_idx: int, modulus: int, epoch: int = 0) -> int:
         if modulus <= 1:
             return 0
-        payload = repr((cls._chains_signature(gold_chains), word_idx)).encode("utf-8")
+        payload = repr((cls._negative_seed(gold_chains, epoch), word_idx)).encode("utf-8")
         return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big") % modulus
 
     @classmethod
     def _single_substitution_negatives(
         cls, gold_chains: List[List], candidate_lists: List[List[List]], gold_indices: List[int], limit: Optional[int] = None,
+        epoch: int = 0,
     ) -> List[List[List]]:
         """Negatives that replace exactly one word of the gold sentence.
 
@@ -401,7 +409,7 @@ class WorkflowEngine:
         # keeps the offset meaningful on sentences with many unambiguous words.
         order = [idx for idx, candidates in enumerate(candidate_lists) if len(candidates) > 1]
         if not order: return []
-        offset = cls._rotation_offset(gold_chains, len(order))
+        offset = cls._rotation_offset(gold_chains, len(order), epoch)
         order = order[offset:] + order[:offset]
 
         negatives: List[List[List]] = []
@@ -413,7 +421,7 @@ class WorkflowEngine:
         candidate_orders = []
         for word_idx in order:
             count = len(candidate_lists[word_idx])
-            start = cls._candidate_offset(gold_chains, word_idx, count)
+            start = cls._candidate_offset(gold_chains, word_idx, count, epoch)
             candidate_orders.append([(start + step) % count for step in range(count)])
 
         while len(negatives) < limit:
@@ -551,14 +559,14 @@ class WorkflowEngine:
         return [gold_seq] + selected, word_count
 
     def _candidate_set_from_word_entries(
-        self, word_entries: List[Dict], final_punctuation: Optional[str] = None,
+        self, word_entries: List[Dict], final_punctuation: Optional[str] = None, epoch: int = 0,
     ) -> Optional[Tuple[List, int]]:
         parts = self._candidate_parts_from_word_entries(word_entries)
         if parts is None: return None
         gold_chains, candidate_lists, gold_indices, word_count = parts
         final_token = nlp.final_punctuation_token(final_punctuation)
         gold_seq = build_sentence_sequence(gold_chains, final_token)
-        negatives = self._single_substitution_negatives(gold_chains, candidate_lists, gold_indices)
+        negatives = self._single_substitution_negatives(gold_chains, candidate_lists, gold_indices, epoch=epoch)
         candidate_set = [gold_seq] + [build_sentence_sequence(neg, final_token) for neg in negatives]
         return candidate_set, word_count
 
@@ -715,6 +723,7 @@ class WorkflowEngine:
         *,
         log_progress: bool = False,
         label: str = "Preprocessing",
+        epoch: int = 0,
     ) -> Tuple[List[List[Any]], int, int]:
         all_seqs = []
         skipped = 0
@@ -726,8 +735,8 @@ class WorkflowEngine:
             print(f"   {label}: preparing candidate sets for {total_entries} entries...", flush=True)
         for idx, entry in enumerate(entries, start=1):
             try:
-                if entry.get('type') == 'sentence': result = self._candidate_set_from_word_entries(entry.get('words', []), entry.get('final_punctuation'))
-                else: result = self._candidate_set_from_word_entries([entry])
+                if entry.get('type') == 'sentence': result = self._candidate_set_from_word_entries(entry.get('words', []), entry.get('final_punctuation'), epoch)
+                else: result = self._candidate_set_from_word_entries([entry], epoch=epoch)
                 if result is None:
                     skipped += 1
                     if log_progress and (idx == 1 or idx == total_entries or idx % interval == 0):

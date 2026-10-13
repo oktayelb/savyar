@@ -34,6 +34,10 @@ def _is_bare_verb_stem(word, current_chain, stem_pos):
     return stem_pos == "verb"
 
 
+def _needs_tense_first(word, current_chain, stem_pos):
+    return _is_bare_verb_stem(word, current_chain, stem_pos) and not _after_negative(current_chain)
+
+
 class PersonSuffix(Suffix):
     def form(self, word, current_chain=None, stem_pos=None):
         return self.form_function(word, self, current_chain=current_chain, stem_pos=stem_pos)
@@ -47,6 +51,8 @@ def form_for_conjugation_1sg(word, suffix_obj, current_chain=None, stem_pos=None
     - Baba-y-ım (y + im)
     - sev-me-m (me + m)
     """
+    if _needs_tense_first(word, current_chain, stem_pos):
+        return []
     return_list = []
     
     # 1. Durum: Geçmiş zaman (-di), Şart (-se), Olumsuz emir (-me) sonrası sadece 'm'
@@ -76,6 +82,8 @@ def form_for_conjugation_2sg(word, suffix_obj, current_chain=None, stem_pos=None
     - Doktor-sun (sin)
     - Arkadaşlarımızdan-sın (sin)
     """
+    if _is_bare_verb_stem(word, current_chain, stem_pos):
+        return []
     return_list = []
 
     # 1. Durum: Geçmiş zaman (-di) veya Şart (-se) sonrası sadece 'n'
@@ -126,6 +134,8 @@ def form_for_conjugation_1pl(word, suffix_obj, current_chain=None, stem_pos=None
     - Doktor-uz (iz)
     - Hasta-y-ız (y + iz)
     """
+    if _needs_tense_first(word, current_chain, stem_pos):
+        return []
     return_list = []
     
     # 1. Durum: Geçmiş zaman (-di) ve Şart (-se) sonrası 'k'

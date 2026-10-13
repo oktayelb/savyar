@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from data.treebank_adapter_commons import (
     AMBIGUOUS_VNOUN,
+    with_final_punctuation,
     SUFFIX_BY_NAME,
     adapt_normalized_treebank,
     make_layer,
@@ -279,7 +280,9 @@ def parse_treebank(filepath):
             line = line.rstrip("\n")
             if not line:
                 if current_tokens:
-                    sentence = merge_deriv_tokens(current_tokens)
+                    sentence = with_final_punctuation(
+                        merge_deriv_tokens(current_tokens), [t["surface"] for t in current_tokens]
+                    )
                     if sentence:
                         sentences.append(sentence)
                     current_tokens = []
@@ -302,7 +305,7 @@ def parse_treebank(filepath):
             current_tokens.append(token)
 
     if current_tokens:
-        sentence = merge_deriv_tokens(current_tokens)
+        sentence = with_final_punctuation(merge_deriv_tokens(current_tokens), [t["surface"] for t in current_tokens])
         if sentence:
             sentences.append(sentence)
 
@@ -412,6 +415,12 @@ def merge_deriv_tokens(tokens):
 # FEATURE → SUFFIX MAPPING
 # =============================================================================
 
+def derivational_suffix_name(feat, stem_upos):
+    if feat == "Agt" and stem_upos == "Verb":
+        return "agentive_ici"
+    return N2N_DERIVATIONAL_FEATURES[feat]
+
+
 def features_to_suffix_names(word, _unmapped_sink=None):
     """Convert treebank feature chain to expected Savyar suffix name sequence.
 
@@ -421,7 +430,8 @@ def features_to_suffix_names(word, _unmapped_sink=None):
     unmapped = []
     has_unmappable = False
 
-    for step in word["feature_layers"]:
+    for index, step in enumerate(word["feature_layers"]):
+        stem_upos = word["feature_layers"][index - 1]["upos"] if index else None
         upos = step["upos"]
         xpos = step["xpos"]
         feat_str = step["features"]
@@ -543,7 +553,7 @@ def features_to_suffix_names(word, _unmapped_sink=None):
 
             # ── N2N derivational ──
             if feat in N2N_DERIVATIONAL_FEATURES:
-                suffix_names.append(N2N_DERIVATIONAL_FEATURES[feat])
+                suffix_names.append(derivational_suffix_name(feat, stem_upos))
                 continue
 
             # ── Conjugation/agreement ──

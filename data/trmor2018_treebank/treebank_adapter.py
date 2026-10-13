@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from data.treebank_adapter_commons import (
     AMBIGUOUS_VNOUN,
+    with_final_punctuation,
     SUFFIX_BY_NAME,
     adapt_normalized_treebank,
     make_layer,
@@ -243,6 +244,7 @@ def parse_analysis(analysis):
 def parse_trmor2018(filepath):
     sentences = []
     current = []
+    surfaces = []
     in_sentence = False
 
     with open(filepath, "r", encoding="utf-8") as f:
@@ -250,10 +252,11 @@ def parse_trmor2018(filepath):
             line = raw.rstrip("\n")
             if line.startswith("<S "):
                 current = []
+                surfaces = []
                 in_sentence = True
                 continue
             if line.startswith("</S>"):
-                sentences.append(current)
+                sentences.append(with_final_punctuation(current, surfaces))
                 current = []
                 in_sentence = False
                 continue
@@ -265,6 +268,7 @@ def parse_trmor2018(filepath):
                 continue
 
             surface = parts[0]
+            surfaces.append(surface)
             analysis = parts[1]
             lemma, layers = parse_analysis(analysis)
             if not layers or layers[0]["upos"] == "Punct":
@@ -299,13 +303,20 @@ def _append_mapped(out, mapped):
 ORDINAL_ENDINGS = ("ıncı", "inci", "uncu", "üncü", "ncı", "nci", "ncu", "ncü")
 
 
+def derivational_suffix_name(feat, stem_upos):
+    if feat == "Agt" and stem_upos == "Verb":
+        return "agentive_ici"
+    return N2N_DERIVATIONAL_FEATURES[feat]
+
+
 def features_to_suffix_names(word, unmapped_sink):
     suffix_names = []
     unmapped_on_word = []
     has_unmappable = False
     lemma_is_ordinal = word["lemma"].lower().endswith(ORDINAL_ENDINGS)
 
-    for layer in word["feature_layers"]:
+    for index, layer in enumerate(word["feature_layers"]):
+        stem_upos = word["feature_layers"][index - 1]["upos"] if index else None
         upos = layer["upos"]
         xpos = layer["xpos"]
         feats = layer["features"]
@@ -397,7 +408,7 @@ def features_to_suffix_names(word, unmapped_sink):
                 continue
 
             if feat in N2N_DERIVATIONAL_FEATURES:
-                _append_mapped(suffix_names, N2N_DERIVATIONAL_FEATURES[feat])
+                _append_mapped(suffix_names, derivational_suffix_name(feat, stem_upos))
                 continue
 
             if feat in CONJUGATION_FEATURES:

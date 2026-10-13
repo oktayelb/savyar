@@ -28,7 +28,7 @@ class PossessiveSuffix(Suffix):
             is_unique=is_unique
         )
 
-    def form(self, word, current_chain=None):
+    def form(self, word, current_chain=None, stem_pos=None):
         if not current_chain and word in N_STEM_PRONOUNS:
             return []
         return super().form(word, current_chain=current_chain)

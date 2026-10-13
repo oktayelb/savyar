@@ -1,0 +1,33 @@
+\section{Experimental Setup}
+\label{sec:setup}
+
+\paragraph{Protocol.}
+We adapt all 34,673 TrMor2018 sentences and split them at random into 80\% training, 10\% development and 10\% test, once for each of the seeds 1 to 5, following \citet{akyurek-etal-2019-morphological}. For every split we train a freshly initialised model on the training part for six epochs and keep the epoch with the highest ranking accuracy on the development part. Test sentences are decoded with beam search (\S\ref{sec:decoding}). We report the mean and standard deviation over the five splits. No other treebank is used in these runs.
+
+\paragraph{Scored words.}
+\citet{akyurek-etal-2019-morphological} mask digits and proper-noun tags in their evaluation. We exclude digits, \TBD{unanalysed words: confirm definition} and words whose gold annotation the adapter cannot map, together \TBD{5.2}\% of test words. Punctuation is not scored because the adapter removes it.
+
+\paragraph{Metrics.}
+A word is correct when the predicted analysis has the gold root and the gold suffix sequence. \TBD{confirm whether the evaluation compares root strings or encodings; this decides how the ties of \S\ref{sec:encoding} count}. We report:
+\begin{itemize}
+\item word accuracy over all scored words, with words whose gold analysis the analyzer does not propose counted as errors (\emph{uninfused}, following \citealp{seker-tsarfaty-2020-pointer});
+\item word accuracy over words whose gold analysis is among the candidates (\emph{infused});
+\item accuracy on ambiguous words (more than one candidate) and on unambiguous words;
+\item sentence accuracy, the share of sentences in which every scored word is correct;
+\item analyzer statistics: coverage of the gold analysis and the number of candidates per word.
+\end{itemize}
+
+\paragraph{Comparability.}
+Our numbers are not directly comparable with earlier TrMor2018 results for two reasons. First, earlier work counts punctuation tokens, which are unambiguous; TrMor2018 has 460,669 tokens but 388,754 words after adaptation. Second, a \savyar{} analysis is coarser than an analysis in the format of \citet{oflazer-1994-two}: the root category is only noun or verb, so a noun and an adjective with the same suffixes receive the same analysis, and there is no proper-noun feature. Errors of this kind account for a large share of the errors of earlier systems \citep{yildiz-etal-2016-morphology,ozer-korkmaz-2022-transmorph}. The comparison in Table~\ref{tab:comparison} is therefore indicative.
+
+\paragraph{Ablations and diagnostics.}
+We compare the full system with the following variants:
+\begin{itemize}
+\item \emph{Random choice}: the expected accuracy of picking one candidate per word uniformly at random.
+\item \emph{Single word}: each word is scored on its own, as a one-word sentence, so the ranker has no context.
+\item \emph{Root-aware}: open-class roots receive their own tokens instead of \tok{N} and \tok{V}. \TBD{describe vocabulary cut-off and training setup}
+\item \emph{Gold neighbours}: each ambiguous word is scored with all other words fixed to their gold analyses. This uses gold information and serves as an upper bound on what better decoding could achieve.
+\end{itemize}
+
+\paragraph{Implementation.}
+The system is implemented in Python with PyTorch. Each run trains on one NVIDIA GeForce RTX 4050 Laptop GPU with 6\,GB of memory and takes \TBD{train-time} hours; decoding the test part of one split takes \TBD{decode-time} minutes.

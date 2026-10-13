@@ -121,7 +121,7 @@ class Suffix:
         self.group = group
         self.is_unique = is_unique
     
-    def form(self, word, current_chain=None):
+    def form(self, word, current_chain=None, stem_pos=None):
         return self.form_function(word, self, current_chain=current_chain)
     
     @staticmethod

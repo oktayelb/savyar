@@ -1,0 +1,6 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented \savyar{}, a Turkish morphological disambiguator that ranks the output of a rule-based analyzer without seeing open-class roots. Root-specific rules are applied when candidates are generated, and the ranker chooses among whole-sentence suffix sequences. On TrMor2018, under the protocol of \citet{akyurek-etal-2019-morphological}, it reaches \TBD{acc-all}\% on all words and \TBD{acc-amb}\% on ambiguous words. The analyzer proposes the gold analysis for \TBD{coverage}\% of words, so \TBD{coverage-share}\% of the remaining errors lie in the analyzer rather than the ranker. Sentence context adds \TBD{context-gain} points on ambiguous words, and giving the ranker access to roots changes accuracy by \TBD{root-delta} points.
+
+Two directions follow from these results. Mapping \savyar{} analyses back to Universal Dependencies features would allow evaluation on the UD Turkish treebanks used in the SIGMORPHON 2019 shared task \citep{mccarthy-etal-2019-sigmorphon} and by \citet{can-etal-2022-joint}. Splitting the root token by finer categories, for example separating adjectives and proper nouns from other nominals, would address the distinctions that the current encoding cannot express. \TBD{revise once the root-aware result is known}.

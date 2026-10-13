@@ -1,0 +1,16 @@
+\section*{Limitations}
+
+\paragraph{Coarse analyses.}
+A \savyar{} analysis records only whether a root is nominal or verbal and has no proper-noun feature. It cannot distinguish a noun from an adjective with the same suffixes, which are frequent error types for systems evaluated on the full tag set \citep{yildiz-etal-2016-morphology,ozer-korkmaz-2022-transmorph}. Our accuracy is measured on this coarser representation and is not a measure of accuracy on lemma and full tags.
+
+\paragraph{Dependence on the analyzer.}
+The ranker cannot output an analysis that the analyzer does not propose. Coverage depends on a lexicon of 22,464 nominal and 1,054 verbal roots and on 98 suffix types. Words outside the lexicon receive hypothesised roots, which may be wrong even when the suffixes are right.
+
+\paragraph{Identical encodings.}
+Analyses that differ only in an open-class root of the same category receive the same score (\S\ref{sec:encoding}). The ranker has no information to choose between them.
+
+\paragraph{Evaluation data.}
+TrMor2018 was annotated semi-automatically and disagrees with a hand-tagged subset in 4.4\% of cases \citep{akyurek-etal-2019-morphological}. Our test sets also pass through an adapter, and words it cannot map are excluded (\TBD{5.2}\% of test words). Punctuation is not scored. These choices make our numbers not directly comparable with published results.
+
+\paragraph{Scope.}
+We evaluate on Turkish only and did not tune hyperparameters beyond \TBD{tuning statement}. All runs use a single 6\,GB laptop GPU, which limited model size and the number of training epochs.

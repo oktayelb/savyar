@@ -1,0 +1,25 @@
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=\columnwidth,
+  height=4.6cm,
+  xlabel={Candidate analyses per word},
+  ylabel={Accuracy (\%)},
+  xtick={2,3,4,5,6},
+  xticklabels={2,3,4,5,$\geq$6},
+  ymin=50, ymax=100,
+  ymajorgrids,
+  grid style={black!15},
+  tick label style={font=\small},
+  label style={font=\small},
+  legend style={at={(0.03,0.05)}, anchor=south west, draw=none, font=\small},
+]
+\addplot[mark=*, thick, black] table[x=candidates, y=full, col sep=comma] {data/accuracy_by_candidates.csv};
+\addplot[mark=square*, thick, dashed, black!55] table[x=candidates, y=single, col sep=comma] {data/accuracy_by_candidates.csv};
+\legend{Sentence context (beam), Single word}
+\end{axis}
+\end{tikzpicture}
+\caption{Accuracy on ambiguous TrMor2018 test words by the number of candidate analyses, pooled over the five splits. \TBD{placeholder values: replace data/accuracy\_by\_candidates.csv with the results}}
+\label{fig:by-candidates}
+\end{figure}

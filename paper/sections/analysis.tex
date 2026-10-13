@@ -1,0 +1,55 @@
+\section{Analysis}
+\label{sec:analysis}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+System & All words & Ambiguous \\
+\midrule
+Random choice (expected) & \TBD{rand-all} & \TBD{rand-amb} \\
+Single word, no context & \TBD{single-all} & \TBD{single-amb} \\
+\savyar{} (beam, $b=50$) & \TBD{acc-all} & \TBD{acc-amb} \\
+Root-aware & \TBD{root-all} & \TBD{root-amb} \\
+\midrule
+Gold neighbours (diagnostic) & \TBD{oracle-all} & \TBD{oracle-amb} \\
+\bottomrule
+\end{tabular}
+\caption{Ablations on TrMor2018, mean accuracy (\%) over five splits. The gold-neighbour diagnostic fixes every other word to its gold analysis and is not a valid system.}
+\label{tab:ablation}
+\end{table}
+
+\paragraph{Sentence context.}
+Scoring each word on its own reaches \TBD{single-amb}\% on ambiguous words, against \TBD{acc-amb}\% with beam search over the sentence (Table~\ref{tab:ablation}). \citet{akyurek-etal-2019-morphological} report a similar comparison for Morse, where context raises ambiguous-token accuracy from 94.38\% to 96.21\%, and in the experiments of \citet{shen-etal-2016-role} full-sentence context raises ambiguous-token accuracy on the hand-tagged TrMor2006 test from 88.65\% to 91.03\%. Figure~\ref{fig:by-candidates} shows that the gain from context \TBD{grows/shrinks} with the number of candidates. With gold neighbours, accuracy on ambiguous words rises to \TBD{oracle-amb}\%. The gap of \TBD{oracle-gap} points to beam search is the cost of decoding with predicted rather than gold context.
+
+\input{figures/accuracy_by_candidates}
+
+\paragraph{The root abstraction.}
+Giving open-class roots their own tokens changes ambiguous-word accuracy by \TBD{root-delta} points. \TBD{interpretation once the root-aware run exists}. Ties between analyses with identical encodings (\S\ref{sec:encoding}) affect \TBD{tie-share}\% of ambiguous test words.
+
+\paragraph{Ambiguity profile.}
+Figure~\ref{fig:candidates} shows how many analyses the analyzer proposes per word. On the held-out METU-Sabancı words, 53.1\% have a single analysis, 26.0\% have two and 3.0\% have six or more. Earlier work reports 1.60 analyses per token on the TrMor2006 training data for the analyzer of \citet{oflazer-1994-two} \citep{shen-etal-2016-role}, against 1.97 per word for \savyar{} on METU-Sabancı. The figures come from different data and count different units, so they show only that the two analyzers produce ambiguity of a similar order.
+
+\input{figures/candidate_distribution}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}llr@{}}
+\toprule
+Error type & Example & Share (\%) \\
+\midrule
+Gold not proposed & & \TBD{err-coverage} \\
+Accusative vs.\ possessive & \tr{masal-ı} & \TBD{err-acc-poss} \\
+Nominal vs.\ verbal root & \tr{dolar}, \tr{dol-ar} & \TBD{err-n-v} \\
+Identical encoding & \tr{yaz-ın}, \tr{yazı-n} & \TBD{err-tie} \\
+Other suffix confusion & & \TBD{err-other} \\
+\bottomrule
+\end{tabular}
+\caption{Errors of \savyar{} on TrMor2018, pooled over the five test splits. \TBD{error categories to be revised after inspecting the errors}}
+\label{tab:errors}
+\end{table}
+
+\paragraph{Errors.}
+Table~\ref{tab:errors} groups the errors. \TBD{err-coverage}\% of errors are words whose gold analysis the analyzer does not propose; these can only be fixed in the analyzer or the lexicon. The most frequent confusion within the candidate set is \TBD{top-confusion}. \TBD{two or three sentences on characteristic errors, with glossed examples}.

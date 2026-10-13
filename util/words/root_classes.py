@@ -36,6 +36,17 @@ VOWEL_DROPPING_VERBS = {
 
 VOWEL_DROPPING_ROOTS = VOWEL_DROPPING_NOUNS | VOWEL_DROPPING_VERBS
 
+FRONT_HARMONY_NOUNS = {
+    "cemaat", "dikkat", "hakikat", "harf", "harp", "itaat", "kabahat",
+    "kalp", "kanaat", "saat", "seyahat", "sıhhat",
+}
+
+VOWEL_RAISING_VERBS = {
+    "de": "di", "ye": "yi",
+}
+
+DOUBLE_PASSIVE_VERBS = {"de", "ye"}
+
 FINAL_VOWEL_ELIDING_ROOTS = {
     "bura", "nere", "ora", "şura", "yumurta",
 }

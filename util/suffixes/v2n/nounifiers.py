@@ -111,6 +111,7 @@ subjectifier_giç    = Nounifier("subjectifier_giç", "giç")
 nounifier_anak      = Nounifier("nounifier_anak", "anak")
 nounifier_amak      = Nounifier("nounifier_amak", "amak")
 subjectifier_men    = Nounifier("subjectifier_men", "men") 
+agentive_ici        = Nounifier("agentive_ici", "ici")
 
 
 #nounifier_ce   = Nounifier("nounifier_ce", "ce", Type.VERB, Type.NOUN, major_harmony=HasMajorHarmony.Yes, minor_harmony=HasMinorHarmony.No, )

@@ -58,7 +58,7 @@ From `ml/ml_ranking_model.py`:
 
 Current inventory sizes in this repository:
 
-- `98` suffix tokens from `util.decomposer.ALL_SUFFIXES`
+- `99` suffix tokens from `util.decomposer.ALL_SUFFIXES`
 - `102` closed-class lexeme tokens from `CLOSED_CLASS_LEXEMES`
 - total model vocabulary size: `7 + suffix_count + closed_class_count`
 

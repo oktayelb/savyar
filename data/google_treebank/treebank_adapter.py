@@ -66,6 +66,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from data.treebank_adapter_commons import (
     AMBIGUOUS_VNOUN,
+    with_final_punctuation,
     SUFFIX_BY_NAME,
     adapt_normalized_treebank,
     make_layer,
@@ -137,8 +138,8 @@ DERIVATION_MAP = {
     "Aff":       "philicative_cil",      # -cil/-cül
     "Doct":      "ideologicative_izm",   # -izm
     # ── User-directed routings (semantic differences intentionally ignored) ──
-    # Inh (-ıcı habitual doer) → if_se per directive.
-    "Inh":       "actor_ci",
+    # Inh (-(y)ıcı habitual doer) → agentive_ici.
+    "Inh":       "agentive_ici",
     # From (-li from-origin) → compositive_li (shares surface -li/-lı).
     "From":      "compositive_li",
     # Everything else previously unmapped routes to suitative_lik (-lık):
@@ -312,7 +313,10 @@ EQUIVALENT_SEQUENCES = [
 # =============================================================================
 
 def parse_google_conllu(filepath):
-    return parse_conllu(filepath, keep_feature_order=True)
+    return [
+        with_final_punctuation(sentence, [t["surface"] for t in sentence])
+        for sentence in parse_conllu(filepath, keep_feature_order=True)
+    ]
 
 
 def merge_ig_chains(sentence_tokens):

@@ -12,8 +12,8 @@ from util.suffixes.v2n_suffixes import VERB2NOUN
 
 import util.word_methods as wrd
 from util.suffix import Type, Suffix, SuffixGroup, is_enabled
-from util.words.closed_class import IRREGULAR_STEMS, PREDICATE_ONLY_LEXEMES, GENITIVE_COMITATIVE_PRONOUNS
-from util.words.root_classes import FINAL_VOWEL_ELIDING_ROOTS
+from util.words.closed_class import IRREGULAR_STEMS, PREDICATE_ONLY_LEXEMES, GENITIVE_STEM_PRONOUNS, NOUN_ONLY_PRONOUNS, PRONOUNS_WITHOUT_POSSESSIVE
+from util.words.root_classes import FINAL_VOWEL_ELIDING_ROOTS, VOWEL_RAISING_VERBS
 
 ALL_SUFFIXES = NOUN2NOUN + NOUN2VERB + VERB2NOUN + VERB2VERB
 SUFFIX_BY_NAME = {suffix.name: suffix for suffix in ALL_SUFFIXES}
@@ -53,12 +53,23 @@ SUFFIX_TRANSITIONS = {
 # ============================================================================
 # SUFFIX HIERARCHY RULES
 # ============================================================================
+NOMINALS_WITHOUT_VERBALISER = {"adjectifier_dik", "nounifier_ecek", "infinitive_mek", "marking_ki"}
+NO_REFLEXIVE_AFTER = {"passive_il", "reflexive_in", "active_dir", "active_er", "active_ir", "randomative_ele"}
+
+
 def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     """
     Implements the State Machine logic for Turkish Agglutination.
     """
     last_g = last_suffix.group
     next_g = next_suffix.group
+
+    if last_suffix.name == "adjectifier_dik" and (next_suffix.name == "accusative_i" or next_g == SuffixGroup.CONJUGATION):
+        return False
+    if next_suffix.name == "applicative_le" and last_suffix.name in NOMINALS_WITHOUT_VERBALISER:
+        return False
+    if next_suffix.name == "reflexive_in" and last_suffix.name in NO_REFLEXIVE_AFTER:
+        return False
 
 
     ## main waterfall rule.
@@ -110,6 +121,9 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
 pekistirme_suffix = Suffix("pekistirme", "pekistirme", Type.NOUN, Type.NOUN, is_unique=True)
 
 ## TODO hatalı
+PEKISTIRME_CONSONANTS = ("m", "p", "r", "s")
+
+
 def get_pekistirme_analyses(word: str) -> List[Tuple]:
 
 
@@ -127,6 +141,8 @@ def get_pekistirme_analyses(word: str) -> List[Tuple]:
             break
             
     if first_vowel_index == -1 or (first_vowel_index + 1) >= len(word):
+        return analyses
+    if word[first_vowel_index + 1] not in PEKISTIRME_CONSONANTS:
         return analyses
 
 
@@ -185,7 +201,7 @@ def _suffix_iter(start_pos, root, current_chain):
     """Try every suffix and compute forms with the current suffix chain."""
     for target_pos, candidate_suffixes in SUFFIX_TRANSITIONS[start_pos].items():
         for suffix_obj in candidate_suffixes:
-            yield target_pos, suffix_obj, suffix_obj.form(root, current_chain=current_chain)
+            yield target_pos, suffix_obj, suffix_obj.form(root, current_chain=current_chain, stem_pos=start_pos)
 
 
 def find_suffix_chain(word: str, start_pos: str, root: str,
@@ -293,6 +309,7 @@ def find_suffix_chain(word: str, start_pos: str, root: str,
 
 
 PREDICATE_SUFFIX_GROUPS = {SuffixGroup.PREDICATIVE, SuffixGroup.CONJUGATION, SuffixGroup.NOUN_TO_ADVERB}
+FIRST_AND_SECOND_PERSON = {"conjugation_1sg", "conjugation_2sg", "conjugation_1pl", "conjugation_2pl"}
 
 
 def has_genitive_comitative(chain: List[Suffix]) -> bool:
@@ -302,10 +319,30 @@ def has_genitive_comitative(chain: List[Suffix]) -> bool:
     return False
 
 
+def has_genitive_person(chain: List[Suffix]) -> bool:
+    names = [suffix.name for suffix in chain]
+    if "noun_compound" not in names:
+        return False
+    after_genitive = names[names.index("noun_compound") + 1:]
+    return any(name in FIRST_AND_SECOND_PERSON for name in after_genitive)
+
+
+def starts_with_possessive(chain: List[Suffix]) -> bool:
+    if chain and chain[0].name == "plural_ler":
+        chain = chain[1:]
+    return bool(chain) and chain[0].group == SuffixGroup.POSSESSIVE
+
+
 def respects_root_restrictions(root: str, chain: List[Suffix]) -> bool:
     if root in PREDICATE_ONLY_LEXEMES and chain and chain[0].group not in PREDICATE_SUFFIX_GROUPS:
         return False
-    if has_genitive_comitative(chain) and root not in GENITIVE_COMITATIVE_PRONOUNS:
+    if has_genitive_comitative(chain) and root not in GENITIVE_STEM_PRONOUNS:
+        return False
+    if has_genitive_person(chain) and root not in GENITIVE_STEM_PRONOUNS:
+        return False
+    if root in NOUN_ONLY_PRONOUNS and chain and chain[0].makes == Type.VERB:
+        return False
+    if root in PRONOUNS_WITHOUT_POSSESSIVE and starts_with_possessive(chain):
         return False
     return True
 
@@ -366,6 +403,12 @@ def append_irregular_stem_analyses(word: str, analyses_list, shared_cache: dict 
         )
         for chain, final_pos in possible_chains:
             analyses_list.append((lexeme, "noun", [first_suffix] + chain, final_pos))
+
+
+def append_raised_vowel_analyses(word: str, analyses_list, shared_cache: dict = None):
+    for lemma, surface in VOWEL_RAISING_VERBS.items():
+        if word.startswith(surface + "y"):
+            append_analysis(lemma + word[len(surface):], "verb", lemma, analyses_list, shared_cache)
 
 
 def append_progressive_vowel_drop_candidates(word: str, surface_root: str, analyses_list, shared_cache: dict = None):
@@ -438,6 +481,7 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
 
     if not force:
         append_irregular_stem_analyses(word, analyses, shared_cache)
+        append_raised_vowel_analyses(word, analyses, shared_cache)
 
     for i in range(1, len(word) + 1):
         root = word[:i]

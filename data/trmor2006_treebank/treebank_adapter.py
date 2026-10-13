@@ -33,7 +33,7 @@ sys.path.insert(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
 )
 
-from data.treebank_adapter_commons import adapt_normalized_treebank, make_word
+from data.treebank_adapter_commons import adapt_normalized_treebank, make_word, with_final_punctuation
 from data.trmor2018_treebank.treebank_adapter import (
     closed_class_category,
     features_to_suffix_names,
@@ -56,6 +56,7 @@ def _is_sentence_end(line):
 def parse_trmor2006(filepath):
     sentences = []
     current = []
+    surfaces = []
     in_sentence = False
 
     with open(filepath, "r", encoding="utf-8") as f:
@@ -63,14 +64,16 @@ def parse_trmor2006(filepath):
             line = raw.rstrip("\n")
             if _is_sentence_start(line):
                 if current:
-                    sentences.append(current)
+                    sentences.append(with_final_punctuation(current, surfaces))
                 current = []
+                surfaces = []
                 in_sentence = True
                 continue
             if _is_sentence_end(line):
                 if in_sentence:
-                    sentences.append(current)
+                    sentences.append(with_final_punctuation(current, surfaces))
                 current = []
+                surfaces = []
                 in_sentence = False
                 continue
             if not in_sentence or not line or line.startswith("<"):
@@ -81,6 +84,7 @@ def parse_trmor2006(filepath):
                 continue
 
             surface = parts[0]
+            surfaces.append(surface)
             analysis = parts[1]
             lemma, layers = parse_analysis(analysis)
             if not layers or layers[0]["upos"] in {"Punct", "Punc"}:

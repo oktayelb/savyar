@@ -19,6 +19,34 @@ SUFFIX_BY_NAME = {s.name: s for s in ALL_SUFFIXES}
 # and withholds them again.
 HELD_OUT_TEST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_adapted.jsonl")
 
+CLOSING_QUOTES = {'"', "'", "''", "``", "`", "«", "»", "“", "”", "‘", "’", ")"}
+
+
+class Sentence(list):
+    final_punctuation = None
+
+
+def final_punctuation(surfaces):
+    for surface in reversed(surfaces):
+        if surface in CLOSING_QUOTES:
+            continue
+        if "?" in surface:
+            return "?"
+        if "!" in surface:
+            return "!"
+        if surface.startswith("..") or surface == "…":
+            return "..."
+        if surface == ".":
+            return "."
+        return None
+    return None
+
+
+def with_final_punctuation(words, surfaces):
+    sentence = Sentence(words)
+    sentence.final_punctuation = final_punctuation(surfaces)
+    return sentence
+
 
 def sentence_text(entry):
     """The comparable form of a sentence: what it says, not how it was stored."""
@@ -806,11 +834,13 @@ def adapt_normalized_treebank(
             trainable_words_in_sentence += 1
 
         if word_entries:
+            word_entries = [dict(entry, surface=word["surface"]) for entry, word in zip(word_entries, words)]
             decomposed_parts = [we["morphology_string"] for we in word_entries]
             output_entries.append({
                 "type": "sentence",
                 "original_sentence": original_sentence,
                 "decomposed_sentence": " ".join(decomposed_parts),
+                "final_punctuation": getattr(sentence, "final_punctuation", None),
                 "words": word_entries,
             })
             if sentence_all_matched and sentence_has_any:

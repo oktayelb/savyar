@@ -7,7 +7,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import util.decomposer as sfx
-from util.word_methods import tr_lower
+from util.word_methods import tr_lower, unsoftened
 from util.words.closed_class import (
     CLOSED_CLASS_LEXEMES,
     IRREGULAR_STEMS,
@@ -26,6 +26,7 @@ from ml.ml_ranking_model import (
 
 _APOSTROPHE_RE = re.compile(r"['’‘]")
 _PUNCT_RE = re.compile(r"[^\w\s]|_")
+_PUNCT_EXCEPT_APOSTROPHE_RE = re.compile(r"[^\w\s'’‘]|_")
 _FINAL_MARKS_RE = re.compile(r"[.?!…]+$")
 _CLOSING_QUOTES = "\"'«»“”‘’)"
 
@@ -42,6 +43,16 @@ def sanitize_sentence(raw: str) -> List[str]:
     s = _APOSTROPHE_RE.sub("", raw)
     s = _PUNCT_RE.sub(" ", s)
     return tr_lower(s).split()
+
+
+def sentence_tokens(raw: str) -> List[Tuple[str, str]]:
+    """(sanitized word, surface with its apostrophe) for each word of a raw sentence."""
+    tokens = []
+    for surface in _PUNCT_EXCEPT_APOSTROPHE_RE.sub(" ", raw).split():
+        word = tr_lower(_APOSTROPHE_RE.sub("", surface))
+        if word:
+            tokens.append((word, surface))
+    return tokens
 
 
 def sentence_final_punctuation(raw: str) -> Optional[str]:
@@ -64,7 +75,42 @@ def final_punctuation_token(mark: Optional[str]) -> Optional[int]:
     return SUFFIX_OFFSET + len(sfx.ALL_SUFFIXES) + len(CLOSED_CLASS_LEXEMES) + FINAL_PUNCTUATION_MARKS.index(mark)
 
 
-# --- Module-level ID lookup caches ---
+def text_before_apostrophe(surface: Optional[str]) -> Optional[str]:
+    """Turkish spelling puts an apostrophe between a name and its inflection: Kadıköy Belediyesi'ne."""
+    if not surface or not config.use_apostrophe_boundary:
+        return None
+    match = _APOSTROPHE_RE.search(surface)
+    if match is None or match.start() == 0 or match.end() == len(surface):
+        return None
+    return tr_lower(surface[:match.start()])
+
+
+def has_boundary_after(prefix: str, decomp: Tuple) -> bool:
+    root, _pos, chain, _final_pos = decomp
+    if prefix == root or unsoftened(prefix) == root:
+        return True
+    names = [suffix.name for suffix in chain]
+    prefix_analyses = list(sfx.decompose_with_root(prefix, root))
+    prefix_analyses += [analysis for analysis in sfx.decompose_with_fallback(prefix) if analysis[0] == root]
+    for analysis in prefix_analyses:
+        prefix_names = [suffix.name for suffix in analysis[2]]
+        if names[:len(prefix_names)] == prefix_names:
+            return True
+    return False
+
+
+def decomps_split_at_apostrophe(word: str, prefix: str, decomps: List[Tuple]) -> List[Tuple]:
+    if not word.startswith(prefix) or len(prefix) >= len(word):
+        return decomps
+    if sfx.decompose(word):
+        kept = [decomp for decomp in decomps if has_boundary_after(prefix, decomp)]
+        if kept:
+            return kept
+    built = sfx.decompose_with_root(word, prefix)
+    nominal = [decomp for decomp in built if decomp[1] == "noun"]
+    return nominal or built or decomps
+
+
 def _build_caches():
     suffix_to_id = {s.name: idx + SUFFIX_OFFSET for idx, s in enumerate(sfx.ALL_SUFFIXES)}
     suffix_by_name = {s.name: s for s in sfx.ALL_SUFFIXES}
@@ -404,9 +450,12 @@ def format_detailed_decomp(word: str, decomp: Tuple) -> str:
     return "+".join(parts)
 
 
-def analyze_word(word: str) -> Dict[str, Any]:
+def analyze_word(word: str, surface: Optional[str] = None) -> Dict[str, Any]:
     """Decompose one sanitized word and bundle everything downstream needs."""
     decomps = sfx.decompose_with_fallback(word)
+    prefix = text_before_apostrophe(surface)
+    if prefix:
+        decomps = decomps_split_at_apostrophe(word, prefix, decomps)
 
     encoded_chains: List[List] = []
     vms: List[Dict[str, Any]] = []
@@ -446,8 +495,9 @@ def analyze_word_with_root(word: str, root: str) -> Dict[str, Any]:
     }
 
 
-def analyze_words(words: List[str]) -> List[Dict[str, Any]]:
-    return [analyze_word(w) for w in words]
+def analyze_words(words: List[str], surfaces: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    surfaces = surfaces or [None] * len(words)
+    return [analyze_word(w, s) for w, s in zip(words, surfaces)]
 
 
 def score_and_sort(analysis: Dict[str, Any], trainer) -> Optional[List[float]]:

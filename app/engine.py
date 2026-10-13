@@ -239,10 +239,12 @@ class WorkflowEngine:
             nlp.score_and_sort(analysis, self.trainer)
         return analysis
 
-    def analyze_sentence_with_failures(self, words: List[str]) -> Tuple[Optional[List[Dict[str, Any]]], List[Dict[str, Any]]]:
+    def analyze_sentence_with_failures(
+        self, words: List[str], surfaces: Optional[List[str]] = None,
+    ) -> Tuple[Optional[List[Dict[str, Any]]], List[Dict[str, Any]]]:
         if not words:
             return None, []
-        analyses = nlp.analyze_words(words)
+        analyses = nlp.analyze_words(words, surfaces)
         failures = [
             {'index': i + 1, 'word': a['word']}
             for i, a in enumerate(analyses)
@@ -457,7 +459,7 @@ class WorkflowEngine:
                 nlp.root_pos_from_suffix_names(sfx_dicts),
             )
             try:
-                word_analysis = nlp.analyze_word(word_entry['word'])
+                word_analysis = nlp.analyze_word(word_entry['word'], word_entry.get('surface'))
                 matched = nlp.match_decompositions([word_entry], word_analysis['decomps'])
             except Exception:
                 matched = []
@@ -969,7 +971,7 @@ class WorkflowEngine:
                     "scores": [],
                 }
                 try:
-                    analysis = nlp.analyze_word(word_entry["word"])
+                    analysis = nlp.analyze_word(word_entry["word"], word_entry.get("surface"))
                     matched = nlp.match_decompositions([word_entry], analysis["decomps"])
                 except Exception:
                     analysis, matched = None, []

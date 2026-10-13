@@ -834,6 +834,7 @@ def adapt_normalized_treebank(
             trainable_words_in_sentence += 1
 
         if word_entries:
+            word_entries = [dict(entry, surface=word["surface"]) for entry, word in zip(word_entries, words)]
             decomposed_parts = [we["morphology_string"] for we in word_entries]
             output_entries.append({
                 "type": "sentence",

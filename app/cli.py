@@ -3,7 +3,7 @@ import os
 from typing import List, Optional, Dict, Any
 
 from app.engine import WorkflowEngine, get_top_sentence_predictions
-from app.nlp_pipeline import sanitize_word, sanitize_sentence, sentence_final_punctuation
+from app.nlp_pipeline import sanitize_word, sanitize_sentence, sentence_tokens, sentence_final_punctuation
 
 MAX_MANUAL_SENTENCE_MATCHES = 100
 
@@ -264,11 +264,12 @@ class AppCLI:
 
     def handle_sentence(self, raw_sentence: str, analyses: Optional[List[Dict]] = None) -> Optional[bool]:
         if analyses is None:
-            words = sanitize_sentence(raw_sentence)
+            tokens = sentence_tokens(raw_sentence)
+            words = [word for word, _surface in tokens]
             if not words:
                 self.show_message(f"\n Could not parse: {raw_sentence}")
                 return False
-            analyses, failures = self.engine.analyze_sentence_with_failures(words)
+            analyses, failures = self.engine.analyze_sentence_with_failures(words, [surface for _word, surface in tokens])
             if analyses is None:
                 self.show_message(f"\n {self._format_sentence_parse_failure(failures)}")
                 return False
@@ -342,12 +343,13 @@ class AppCLI:
         return True
 
     def handle_eval_sentence(self, raw_sentence: str) -> Optional[bool]:
-        words = sanitize_sentence(raw_sentence)
+        tokens = sentence_tokens(raw_sentence)
+        words = [word for word, _surface in tokens]
         if not words:
             self.show_message("\n Could not parse sentence.")
             return False
 
-        analyses, failures = self.engine.analyze_sentence_with_failures(words)
+        analyses, failures = self.engine.analyze_sentence_with_failures(words, [surface for _word, surface in tokens])
         if analyses is None:
             self.show_message(f"\n {self._format_sentence_parse_failure(failures)}")
             return False

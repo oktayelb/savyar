@@ -26,6 +26,7 @@ class MLConfig:
     focal_gamma: float = 0.0
 
     use_final_punctuation: bool = True
+    use_apostrophe_boundary: bool = True
 
 
     max_negative_candidates: int = 5            

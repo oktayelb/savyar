@@ -1,0 +1,87 @@
+\section{The \savyar{} System}
+\label{sec:system}
+
+\input{figures/pipeline}
+
+\savyar{} has two parts (Figure~\ref{fig:pipeline}). A rule-based analyzer lists the analyses of every word in a sentence. A neural ranker scores sentence candidates built from those analyses, and beam search returns the best one. All knowledge of individual roots sits in the analyzer.
+
+\subsection{Analyzer}
+\label{sec:analyzer}
+
+\paragraph{Lexicon.}
+The analyzer looks up roots in a lexicon of 22,464 nominal and 1,054 verbal entries taken from \TBD{dictionary source}. A dictionary word that the suffix rules derive from a shorter root by its actual derivation is not an entry: \tr{bulun} `be found' is \tr{bul-un} and \tr{durum} `situation' is \tr{dur-um}. Words that only resemble a derivation remain roots (\tr{dolar} `dollar', \tr{gece} `night'), and so do words formed with a suffix the rules do not model (\tr{satıcı} `seller', \tr{öğretmen} `teacher'). The lexicon was built without consulting any treebank, so test sentences cannot influence which candidates exist.
+
+\paragraph{Suffixes.}
+The analyzer has 98 suffix types. Each records the category it attaches to and the category it produces: 40 map nouns to nouns, 33 verbs to nouns, 17 verbs to verbs and 2 nouns to verbs, while 6 attach to either category. Each suffix generates its surface allomorphs from the stem, following vowel harmony, consonant alternation and buffer consonants.
+
+\paragraph{Search.}
+Every prefix of a word is tried as a root, both as written and after undoing a stem alternation such as final-consonant voicing (\tr{kitab-ı} from \tr{kitap} `book'). From each root a depth-first search attaches suffixes whose allomorph matches the rest of the word. Suffixes fall into 13 ordered groups, from verb-to-verb derivation through negation, compound verbs, category-changing derivation, converbs, plural, possessive, case, the relative \tr{-ki}, the comitative \tr{-lA}, adverbial suffixes and predicative suffixes to person endings. A suffix may not follow a suffix of a later group. Derivational suffixes may follow each other, and the relative \tr{-ki} restarts the order, which licenses \tr{ev-de-ki-ler-den} house-\gl{loc}-\gl{rel}-\gl{pl}-\gl{abl} `from those in the house'.
+
+\paragraph{Root-dependent rules.}
+Because the ranker never sees the root, every rule that depends on it is applied here. Closed lists name the verbs that take the causatives \tr{-Ir} (\tr{geç-ir} `spend (time)') and \tr{-Ar} (\tr{çık-ar} `take out'), the 13 monosyllabic verbs whose aorist is \tr{-Ir} (\tr{gel-ir} `comes'), and the roots that lose their last vowel before a vowel-initial suffix (\tr{ağz-ı} `his or her mouth'). Pronoun restrictions are also enforced here: personal pronouns and the demonstratives \tr{bu} and \tr{şu} take no possessive, so \tr{bizi} is only `us' (\gl{acc}). When no lexicon root yields an analysis, as with many proper nouns and acronyms, the analyzer hypothesises a root from the surface form; the suffixes must still span the rest of the word.
+
+\paragraph{Output.}
+Each analysis is a root, the category of the root (noun or verb), a suffix sequence and the resulting category. On the TrMor2018 test words, the analyzer returns \TBD{cand-per-word} analyses per word, \TBD{amb-share}\% of words have more than one, and the gold analysis is among the candidates for \TBD{coverage}\% of words.
+
+\subsection{Root-agnostic encoding}
+\label{sec:encoding}
+
+The ranker sees each candidate word as a short token sequence. The first token stands for the root: \tok{N} for any nominal root and \tok{V} for any verbal root, or a token of its own for one of 102 closed-class lexemes such as \tr{ben} `I', \tr{bu} `this', \tr{ve} `and', \tr{için} `for' and the question particle \tr{mI}. One token per suffix follows, identified by the suffix type. Every token carries its suffix group and its position in the word, and the vocabulary has 207 entries: 98 suffixes, 102 lexemes, the two root tokens and five special symbols. A sentence candidate is the concatenation of its word sequences, separated by a word boundary symbol and enclosed in begin and end symbols.
+
+Table~\ref{tab:encoding} shows what this representation keeps and what it discards. The three analyses of \tr{masalı} differ in their suffixes and remain distinct. The pronoun reading of \tr{bana} `to me' stays distinct from a reading built on the noun \tr{ban}, because \tr{ben} has a lexeme token. Analyses that differ only in an open-class root of the same category become identical: \tr{yaz-ın} `your summer' and \tr{yazı-n} `your writing' both encode as \tok{N}~\gl{poss.2sg}, and \tr{dol-ar} `it fills' and \tr{dola-r} `it wraps' both encode as \tok{V}~\gl{aor}. Identical encodings receive identical scores. \TBD{state how ties are counted in evaluation and how often they occur on TrMor2018}.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Word & Analysis & Encoding \\
+\midrule
+\multirow{3}{*}{\tr{masalı}} & \tr{masa-lı} table-\gl{with} & \tok{N} \gl{with} \\
+ & \tr{masal-ı} tale-\gl{acc} & \tok{N} \gl{acc} \\
+ & \tr{masal-ı} tale-\gl{poss.3sg} & \tok{N} \gl{poss.3sg} \\
+\midrule
+\multirow{2}{*}{\tr{bana}} & \tr{bana} I-\gl{dat} & \tok{ben} \gl{dat} \\
+ & \tr{ban-a} \tr{ban}-\gl{dat} & \tok{N} \gl{dat} \\
+\midrule
+\multirow{2}{*}{\tr{yazın}} & \tr{yaz-ın} summer-\gl{poss.2sg} & \tok{N} \gl{poss.2sg} \\
+ & \tr{yazı-n} writing-\gl{poss.2sg} & \tok{N} \gl{poss.2sg} \\
+\bottomrule
+\end{tabular}
+\caption{Candidate analyses and their encodings. The two analyses of \tr{yazın} shown here receive the same encoding. The analyzer proposes four further analyses of \tr{yazın}, including the imperative \tr{yaz-ın} `write!' (\tok{V}~\gl{imp.2pl}), which the encoding keeps apart.}
+\label{tab:encoding}
+\end{table}
+
+\subsection{Ranker}
+\label{sec:ranker}
+
+Each position of a sentence candidate is represented by the concatenation of four embeddings: the token (384 dimensions), its suffix group (8), its position inside the word (16) and its absolute position in the sequence (384). A two-layer perceptron with a GELU activation projects the 792-dimensional vector to 384 dimensions. A six-layer Transformer encoder \citep{vaswani-etal-2017-attention} with pre-layer normalisation, eight attention heads, a feed-forward width of 1,536 and dropout 0.3 contextualises the positions. The score of a candidate $y$ is
+\begin{equation}
+s(y) = \mathbf{w}^{\top} \mathrm{LN}\Big(\frac{1}{|y|}\sum_{t=1}^{|y|} \mathbf{h}_t\Big) + b,
+\end{equation}
+where $\mathbf{h}_t$ are the final hidden states and LN is layer normalisation. Sequences are limited to 512 tokens. The model has about 11.5 million parameters.
+
+\subsection{Training}
+\label{sec:training}
+
+\paragraph{Candidate sets.}
+A training example is a candidate set: the gold sentence $y^{*}$ and a set of negatives. Each negative copies the gold sentence and replaces the analysis of exactly one ambiguous word with a wrong analysis of the same word. A sentence with $a$ ambiguous words receives
+\begin{equation}
+k = \max\big(5, \min(16, \lceil 2a \rceil)\big)
+\end{equation}
+negatives. The words are visited in turn, starting from an offset derived from a hash of the sentence, and each word's candidates are visited from a hashed offset as well. This spreads the negatives over the sentence and over the wrong readings of each word while keeping preprocessing deterministic. Negatives whose encoding equals the gold encoding are discarded. Sentences without an ambiguous word yield no candidate set. When the analyzer cannot reach the gold analysis of a word, the gold suffix sequence is encoded directly and the analyzer is run again with the annotated root to obtain alternatives.
+
+\paragraph{Objective.}
+Scores within a candidate set $C$ are turned into a distribution with temperature $\tau = 0.1$:
+\begin{equation}
+\mathcal{L}_{\text{rank}} = -\log \frac{\exp(s(y^{*})/\tau)}{\sum_{y \in C} \exp(s(y)/\tau)}.
+\end{equation}
+An auxiliary masked-token objective is computed on the gold sequence. Twenty percent of its root and suffix tokens are selected, at least one per sequence; 80\% of the selected tokens are replaced by a mask symbol, 10\% by a random suffix or lexeme token and 10\% are left unchanged. An output layer tied to the input token embeddings predicts the original tokens. The loss is $\mathcal{L} = \mathcal{L}_{\text{rank}} + 0.2\,\mathcal{L}_{\text{mask}}$.
+
+\paragraph{Optimisation.}
+We train with AdamW (learning rate $3\times10^{-4}$, weight decay 0.05), 500 warm-up steps followed by cosine decay to 5\% of the peak rate, gradient clipping at norm 1.0 and mixed precision. Batches are formed under limits on padded tokens and attention cells, which are set from the available GPU memory.
+
+\subsection{Decoding}
+\label{sec:decoding}
+
+Decoding proceeds from left to right over the words of a sentence. At word $i$, every partial candidate in the beam is extended with every analysis of word $i$, the extended prefixes are scored with $s$ as if they were complete sentences, and the 50 highest-scoring prefixes are kept. Unambiguous words add a single extension. The output is the highest-scoring complete sentence.

@@ -1,0 +1,31 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Turkish builds words by attaching suffixes to a root, and one surface form can result from different roots and different suffix sequences. A rule-based analyzer returns every analysis a word form admits \citep{oflazer-1994-two,ozturel-etal-2019-syntactically}. The word \tr{masalı} has three \citep{akyurek-etal-2019-morphological}:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lll@{}}
+(1) a. & \tr{masa-lı} & table-\gl{with} `with a table' \\
+\phantom{(1)} b. & \tr{masal-ı} & tale-\gl{acc} `the tale (object)' \\
+\phantom{(1)} c. & \tr{masal-ı} & tale-\gl{poss.3sg} `his or her tale' \\
+\end{tabular}
+\end{center}
+
+\noindent Only the sentence decides between them. \tr{Masalı yaz} `write the tale' needs (1b), \tr{babamın masalı} `my father's tale' needs (1c), and \tr{mavi masalı oda} `the room with a blue table' needs (1a). Morphological disambiguation is the task of choosing the analysis that fits the context \citep{hakkani-tur-etal-2018-morphological}.
+
+Work on Turkish has moved from hand-written rules to statistical and neural models. Decision lists \citep{yuret-ture-2006-learning} and a perceptron reranker \citep{sak-etal-2007-morphological} reach 95.82\% and 96.28\% token accuracy on the hand-tagged TrMor2006 test set \citep{akyurek-etal-2019-morphological}. Neural disambiguators score each candidate analysis against a representation of its context \citep{yildiz-etal-2016-morphology,shen-etal-2016-role,toleu-etal-2017-character}. Sequence-to-sequence models drop the analyzer and generate the lemma and tags from characters \citep{akyurek-etal-2019-morphological,ozer-korkmaz-2022-transmorph}. On TrMor2018 the strongest of these reaches 98.59\% when it rescores the candidates of an analyzer instead of generating its own \citep{akyurek-etal-2019-morphological}.
+
+All of these systems see the root. \citet{yildiz-etal-2016-morphology} embed it directly and gain about one point from pre-trained root embeddings. \citet{shen-etal-2016-role} read its characters, and generative models spell it out. The root carries lexical preferences, but in Turkish it also carries information that an analyzer can apply before any ranking takes place: which allomorph of the causative or of the aorist a verb takes, whether a stem loses its last vowel before a suffix, and which pronouns accept a possessive. Once these constraints are enforced during candidate generation, the remaining choice is often between suffix sequences: accusative or possessive, participle or finite verb, nominal or verbal reading of the stem. We ask how far a ranker gets on this choice when it sees only the suffix sequences of the whole sentence.
+
+\savyar{} answers this with a strict division of labour. A rule-based analyzer generates the candidates and holds every rule that depends on the identity of the root. The ranker receives each word as a part-of-speech token for its root, or as a lexeme token for one of 102 closed-class words, followed by its suffixes. To the ranker, \tr{elma} `apple' and \tr{armut} `pear' are the same token. A Transformer encoder \citep{vaswani-etal-2017-attention} scores complete sentence candidates, and beam search assembles the best-scoring sentence.
+
+Our contributions are the following.
+\begin{itemize}
+\item A rule-based Turkish analyzer with 98 suffix types and a lexicon derived from a dictionary without reference to any treebank, in which root-dependent allomorphy is resolved before ranking (\S\ref{sec:analyzer}).
+\item A root-agnostic sentence ranker trained against single-substitution negatives (\S\ref{sec:ranker} and \S\ref{sec:training}).
+\item Adapters that map five Turkish treebanks with three annotation schemes to one suffix-level representation (\S\ref{sec:data}).
+\item An evaluation on TrMor2018 under the protocol of \citet{akyurek-etal-2019-morphological} that separates analyzer coverage from ranking accuracy and measures the contribution of sentence context (\S\ref{sec:results} and \S\ref{sec:analysis}).
+\end{itemize}
+
+\noindent Code, adapters and trained models will be released with the camera-ready version.

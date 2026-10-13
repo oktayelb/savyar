@@ -121,6 +121,9 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
 pekistirme_suffix = Suffix("pekistirme", "pekistirme", Type.NOUN, Type.NOUN, is_unique=True)
 
 ## TODO hatalı
+PEKISTIRME_CONSONANTS = ("m", "p", "r", "s")
+
+
 def get_pekistirme_analyses(word: str) -> List[Tuple]:
 
 
@@ -138,6 +141,8 @@ def get_pekistirme_analyses(word: str) -> List[Tuple]:
             break
             
     if first_vowel_index == -1 or (first_vowel_index + 1) >= len(word):
+        return analyses
+    if word[first_vowel_index + 1] not in PEKISTIRME_CONSONANTS:
         return analyses
 
 

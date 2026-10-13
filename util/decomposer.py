@@ -53,12 +53,23 @@ SUFFIX_TRANSITIONS = {
 # ============================================================================
 # SUFFIX HIERARCHY RULES
 # ============================================================================
+NOMINALS_WITHOUT_VERBALISER = {"adjectifier_dik", "nounifier_ecek", "infinitive_mek", "marking_ki"}
+NO_REFLEXIVE_AFTER = {"passive_il", "reflexive_in", "active_dir", "active_er", "active_ir", "randomative_ele"}
+
+
 def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     """
     Implements the State Machine logic for Turkish Agglutination.
     """
     last_g = last_suffix.group
     next_g = next_suffix.group
+
+    if last_suffix.name == "adjectifier_dik" and (next_suffix.name == "accusative_i" or next_g == SuffixGroup.CONJUGATION):
+        return False
+    if next_suffix.name == "applicative_le" and last_suffix.name in NOMINALS_WITHOUT_VERBALISER:
+        return False
+    if next_suffix.name == "reflexive_in" and last_suffix.name in NO_REFLEXIVE_AFTER:
+        return False
 
 
     ## main waterfall rule.

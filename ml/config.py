@@ -49,7 +49,7 @@ class MLConfig:
     mlm_weight: float = 0.2
 
 
-    bulk_epochs: int = 6
+    bulk_epochs: int = 8
     bulk_batch_size: int = 1024
     bulk_batch_log_interval: int = 25
     relearn_preprocess_log_interval: int = 1000

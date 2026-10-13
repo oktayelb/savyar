@@ -11,14 +11,14 @@ class MLConfig:
     embed_dim: int = 384        
     num_layers: int = 6         
     num_heads: int = 8          
-    dropout: float = 0.3        
+    dropout: float = 0.1
 
     group_embed_dim: int = 8
     wordpos_embed_dim: int = 16
     pos_embed_dim: int = 384
 
     learning_rate: float = 3e-4
-    weight_decay: float = 0.05
+    weight_decay: float = 0.01
 
     mlm_mask_prob: float = 0.20
     mlm_use_bert_mix: bool = True

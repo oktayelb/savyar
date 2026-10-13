@@ -1,0 +1,27 @@
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar,
+  bar width=7pt,
+  width=\columnwidth,
+  height=4.6cm,
+  xlabel={TrMor2018 split (seed)},
+  ylabel={Accuracy (\%)},
+  xtick={1,2,3,4,5},
+  ymin=80, ymax=100,
+  enlarge x limits=0.15,
+  ymajorgrids,
+  grid style={black!15},
+  tick label style={font=\small},
+  label style={font=\small},
+  legend style={at={(0.5,1.03)}, anchor=south, legend columns=2, draw=none, font=\small},
+]
+\addplot[fill=black!65, draw=black] table[x=split, y=all, col sep=comma] {data/split_accuracy.csv};
+\addplot[fill=black!20, draw=black] table[x=split, y=ambiguous, col sep=comma] {data/split_accuracy.csv};
+\legend{All words, Ambiguous words}
+\end{axis}
+\end{tikzpicture}
+\caption{Accuracy of \savyar{} on each TrMor2018 test split. \TBD{placeholder values: replace data/split\_accuracy.csv with the results}}
+\label{fig:splits}
+\end{figure}

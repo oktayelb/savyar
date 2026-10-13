@@ -1,0 +1,28 @@
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar,
+  bar width=6pt,
+  width=\columnwidth,
+  height=4.4cm,
+  xlabel={Candidate analyses per word},
+  ylabel={Words (\%)},
+  xtick={1,2,3,4,5,6},
+  xticklabels={1,2,3,4,5,$\geq$6},
+  ymin=0, ymax=60,
+  enlarge x limits=0.12,
+  ymajorgrids,
+  grid style={black!15},
+  tick label style={font=\small},
+  label style={font=\small},
+  legend style={at={(0.97,0.95)}, anchor=north east, draw=none, font=\small},
+]
+\addplot[fill=black!65, draw=black] table[x=candidates, y=metu, col sep=comma] {data/candidate_distribution.csv};
+\addplot[fill=black!20, draw=black] table[x=candidates, y=trmor2018, col sep=comma] {data/candidate_distribution.csv};
+\legend{METU-Sabancı test, TrMor2018 test}
+\end{axis}
+\end{tikzpicture}
+\caption{Distribution of the number of analyses the analyzer proposes per word. The METU-Sabancı values are measured on the 9,177 held-out words. \TBD{TrMor2018 values are placeholders: fill the trmor2018 column of data/candidate\_distribution.csv}}
+\label{fig:candidates}
+\end{figure}

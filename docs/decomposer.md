@@ -104,17 +104,30 @@ The algorithm:
 3. Verifies the remainder starts with the same consonant-vowel prefix as the word.
 4. If suffixes follow the reduplicated root (e.g. `masmaviydim`), it recursively calls `find_suffix_chain()` on the remainder.
 
-### 7. Closed-Class Integration
+### 7. Closed-Class Words
 
-`decompose_with_cc()` wraps `decompose()` and appends closed-class word analyses. For words like `"ve"` (conjunction) or `"o"` (pronoun/determiner), it adds entries from `CLOSED_CLASS_LOOKUP`:
+Closed-class lexemes (`util/words/closed_class.py`) are ordinary noun roots, so `bana` is `("ben", "noun", [dative_e], "noun")`. Their irregular forms come from the suffix rules (pronominal `n` after `o`/`bu`/`şu`, genitive `-im` after `ben`/`biz`) and from `IRREGULAR_STEMS` (e.g. `bana`, `hepsi`, `birisi`). Conjunctions and clitics take no suffix as nouns. `decompose()` returns each `(root, pos, chain)` once.
 
-```python
-(word, "cc_pronoun", [ClosedClassMarker(...)], "cc_pronoun")
-```
+`değil` takes only predicative, person and `-ken` suffixes, and a genitive followed by `-lA` (`onunla`, `benimle`) is accepted only on the pronouns in `GENITIVE_COMITATIVE_PRONOUNS`. `decompose()` drops any other analysis.
 
-This allows the ML model to see these tokens in the sentence sequence alongside suffix-chain decompositions.
+`decompose_with_fallback()` is what callers use: it returns `decompose()`'s analyses, or hypothesised roots when there are none.
 
-### 8. Caching Strategy
+### 8. Clearly Suffixed Words Are Not Roots
+
+`data/words.txt` and `data/verbs.txt` are built from the dictionary alone; no word is added, kept or removed because of the treebanks, so the test sentences cannot shape the candidates. A dictionary word the suffix tables build from a shorter root (`bulun` = bul+un, `durum` = dur+um, `kaynar` = kayna+r) is not an entry, however lexicalised it is. Words that only look suffixed (`gece`, `kara`, `yer`, `dolar`, `ekmek`, `yastık`, `tarife`) stay roots, and so do words built with a suffix the tables do not use (`satıcı`, `öğretmen`, `yorgun`).
+
+`data/decomposed_lemmas.tsv` gives the split of every such word, plus treebank lemma conventions such as `olan` = ol+an. The treebank adapters expand a removed lemma through it (gold `kullan+ıyor` becomes `kul+la+n+ıyor`), using the verb split when the treebank tags the lemma as a verb (`alın` = al+ın). The table only rewrites gold labels; it never adds a candidate.
+
+### 9. Root-Dependent Allomorphs
+
+The model never sees the root, so every rule that depends on it lives in the decomposer. `util/words/root_classes.py` lists the roots each rule applies to:
+
+- `CAUSATIVE_IR_ROOTS`, `CAUSATIVE_AR_ROOTS`: the only roots that take the `-Ir` (`geç-ir`) and `-Ar` (`çık-ar`) causatives.
+- `AORIST_IR_MONOSYLLABLES`: the 13 one-syllable verbs whose aorist is `-Ir` (`gel-ir`); every other one-syllable root takes `-Ar` (`bit-er`).
+- `VOWEL_DROPPING_NOUNS`, `VOWEL_DROPPING_VERBS`: roots that lose their last vowel before a vowel-initial suffix (`ağz-ı`, `ayr-ıl`).
+- `FINAL_VOWEL_ELIDING_ROOTS`: roots whose final vowel may drop before a consonant (`nerde`, `yumurtla`).
+
+### 10. Caching Strategy
 
 Two levels of caching prevent redundant computation:
 

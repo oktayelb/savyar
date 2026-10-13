@@ -73,7 +73,9 @@ from data.treebank_adapter_commons import (
     parse_conllu,
     record_unmapped as _record_unmapped,
     resolve_ambiguous_vnoun_suffixes,
+    spells_word,
 )
+from util.word_methods import tr_lower
 
 
 # =============================================================================
@@ -154,7 +156,7 @@ def copula_suffixes_from_feats(feats):
         out.append("if_se")
     elif mood == "Gen":                     # -dır generalizing copula
         out.append("nounaorist_dir")
-    elif mood == "Ind":
+    elif mood in ("Ind", None):
         if tense == "Past":
             if evident == "Nfh":
                 out.append("copula_mis")     # -(y)miş
@@ -327,8 +329,27 @@ EQUIVALENT_SEQUENCES = [
 # TREEBANK ROW MERGER
 # =============================================================================
 
+NEGATIVE_PREDICATE = "değil"
+NEGATIVE_PREDICATE_LEMMAS = {"değ", "değil"}
+
+
+def corrected_negative_predicate(token):
+    if token["lemma"] not in NEGATIVE_PREDICATE_LEMMAS:
+        return token
+    if not tr_lower(token["surface"]).startswith(NEGATIVE_PREDICATE):
+        return token
+    features = dict(token["features"])
+    features.pop("Voice", None)
+    if "Person[psor]" in features:
+        features["Person"] = features.pop("Person[psor]")
+    if "Number[psor]" in features:
+        features["Number"] = features.pop("Number[psor]")
+    return dict(token, lemma=NEGATIVE_PREDICATE, features=features)
+
+
 def parse_boun_conllu(filepath):
-    return parse_conllu(filepath, preserve_mwt=True)
+    sentences = parse_conllu(filepath, preserve_mwt=True)
+    return [[corrected_negative_predicate(token) for token in sentence] for sentence in sentences]
 
 
 def merge_mwt_words(sentence_tokens):
@@ -402,6 +423,7 @@ def features_to_suffix_names(word, unmapped_sink):
     suffix_names = []
     unmapped_on_word = []
     has_unmappable = False
+    has_inferred_verbal_noun = False
 
     for layer_idx, layer in enumerate(word["feature_layers"]):
         feats = layer["features"]
@@ -428,15 +450,19 @@ def features_to_suffix_names(word, unmapped_sink):
             feats.get(k) for k in ("Tense", "Aspect", "Evident", "VerbForm", "Mood", "Voice", "Polarity")
         )
 
+        is_verbal_noun = is_verb_layer and bool(case) and not (
+            vform or tense or aspect or mood or feats.get("Evident")
+        )
+        is_nominalised_verb = vform in ("Part", "Vnoun") or is_verbal_noun
+
         is_aux_copula = (upos == "AUX" and lemma in ("i", "YDİ", "YDU", "DU", "TU", "TİR"))
         is_aux_question = (upos == "AUX" and xpos == "Ques")
         is_aux_dur = (upos == "AUX" and lemma in ("dur", "tur", "dür", "tür", "dır", "tır"))
-        is_closed_class_layer = upos in UPOS_TO_CC_CATEGORY
 
         # --------------------------------------------------------------
         # AUX / copula layer
         # --------------------------------------------------------------
-        if is_aux_copula:
+        if is_aux_copula or is_aux_question:
             cop_suffixes = copula_suffixes_from_feats(feats)
             for s in cop_suffixes:
                 if s.startswith("__UNMAPPED"):
@@ -460,11 +486,6 @@ def features_to_suffix_names(word, unmapped_sink):
                     suffix_names.append(pm)
             continue
 
-        if is_aux_question:
-            # Question particle mı/mi/mu/mü → closed-class "particle".
-            suffix_names.append("cc_particle")
-            continue
-
         if is_aux_dur:
             # Lexicalised auxiliaries: dur/tur with nounaorist_dir semantics +
             # optional person marker.
@@ -473,17 +494,6 @@ def features_to_suffix_names(word, unmapped_sink):
                 pm = V_PERSON_MAP.get((person, number))
                 if pm:
                     suffix_names.append(pm)
-            continue
-
-        # --------------------------------------------------------------
-        # Closed-class layer (PRON/ADP/DET/INTJ/CCONJ/ADV/SCONJ)
-        # Pronouns may carry case/possessive; handle them like nouns for
-        # inflection and still route to the closed-class entry at word level.
-        # Other CC categories with no inflection are emitted as bare CC.
-        # --------------------------------------------------------------
-        if is_closed_class_layer and upos != "PRON":
-            # bare CC — no per-layer suffixes emitted here; the word-level
-            # common pipeline routes to the closed-class entry builder.
             continue
 
         # --------------------------------------------------------------
@@ -518,6 +528,9 @@ def features_to_suffix_names(word, unmapped_sink):
                     _record_unmapped(unmapped_sink, "VerbForm", combo, word)
                 else:
                     suffix_names.extend(vf_suffs)
+            elif is_verbal_noun:
+                suffix_names.append(AMBIGUOUS_VNOUN)
+                has_inferred_verbal_noun = True
             else:
                 # 4) TAM (tense/aspect/evidential) — only when NOT a VerbForm row.
                 tam = tam_suffixes_from_feats(feats)
@@ -547,6 +560,9 @@ def features_to_suffix_names(word, unmapped_sink):
             elif mood == "Abil" and polarity != "Neg":
                 suffix_names.append("possibilitative_ebil")
 
+            if is_nominalised_verb and number == "Plur":
+                suffix_names.append("plural_ler")
+
             # 6) Case appearing on a verb layer = the verb is nominalised
             # (usually via VerbForm=Part or Vnoun). Apply it after verb
             # morphology but before person marking.
@@ -573,10 +589,12 @@ def features_to_suffix_names(word, unmapped_sink):
                         suffix_names.append(pm)
 
             # 7) Verb-side person marker
-            if person and number and not vform:
+            if person and number and not vform and not is_verbal_noun:
                 # VerbForm nominalisations don't take verb-side person; they
                 # take possessive (handled above). Plain finite verbs do.
                 pm = V_PERSON_MAP.get((person, number), "__MISSING__")
+                if mood == "Imp" and (person, number) == ("3", "Sing"):
+                    pm = "conjugation_3sg"
                 if pm is None:
                     pass
                 elif pm == "__MISSING__":
@@ -629,6 +647,8 @@ def features_to_suffix_names(word, unmapped_sink):
         suffix_names,
         SUFFIX_BY_NAME,
     )
+    if has_inferred_verbal_noun and not spells_word(word["surface"], word["lemma"], suffix_names):
+        suffix_names = []
     return suffix_names, unmapped_on_word, has_unmappable
 
 
@@ -646,6 +666,8 @@ def should_skip_word(word):
 def closed_class_category(word):
     if word["is_multiword"]:
         return None
+    if word["head_upos"] == "AUX" and word["head_xpos"] == "Ques":
+        return "particle"
     return UPOS_TO_CC_CATEGORY.get(word["head_upos"])
 
 

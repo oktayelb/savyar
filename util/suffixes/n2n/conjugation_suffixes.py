@@ -25,6 +25,10 @@ def _after_adverbial_e(current_chain):
     return _last_suffix_name(current_chain) == "adverbial_e"
 
 
+def _after_verb_making_suffix(current_chain):
+    return bool(current_chain) and current_chain[-1].makes == Type.VERB
+
+
 def form_for_conjugation_1sg(word, suffix_obj, current_chain=None):
     """
     1. Tekil Şahıs (-m, -im)
@@ -101,7 +105,7 @@ def form_for_conjugation_3sg(word, suffix_obj, current_chain=None):
          return [sin_base]
 
     # Eğer kelime saf fiil kökü ise (Gel-sin)
-    if wrd.can_be_verb(word):
+    if wrd.can_be_verb(word) or _after_verb_making_suffix(current_chain):
          sin_base = "sin"
          sin_base = Suffix._apply_major_harmony(word, sin_base, suffix_obj.has_major_harmony)
          sin_base = Suffix._apply_minor_harmony(word, sin_base, suffix_obj.has_minor_harmony)
@@ -173,7 +177,7 @@ def form_for_conjugation_2pl(word, suffix_obj, current_chain=None):
     return_list.append(siniz_base)
     
     # 3. Durum: Emir kipi (Gel-in, Gel-iniz) - Sadece fiilse
-    if wrd.can_be_verb(word) or _after_negative(current_chain):
+    if wrd.can_be_verb(word) or _after_negative(current_chain) or _after_verb_making_suffix(current_chain):
          in_base = "in"
          in_base = Suffix._apply_major_harmony(word, in_base, suffix_obj.has_major_harmony)
          in_base = Suffix._apply_minor_harmony(word, in_base, suffix_obj.has_minor_harmony)
@@ -195,7 +199,7 @@ def form_for_conjugation_3pl(word, suffix_obj, current_chain=None):
     result_list.append(base)
     
     # Emir kipi 3. çoğul: Gel-sin-ler
-    if wrd.can_be_verb(word) or _after_negative(current_chain):
+    if wrd.can_be_verb(word) or _after_negative(current_chain) or _after_verb_making_suffix(current_chain):
         base_2 = "sinler"
         base_2 = Suffix._apply_major_harmony(word, base_2, suffix_obj.has_major_harmony)
         base_2 = Suffix._apply_minor_harmony(word, base_2, suffix_obj.has_minor_harmony)

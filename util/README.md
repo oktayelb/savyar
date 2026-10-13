@@ -14,7 +14,7 @@ util/
 │   └── v2v/             # Verb → Verb (passive, causative, negation, compounds...)
 └── words/               # Closed-class word definitions
     ├── words.py         # Base Word class
-    └── closed_class.py  # Pronouns, conjunctions, postpositions, adverbs, etc.
+    └── closed_class.py  # Closed-class lexemes and their irregular forms
 ```
 
 ---
@@ -101,14 +101,9 @@ The waterfall rule: `next_suffix.group >= last_suffix.group` (with exceptions fo
 
 ## Closed-Class Words (`words/`)
 
-Closed-class words are function words from fixed categories: pronouns, conjunctions, postpositions, adverbs, determiners, interjections, particles. They are enumerated in `closed_class.py` (186 words across 7 categories).
+Closed-class words cannot replace one another the way open-class roots can ("ben geldim", not "biz geldim"), so each lexeme in `CLOSED_CLASS_LEXEMES` gets its own token in the root slot. A lexeme is listed when it belongs to a closed class and occurs at least 100 times as a treebank lemma (102 lexemes).
 
-Key structures:
-- `ClosedClassWord` — base class with `category`, `can_take_suffixes` fields
-- `CLOSED_CLASS_LOOKUP` — dict mapping surface form → list of `ClosedClassWord` objects (handles ambiguity: "o" → pronoun + determiner)
-- `ClosedClassMarker` — wrapper used in suffix chains to represent a closed-class analysis
-
-The decomposer integrates closed-class words via `decompose_with_cc()`, which appends closed-class analyses alongside regular suffix-chain decompositions.
+Every lexeme is a noun root and decomposes like one: `bana` is `ben + dative_e`, `onlar` is `o + plural_ler`. The irregular forms are handled by `N_STEM_PRONOUNS`, `GENITIVE_IM_STEMS` and `IRREGULAR_STEMS`; `UNINFLECTED_LEXEMES` take no suffix; `LEXEME_SPELLINGS` maps `mı`/`mu`/`mü` to `mi` and `da` to `de`. `lexeme_of(root)` returns the lexeme a root spells, or `None`.
 
 ---
 
@@ -130,9 +125,11 @@ This module manages the word dictionary and provides all phonological utilities.
 `get_root_candidates(surface_root)` handles Turkish root mutations that occur when suffixes attach. Given a surface root that isn't in the dictionary, it tries:
 
 1. **Consonant devoicing reversal** — b→p, c→ç, d→t, ğ→k, g→k (e.g. surface "kitab" → dictionary "kitap")
-2. **Vowel drop restoration** — inserts ı/i/u/ü before final consonant (e.g. "oğl" → "oğul")
+2. **Vowel drop restoration** — inserts ı/i/u/ü before final consonant (e.g. "oğl" → "oğul"), only for roots in `VOWEL_DROPPING_ROOTS`
 3. **Terminal vowel restoration** — appends a/e (e.g. "ney" → "neye")
 4. **Consonant gemination reversal** — if last two chars are identical, try single (e.g. "hiss" → "his", "hakk" → "hak", "redd" → "ret")
+
+`decompose()` uses these only before a vowel-initial suffix, except that the roots in `FINAL_VOWEL_ELIDING_ROOTS` may lose their final vowel before a consonant (`nerde`, `ordan`).
 
 ### Derived Word Detection
 `is_derived_word(word)` returns True if a dictionary word is a derived form (e.g. "güzellik" = güzel + lik). The decomposer skips these as root candidates, forcing decomposition through the true root.
@@ -152,16 +149,16 @@ import util.decomposer as sfx
 analyses = sfx.decompose("evlerden")
 # [('ev', 'noun', [plural_ler, ablative_den], 'noun'), ...]
 
-# With closed-class analyses appended
-analyses = sfx.decompose_with_cc("ile")
-# [...regular analyses..., ('ile', 'cc_conjunction', [ClosedClassMarker(...)], 'cc_conjunction')]
+# What callers use: hypothesises the root when the lexicon reaches nothing
+analyses = sfx.decompose_with_fallback("bana")
+# [('ben', 'noun', [dative_e], 'noun'), ...]
 ```
 
 Each result tuple:
 - `root` — the dictionary lemma (e.g. `"ev"`)
 - `pos` — starting POS of the root (`"noun"` or `"verb"`)
 - `chain` — list of `Suffix` objects in attachment order
-- `final_pos` — POS after the last suffix (`"noun"`, `"verb"`, or `"cc_*"`)
+- `final_pos` — POS after the last suffix (`"noun"` or `"verb"`)
 
 ### How decompose() Works
 
@@ -276,12 +273,11 @@ Output:
 ### With Closed-Class Words
 
 ```python
-# Includes closed-class analyses (pronouns, conjunctions, etc.)
-for root, pos, chain, final_pos in sfx.decompose_with_cc("ile"):
-    if pos.startswith("cc_"):
-        print(f"  {root} → {pos}")
-    else:
-        print(f"  {root} ({pos}) + {[s.name for s in chain]}")
+from util.words.closed_class import lexeme_of
+
+for root, pos, chain, final_pos in sfx.decompose_with_fallback("onları"):
+    print(root, pos, [s.name for s in chain], lexeme_of(root))
+# o noun ['plural_ler', 'accusative_i'] o
 ```
 
 ### Inspecting a Suffix Chain

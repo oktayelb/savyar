@@ -74,6 +74,16 @@ class NegativeSamplingTest(unittest.TestCase):
             starts.add(perturbed_word_indices(gold, negatives)[0])
         self.assertGreater(len(starts), 1, "round-robin must not always start at word 0")
 
+    def test_first_negative_is_not_always_the_first_candidate(self):
+        chosen = set()
+        for variant in range(40):
+            gold, cands, gold_idx = sentence(
+                word_count=1, candidates_per_word=4, first_token=10 + variant,
+            )
+            negative = self.negatives_for(gold, cands, gold_idx, limit=1)[0]
+            chosen.add(cands[0].index(negative[0]))
+        self.assertEqual(chosen, {1, 2, 3}, "every wrong reading must get its turn as the negative")
+
     def test_rotation_offset_is_deterministic(self):
         gold, cands, gold_idx = sentence(word_count=9, candidates_per_word=5)
         first = perturbed_word_indices(gold, self.negatives_for(gold, cands, gold_idx, limit=4))

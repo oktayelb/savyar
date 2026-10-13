@@ -12,8 +12,11 @@ from util.suffixes.v2n_suffixes import VERB2NOUN
 
 import util.word_methods as wrd
 from util.suffix import Type, Suffix, SuffixGroup, is_enabled
+from util.words.closed_class import IRREGULAR_STEMS, PREDICATE_ONLY_LEXEMES, GENITIVE_COMITATIVE_PRONOUNS
+from util.words.root_classes import FINAL_VOWEL_ELIDING_ROOTS
 
 ALL_SUFFIXES = NOUN2NOUN + NOUN2VERB + VERB2NOUN + VERB2VERB
+SUFFIX_BY_NAME = {suffix.name: suffix for suffix in ALL_SUFFIXES}
 IYOR_VARIATIONS = ('iyor', 'ıyor', 'uyor', 'üyor')
 
 # ============================================================================
@@ -91,6 +94,9 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
     if last_g == SuffixGroup.CONJUGATION and next_g == SuffixGroup.PREDICATIVE:
         if last_suffix.name == "conjugation_3pl":
             return True
+
+    if last_suffix.name == "plural_ler" and next_suffix.name == "relative_ce":
+        return True
     ## şelale hallediyor diye silindi
     # isim tamlamasından sonra yalnızca ki gelebilir
     # if last_g == SuffixGroup.CASE and not next_g >= SuffixGroup.MARKING_KI:
@@ -286,55 +292,80 @@ def find_suffix_chain(word: str, start_pos: str, root: str,
     return results
 
 
-def decompose_with_cc(word: str) -> List[Tuple]:
-    """
-    Like decompose(), but also includes closed-class word analyses.
+PREDICATE_SUFFIX_GROUPS = {SuffixGroup.PREDICATIVE, SuffixGroup.CONJUGATION, SuffixGroup.NOUN_TO_ADVERB}
 
-    For each closed-class interpretation of `word` (pronoun, conjunction, etc.)
-    a tuple is appended:
-        (surface_form, "cc_<category>", [ClosedClassMarker(cc_obj)], "cc_<category>")
 
-    This allows the ML model to see closed-class tokens in the sentence sequence,
-    and allows the workflow to handle words (e.g. "ve", "ile") that the regular
-    decomposer cannot match because they are not in words.txt as open-class roots.
+def has_genitive_comitative(chain: List[Suffix]) -> bool:
+    for previous, current in zip(chain, chain[1:]):
+        if previous.name == "noun_compound" and current.name == "confactuous_le":
+            return True
+    return False
 
-    Regular suffix-chain decompositions are always included first.
-    """
-    from util.words.closed_class import CLOSED_CLASS_LOOKUP, ClosedClassMarker
 
-    analyses = list(decompose(word))
+def respects_root_restrictions(root: str, chain: List[Suffix]) -> bool:
+    if root in PREDICATE_ONLY_LEXEMES and chain and chain[0].group not in PREDICATE_SUFFIX_GROUPS:
+        return False
+    if has_genitive_comitative(chain) and root not in GENITIVE_COMITATIVE_PRONOUNS:
+        return False
+    return True
 
-    if not analyses:
-        # Nothing in the lexicon reaches this word. Rather than hand the
-        # sentence a hole - which costs every other word in it - hypothesise
-        # the root from the surface itself. Turkish proper nouns, acronyms and
-        # spelled-out numbers are unbounded, so no word list closes this; the
-        # suffix tables still have to span the surface, so the chains are real.
-        seen_forced = set()
-        for analysis in decompose(word, force=True):
-            signature = (analysis[0], tuple(s.name for s in analysis[2]))
-            if signature in seen_forced:
-                continue
-            seen_forced.add(signature)
-            analyses.append(analysis)
 
-    cc_entries = CLOSED_CLASS_LOOKUP.get(word, [])
-    seen_categories: set = set()
-    for cc_obj in cc_entries:
-        cat_key = (cc_obj.category, cc_obj.word)
-        if cat_key in seen_categories:
+def allowed_analyses(analyses: List[Tuple]) -> List[Tuple]:
+    return [
+        analysis for analysis in analyses
+        if respects_root_restrictions(analysis[0], analysis[2])
+    ]
+
+
+def unique_analyses(analyses: List[Tuple]) -> List[Tuple]:
+    seen = set()
+    unique = []
+    for analysis in analyses:
+        root, pos, chain, _final_pos = analysis
+        signature = (root, pos, tuple(s.name for s in chain))
+        if signature in seen:
             continue
-        seen_categories.add(cat_key)
-        pos_tag = f"cc_{cc_obj.category}"
-        analyses.append((word, pos_tag, [ClosedClassMarker(cc_obj, surface_form=word)], pos_tag))
+        seen.add(signature)
+        unique.append(analysis)
+    return unique
 
-    return analyses
+
+def decompose_with_fallback(word: str) -> List[Tuple]:
+    analyses = decompose(word)
+    if analyses:
+        return list(analyses)
+    # Nothing in the lexicon reaches this word. Rather than hand the
+    # sentence a hole - which costs every other word in it - hypothesise
+    # the root from the surface itself. Turkish proper nouns, acronyms and
+    # spelled-out numbers are unbounded, so no word list closes this; the
+    # suffix tables still have to span the surface, so the chains are real.
+    hypotheses = []
+    seen = set()
+    for analysis in decompose(word, force=True):
+        signature = (analysis[0], tuple(s.name for s in analysis[2]))
+        if signature in seen:
+            continue
+        seen.add(signature)
+        hypotheses.append(analysis)
+    return hypotheses
 
 
 def append_analysis(word, pos, root, analyses_list, shared_cache: dict = None):
     possible_chains = find_suffix_chain(word, pos, root, shared_cache=shared_cache)
     for chain, final_pos in possible_chains:
         analyses_list.append((root, pos, chain, final_pos))
+
+
+def append_irregular_stem_analyses(word: str, analyses_list, shared_cache: dict = None):
+    for stem, (lexeme, suffix_name, _form) in IRREGULAR_STEMS.items():
+        if not word.startswith(stem):
+            continue
+        first_suffix = SUFFIX_BY_NAME[suffix_name]
+        possible_chains = find_suffix_chain(
+            word, "noun", stem, current_chain=[first_suffix], shared_cache=shared_cache,
+        )
+        for chain, final_pos in possible_chains:
+            analyses_list.append((lexeme, "noun", [first_suffix] + chain, final_pos))
 
 
 def append_progressive_vowel_drop_candidates(word: str, surface_root: str, analyses_list, shared_cache: dict = None):
@@ -348,6 +379,16 @@ def append_progressive_vowel_drop_candidates(word: str, surface_root: str, analy
             continue
         if wrd.can_be_verb(lemma_root):
             append_analysis(lemma_root + rest, "verb", lemma_root, analyses_list, shared_cache)
+
+
+def is_followed_by_vowel(word: str, prefix_length: int) -> bool:
+    return prefix_length < len(word) and word[prefix_length] in wrd.VOWELS
+
+
+def is_alternation_allowed(word: str, prefix_length: int, lemma_root: str) -> bool:
+    if is_followed_by_vowel(word, prefix_length):
+        return True
+    return prefix_length < len(word) and lemma_root in FINAL_VOWEL_ELIDING_ROOTS
 
 
 @functools.lru_cache(maxsize=100000)
@@ -379,15 +420,7 @@ def decompose_with_root(word: str, root: str) -> List[Tuple]:
         for pos in ("noun", "verb"):
             append_analysis(surface, pos, root, analyses, shared_cache)
 
-    seen = set()
-    unique = []
-    for analysis in analyses:
-        signature = (analysis[0], tuple(s.name for s in analysis[2]))
-        if signature in seen:
-            continue
-        seen.add(signature)
-        unique.append(analysis)
-    return unique
+    return unique_analyses(allowed_analyses(analyses))
 
 
 @functools.lru_cache(maxsize=100000)
@@ -398,13 +431,13 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
     suffix chains for the same remaining text + POS + last_group context.\n
     The lru_cache rapidly short-circuits re-evaluations across entire files.
     """
-    if (not force) and wrd.is_non_ben_pronoun_surface(word):
-        return []
-
     # Shared across all append_analysis calls in this decompose invocation
     shared_cache = {}
 
     analyses = get_pekistirme_analyses(word)
+
+    if not force:
+        append_irregular_stem_analyses(word, analyses, shared_cache)
 
     for i in range(1, len(word) + 1):
         root = word[:i]
@@ -420,7 +453,8 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
 
 
         if force or wrd.can_be_noun(root) :
-            append_analysis(word, "noun", root, analyses, shared_cache)
+            if root == word or not wrd.is_uninflected_noun(root):
+                append_analysis(word, "noun", root, analyses, shared_cache)
 
         if force or wrd.can_be_verb(root):
             append_analysis(word, "verb", root, analyses, shared_cache)
@@ -428,6 +462,8 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
         if (not force ) and (not wrd.exists(root)):
             root_pairs = wrd.get_root_candidates(word[:i])
             for lemma_root in root_pairs:
+                if not is_alternation_allowed(word, i, lemma_root):
+                    continue
                 virtual_word = lemma_root + word[i:]
 
                 if wrd.can_be_noun(lemma_root):
@@ -439,4 +475,4 @@ def decompose(word: str,  force: Optional[bool] = False) -> List[Tuple]:
         if (not force) and wrd.exists(root):
             append_progressive_vowel_drop_candidates(word, root, analyses, shared_cache)
 
-    return analyses
+    return unique_analyses(allowed_analyses(analyses))

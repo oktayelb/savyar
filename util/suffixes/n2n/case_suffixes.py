@@ -1,5 +1,6 @@
 import util.word_methods as wrd
 from util.suffix import Suffix, Type, SuffixGroup
+from util.words.closed_class import N_STEM_PRONOUNS, GENITIVE_IM_STEMS
 ## COMPLETE
 class CaseSuffix(Suffix):
     def __init__(self, name, suffix, 
@@ -50,10 +51,14 @@ class CaseSuffix(Suffix):
         """
         base = CaseSuffix._harmonized_base(word, suffix_obj)
         last_suffix = current_chain[-1] if current_chain else None
+        starts_bare_stem = not current_chain
         has_pronominal_n = bool(
             last_suffix
             and last_suffix.name in {"possessive_3sg", "possessive_3pl", "marking_ki"}
-        )
+        ) or (starts_bare_stem and word in N_STEM_PRONOUNS)
+
+        if starts_bare_stem and suffix_obj.name == "noun_compound" and word in GENITIVE_IM_STEMS:
+            return ["im", base]
 
         if has_pronominal_n:
             if word and base and word[-1] in wrd.VOWELS:

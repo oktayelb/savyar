@@ -43,7 +43,7 @@ import util.decomposer as sfx
 import util.word_methods as wrd
 from util.decomposer import find_suffix_chain
 from util.word_methods import tr_lower
-from util.words.closed_class import CLOSED_CLASS_LOOKUP
+from util.words.closed_class import lexeme_of
 
 DEFAULT_OUTPUT = REPO_ROOT / "data" / "nonexistant.txt"
 DEFAULT_REPORT = REPO_ROOT / "data" / "nonexistant_report.json"
@@ -105,7 +105,7 @@ def is_resolvable(root: str) -> bool:
     return bool(
         wrd.exists(root)
         or wrd.is_unsuffixable(root)
-        or root in CLOSED_CLASS_LOOKUP
+        or lexeme_of(root) is not None
     )
 
 
@@ -197,13 +197,13 @@ def probe_decomposition(root: str, examples: Sequence[Dict[str, Any]]) -> Dict[s
     a different problem from a word that produces nothing at all, and needs a
     different judgement call about whether the lemma belongs in the lexicon.
     """
-    root_decomps = sfx.decompose_with_cc(root)
+    root_decomps = sfx.decompose_with_fallback(root)
     outcomes: Counter = Counter()
     for example in examples:
         word = example.get("word") or ""
         if not word:
             continue
-        decomps = sfx.decompose_with_cc(word)
+        decomps = sfx.decompose_with_fallback(word)
         gold = [{"root": root, "suffixes": [{"name": name} for name in example["suffixes"]]}]
         if nlp.match_decompositions(gold, decomps):
             outcomes["gold_produced"] += 1

@@ -246,6 +246,7 @@ UPOS_TO_CC_CATEGORY = {
     "Adv":    "adverb",
     "Interj": "interjection",
     "Det":    "determiner",
+    "Ques":   "particle",
 }
 # Pron XPOS subtypes all map to "pronoun"
 PRON_XPOS = {"PersP", "DemonsP", "QuesP", "ReflexP", "Pron"}
@@ -447,6 +448,10 @@ def features_to_suffix_names(word, _unmapped_sink=None):
         able_seen = False
         imp_seen = "Imp" in feats  # Imperative 2sg is zero (bare root)
         for feat in feats:
+            if imp_seen and feat == "A3sg":
+                suffix_names.append("conjugation_3sg")
+                continue
+
             if feat in ZERO_FEATURES:
                 continue
 
@@ -651,7 +656,7 @@ def features_to_suffix_names(word, _unmapped_sink=None):
 
 def should_skip_word(word):
     first_step = word["feature_layers"][0]
-    return first_step["upos"] in {"Num", "Ques"}
+    return first_step["upos"] == "Num" and any(ch.isdigit() for ch in word["surface"])
 
 
 def closed_class_category(word):

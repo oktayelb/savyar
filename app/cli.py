@@ -8,6 +8,10 @@ from app.nlp_pipeline import sanitize_word, sanitize_sentence
 MAX_MANUAL_SENTENCE_MATCHES = 100
 
 
+def is_multi_word(raw: str) -> bool:
+    return len(sanitize_sentence(raw)) > 1
+
+
 class AppCLI:
     """Thin I/O layer for the interactive flow.
 
@@ -21,9 +25,9 @@ class AppCLI:
 
     def welcome(self):
         print("\n Commands:")
-        print("  - Enter a word to analyze and train")
+        print("  - Enter a word or a sentence to analyze and train")
         print("  - 'sentence <text>' - Train on a full sentence")
-        print("  - 'eval sentence <text>' - Evaluate model's top 10 guesses on a sentence")
+        print("  - 'eval sentence <text>' or 'eval <text>' - Evaluate model's top 10 guesses on a sentence")
         print("  - 'auto' - Start auto mode (random words from dictionary)")
         print("  - 'eval <word>' - Evaluate model on a word")
         print("  - 'relearn' - Train on all logged decompositions")
@@ -126,20 +130,28 @@ class AppCLI:
             print(f"  No candidates:        {int(overall.get('no_candidate', 0))}")
             print(f"  Gold unmatched:       {int(overall.get('unmatched_gold', 0))}")
             print(f"  Scoring errors:       {int(overall.get('scoring_errors', 0))}")
-        if not metrics:
+        word_metrics = report.get('word_metrics')
+        if word_metrics:
+            print("\n Ambiguous Word Metrics (every candidate, gold context):")
+            print(f"  Words:            {int(word_metrics.get('words', 0))}")
+            print(f"  Mean candidates:  {word_metrics.get('mean_candidates', 0.0):.2f}")
+            print(f"  Word accuracy:    {word_metrics.get('word_acc', 0.0):.4f}")
+            print(f"  Top-2 accuracy:   {word_metrics.get('top2_acc', 0.0):.4f}")
+            print(f"  Top-3 accuracy:   {word_metrics.get('top3_acc', 0.0):.4f}")
+            print(f"  Suffix precision: {word_metrics.get('suff_precision', 0.0):.4f}")
+            print(f"  Suffix recall:    {word_metrics.get('suff_recall', 0.0):.4f}")
+            print(f"  Suffix F1:        {word_metrics.get('suff_f1', 0.0):.4f}")
+            print(f"  Margin:           {word_metrics.get('margin', 0.0):.4f}")
+        if metrics:
+            print("\n Sentence Candidate-Set Metrics (gold sentence vs sampled one-word substitutions):")
+            print(f"  Rank loss:        {metrics.get('loss', 0.0):.4f}")
+            print(f"  Rank accuracy:    {metrics.get('rank_acc', 0.0):.4f}")
+            print(f"  Top-2 accuracy:   {metrics.get('top2_acc', 0.0):.4f}")
+            print(f"  Top-3 accuracy:   {metrics.get('top3_acc', 0.0):.4f}")
+            print(f"  Margin:           {metrics.get('margin', 0.0):.4f}")
+        if not metrics and not word_metrics:
             print("  No test metrics available.")
             return
-        print("\n Ambiguous Candidate-Set Metrics:")
-        print(f"  Rank loss:        {metrics.get('loss', 0.0):.4f}")
-        print(f"  Rank accuracy:    {metrics.get('rank_acc', 0.0):.4f}")
-        print(f"  Top-2 accuracy:   {metrics.get('top2_acc', 0.0):.4f}")
-        print(f"  Top-3 accuracy:   {metrics.get('top3_acc', 0.0):.4f}")
-        print(f"  Suffix accuracy:  {metrics.get('suff_acc', 0.0):.4f}")
-        print(f"  Word accuracy:    {metrics.get('word_acc', 0.0):.4f}")
-        print(f"  Suffix precision: {metrics.get('suff_precision', 0.0):.4f}")
-        print(f"  Suffix recall:    {metrics.get('suff_recall', 0.0):.4f}")
-        print(f"  Suffix F1:        {metrics.get('suff_f1', 0.0):.4f}")
-        print(f"  Margin:           {metrics.get('margin', 0.0):.4f}")
 
         detail = report.get('detail')
         if not detail:
@@ -148,7 +160,7 @@ class AppCLI:
         worst_suffixes = detail.get('worst_suffixes', [])
         examples = detail.get('examples', {})
         print("\n Worst Performing Suffixes:")
-        print(f"  Diagnostic sequences: {detail.get('diagnostic_sequences', 0)}")
+        print(f"  Diagnostic words:     {detail.get('diagnostic_words', 0)}")
         print(f"  Diagnostic skipped:   {detail.get('diagnostic_skipped', 0)}")
         if not worst_suffixes:
             print("  No suffix failures found.")
@@ -428,6 +440,11 @@ class AppCLI:
                     if result is None and self.confirm_save():
                         self.engine.save()
                         break
+                elif cmd.startswith('eval ') and is_multi_word(raw[5:]):
+                    result = self.handle_eval_sentence(raw[5:].strip())
+                    if result is None and self.confirm_save():
+                        self.engine.save()
+                        break
                 elif cmd.startswith('eval '):
                     word = sanitize_word(raw[5:])
                     vm = self.engine.evaluate_word(word)
@@ -438,6 +455,11 @@ class AppCLI:
                         self.show_message("\n  No decompositions found")
                 elif cmd.startswith('sentence '):
                     result = self.handle_sentence(raw[9:].strip())
+                    if result is None and self.confirm_save():
+                        self.engine.save()
+                        break
+                elif is_multi_word(raw):
+                    result = self.handle_sentence(raw)
                     if result is None and self.confirm_save():
                         self.engine.save()
                         break

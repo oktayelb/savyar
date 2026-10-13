@@ -1,5 +1,6 @@
 from util.suffix import Suffix, Type, SuffixGroup
 from util.word_methods import VOWELS
+from util.words.root_classes import CAUSATIVE_IR_ROOTS, CAUSATIVE_AR_ROOTS
 # ============================================================================
 # FORM FUNCTIONS
 # ============================================================================
@@ -76,18 +77,31 @@ def form_for_active_it(word, suffix_obj, current_chain=None):
     it_base = Suffix._apply_minor_harmony(word, it_base, suffix_obj.has_minor_harmony)
     result_list.append(it_base)
 
-    if word[-1] in (["r"] + VOWELS):
+    ends_in_polysyllabic_l = word[-1] == "l" and sum(1 for ch in word if ch in VOWELS) >= 2
+    if word[-1] in (["r"] + VOWELS) or ends_in_polysyllabic_l:
         result_list.append("t")
 
     return result_list
+
+
+def form_for_active_ir(word, suffix_obj, current_chain=None):
+    if current_chain or word not in CAUSATIVE_IR_ROOTS:
+        return []
+    return Suffix._default_form(word, suffix_obj, current_chain=current_chain)
+
+
+def form_for_active_er(word, suffix_obj, current_chain=None):
+    if current_chain or word not in CAUSATIVE_AR_ROOTS:
+        return []
+    return Suffix._default_form(word, suffix_obj, current_chain=current_chain)
 
 #reflexive_ik    = VerbDerivationalSuffix("reflexive_ik"    , "ik" )
 reflexive_is    = VerbDerivationalSuffix("reflexive_is"    , "iş" )
 active_it       = VerbDerivationalSuffix("active_it"       , "it", form_function=form_for_active_it )
 active_dir      = VerbDerivationalSuffix("active_dir"      , "dir")
 ##ikisinin ayrı olması iyi değil, belki tekleştirilebilir.
-active_ir       = VerbDerivationalSuffix("active_ir"       , "ir" )
-active_er       = VerbDerivationalSuffix("active_er"       , "er" )
+active_ir       = VerbDerivationalSuffix("active_ir"       , "ir", form_function=form_for_active_ir )
+active_er       = VerbDerivationalSuffix("active_er"       , "er", form_function=form_for_active_er )
 
 passive_il      = VerbDerivationalSuffix("passive_il"      , "il", form_function=form_for_passive_il )
 reflexive_in    = VerbDerivationalSuffix("reflexive_in"    , "in" )

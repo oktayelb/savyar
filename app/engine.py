@@ -12,6 +12,7 @@ import tempfile
 import shutil
 import time
 import torch
+from collections import Counter
 from typing import List, Optional, Tuple, Dict, Any, Callable, Sequence
 
 import util.decomposer as sfx
@@ -21,7 +22,7 @@ from app.data_manager import DataManager
 import app.nlp_pipeline as nlp
 from ml.ml_ranking_model import SentenceDisambiguator, Trainer, build_sentence_sequence, resolve_torch_device
 from ml.config import config
-from util.words.closed_class import CLOSED_CLASS_TOKEN_SPECS
+from util.words.closed_class import CLOSED_CLASS_LEXEMES
 
 # 5: negatives are drawn round-robin over words instead of depth-first from word 0.
 # 5: bare-root words are kept in the gold chains instead of being dropped.
@@ -200,7 +201,7 @@ class WorkflowEngine:
         self.device = resolve_torch_device()
         self.model = SentenceDisambiguator(
             suffix_vocab_size=len(sfx.ALL_SUFFIXES),
-            closed_class_vocab_size=len(CLOSED_CLASS_TOKEN_SPECS),
+            closed_class_vocab_size=len(CLOSED_CLASS_LEXEMES),
             device=self.device,
         )
         self.trainer = Trainer(model=self.model, device=self.device)
@@ -210,7 +211,7 @@ class WorkflowEngine:
     def get_decompositions(self, word: str) -> List[Tuple]:
         word = word.replace("'", "")
         if word not in self.decomp_cache:
-            self.decomp_cache[word] = sfx.decompose_with_cc(word)
+            self.decomp_cache[word] = sfx.decompose_with_fallback(word)
         return self.decomp_cache[word]
 
     def save(self):
@@ -228,7 +229,7 @@ class WorkflowEngine:
             self.data_manager.save_final_suffix_metrics(report)
 
     def analyze_word(self, word: str) -> Optional[Dict[str, Any]]:
-        analysis = nlp.analyze_word(word, include_closed_class=True)
+        analysis = nlp.analyze_word(word)
         if not analysis['decomps']:
             return None
         if self.training_count > 0:
@@ -238,7 +239,7 @@ class WorkflowEngine:
     def analyze_sentence_with_failures(self, words: List[str]) -> Tuple[Optional[List[Dict[str, Any]]], List[Dict[str, Any]]]:
         if not words:
             return None, []
-        analyses = nlp.analyze_words(words, include_closed_class=True)
+        analyses = nlp.analyze_words(words)
         failures = [
             {'index': i + 1, 'word': a['word']}
             for i, a in enumerate(analyses)
@@ -326,7 +327,7 @@ class WorkflowEngine:
         return loss
 
     def evaluate_word(self, word: str) -> Optional[Dict]:
-        analysis = nlp.analyze_word(word, include_closed_class=True)
+        analysis = nlp.analyze_word(word)
         if not analysis['decomps']: return None
         scores = nlp.score_and_sort(analysis, self.trainer)
         if scores is None and len(analysis['decomps']) > 1: return None
@@ -372,6 +373,13 @@ class WorkflowEngine:
         return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big") % modulus
 
     @classmethod
+    def _candidate_offset(cls, gold_chains: List[List], word_idx: int, modulus: int) -> int:
+        if modulus <= 1:
+            return 0
+        payload = repr((cls._chains_signature(gold_chains), word_idx)).encode("utf-8")
+        return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big") % modulus
+
+    @classmethod
     def _single_substitution_negatives(
         cls, gold_chains: List[List], candidate_lists: List[List[List]], gold_indices: List[int], limit: Optional[int] = None,
     ) -> List[List[List]]:
@@ -397,6 +405,11 @@ class WorkflowEngine:
         # as a negative it cannot possibly score below the gold.
         seen = {cls._chains_signature(gold_chains)}
         cursors = [0] * len(order)
+        candidate_orders = []
+        for word_idx in order:
+            count = len(candidate_lists[word_idx])
+            start = cls._candidate_offset(gold_chains, word_idx, count)
+            candidate_orders.append([(start + step) % count for step in range(count)])
 
         while len(negatives) < limit:
             produced = False
@@ -406,7 +419,7 @@ class WorkflowEngine:
                 gold_idx = gold_indices[word_idx]
                 cursor = cursors[slot]
                 while cursor < len(candidates):
-                    cand_idx = cursor
+                    cand_idx = candidate_orders[slot][cursor]
                     cursor += 1
                     if cand_idx == gold_idx: continue
                     neg = list(gold_chains)
@@ -435,9 +448,13 @@ class WorkflowEngine:
             # "no suffix" a flawless marker for a wrong answer. Its root token
             # alone is the correct encoding; a chain the tables cannot encode
             # still raises, and the caller still drops that sentence.
-            encoded_gold = nlp.encode_suffix_names(sfx_dicts, nlp.root_pos_from_suffix_names(sfx_dicts))
+            encoded_gold = nlp.encode_suffix_names(
+                sfx_dicts,
+                word_entry.get('root') or word_entry['word'],
+                nlp.root_pos_from_suffix_names(sfx_dicts),
+            )
             try:
-                word_analysis = nlp.analyze_word(word_entry['word'], include_closed_class=True)
+                word_analysis = nlp.analyze_word(word_entry['word'])
                 matched = nlp.match_decompositions([word_entry], word_analysis['decomps'])
             except Exception:
                 matched = []
@@ -592,7 +609,7 @@ class WorkflowEngine:
             "scope": scope,
             "sources": self.data_manager.get_preprocess_source_signature(include_code=True),
             "suffix_inventory": [suffix.name for suffix in sfx.ALL_SUFFIXES],
-            "closed_class_inventory": [list(spec) for spec in CLOSED_CLASS_TOKEN_SPECS],
+            "closed_class_inventory": list(CLOSED_CLASS_LEXEMES),
             "config": {
                 "max_negative_candidates": int(config.max_negative_candidates),
                 "negatives_per_ambiguous_word": float(config.negatives_per_ambiguous_word),
@@ -889,7 +906,7 @@ class WorkflowEngine:
             fold_path = os.path.join(tmp_dir, f"fold_{fold_idx}.pt")
             model = SentenceDisambiguator(
                 suffix_vocab_size=len(sfx.ALL_SUFFIXES),
-                closed_class_vocab_size=len(CLOSED_CLASS_TOKEN_SPECS),
+                closed_class_vocab_size=len(CLOSED_CLASS_LEXEMES),
                 device=self.device,
             )
             trainer = Trainer(model=model, path=fold_path, device=self.device)
@@ -919,92 +936,194 @@ class WorkflowEngine:
         suffix_names = "+".join(sd.get("name", "?") for sd in suffixes)
         return f"{word_entry.get('root', word_entry.get('word', ''))}+{suffix_names}"
 
-    def _candidate_diagnostics_from_word_entries(
-        self,
-        word_entries: List[Dict],
-        entry: Dict[str, Any],
-    ) -> Optional[Tuple[List[Any], Dict[str, Any]]]:
-        gold_chains = []
-        candidate_lists = []
-        gold_indices = []
-        candidate_displays = []
+    def _score_test_words(self, entries: List[Dict]) -> List[Dict[str, Any]]:
+        results: List[Dict[str, Any]] = []
+        pending: List[Tuple[Dict[str, Any], List[Any]]] = []
+        max_len = int(config.max_sequence_length)
 
-        for word_entry in word_entries:
-            sfx_dicts = word_entry.get("suffixes", [])
-            if not sfx_dicts:
-                continue
-            encoded_gold = nlp.encode_suffix_names(sfx_dicts, nlp.root_pos_from_suffix_names(sfx_dicts))
+        for entry in entries:
+            word_entries = entry.get("words", []) if entry.get("type") == "sentence" else [entry]
+            sentence_results = []
+            context_chains = []
+            for word_entry in word_entries:
+                sfx_dicts = word_entry.get("suffixes", [])
+                result = {
+                    "entry": entry,
+                    "word_entry": word_entry,
+                    "is_bare": not sfx_dicts,
+                    "status": "single",
+                    "decomps": [],
+                    "candidates": [],
+                    "gold_idx": None,
+                    "pred_idx": None,
+                    "scores": [],
+                }
+                try:
+                    analysis = nlp.analyze_word(word_entry["word"])
+                    matched = nlp.match_decompositions([word_entry], analysis["decomps"])
+                except Exception:
+                    analysis, matched = None, []
 
+                if analysis is None or not analysis["decomps"]:
+                    result["status"] = "no_candidate"
+                elif not matched:
+                    result["status"] = "unmatched"
+                else:
+                    result["decomps"] = analysis["decomps"]
+                    result["candidates"] = analysis["encoded_chains"]
+                    result["gold_idx"] = matched[0]
+                    if len(analysis["decomps"]) > 1:
+                        result["status"] = "ambiguous"
+                    else:
+                        result["pred_idx"] = matched[0]
+
+                if result["gold_idx"] is not None:
+                    context_chains.append(result["candidates"][result["gold_idx"]])
+                else:
+                    try:
+                        context_chains.append(nlp.encode_suffix_names(
+                            sfx_dicts,
+                            word_entry.get("root") or word_entry["word"],
+                            nlp.root_pos_from_suffix_names(sfx_dicts),
+                        ))
+                    except ValueError:
+                        context_chains.append([nlp.root_token(word_entry["word"], "noun")])
+                sentence_results.append(result)
+
+            for word_idx, result in enumerate(sentence_results):
+                if result["status"] != "ambiguous":
+                    continue
+                sequences = []
+                for candidate in result["candidates"]:
+                    chains = list(context_chains)
+                    chains[word_idx] = candidate
+                    sequences.append(build_sentence_sequence(chains))
+                if any(len(seq[0]) > max_len for seq in sequences):
+                    result["status"] = "scoring_error"
+                    continue
+                pending.append((result, sequences))
+            results.extend(sentence_results)
+
+        words_per_batch = 256
+        for start in range(0, len(pending), words_per_batch):
+            batch = pending[start:start + words_per_batch]
+            flat = [seq for _result, sequences in batch for seq in sequences]
             try:
-                word_analysis = nlp.analyze_word(word_entry["word"], include_closed_class=True)
-                matched = nlp.match_decompositions([word_entry], word_analysis["decomps"])
+                scores = self.trainer.score_flat_sequences(flat)
             except Exception:
-                word_analysis = None
-                matched = []
+                for result, _sequences in batch:
+                    result["status"] = "scoring_error"
+                continue
+            offset = 0
+            for result, sequences in batch:
+                group = scores[offset:offset + len(sequences)]
+                offset += len(sequences)
+                result["scores"] = group
+                result["pred_idx"] = max(range(len(group)), key=lambda i: group[i])
+        return results
 
-            if matched and word_analysis is not None:
-                gold_idx = matched[0]
-                candidates = word_analysis["encoded_chains"]
-                displays = [
-                    nlp.format_detailed_decomp(decomp)
-                    for decomp in word_analysis["decomps"]
-                ]
-                gold_chain = candidates[gold_idx]
-            else:
-                gold_idx = 0
-                gold_chain = encoded_gold
-                candidates = [encoded_gold]
-                displays = [self._gold_entry_display(word_entry)]
-
-            gold_chains.append(gold_chain)
-            candidate_lists.append(candidates)
-            gold_indices.append(gold_idx)
-            candidate_displays.append(displays)
-
-        if not gold_chains:
-            return None
-
-        candidate_set = [build_sentence_sequence(gold_chains)]
-        combos = [list(gold_indices)]
-        seen = {tuple(tuple(tok[0] for tok in chain) for chain in gold_chains)}
-        max_candidate_set_size = 1 + max(0, int(config.max_negative_candidates))
-
-        for word_idx, candidates in enumerate(candidate_lists):
-            gold_idx = gold_indices[word_idx]
-            for cand_idx, candidate in enumerate(candidates):
-                if cand_idx == gold_idx:
-                    continue
-                neg_chains = list(gold_chains)
-                neg_chains[word_idx] = candidate
-                signature = tuple(tuple(tok[0] for tok in chain) for chain in neg_chains)
-                if signature in seen:
-                    continue
-                seen.add(signature)
-                candidate_set.append(build_sentence_sequence(neg_chains))
-                combo = list(gold_indices)
-                combo[word_idx] = cand_idx
-                combos.append(combo)
-                if len(candidate_set) >= max_candidate_set_size:
-                    break
-            if len(candidate_set) >= max_candidate_set_size:
-                break
-
-        if len(candidate_set) < 2:
-            return None
-
-        return candidate_set, {
-            "entry": entry,
-            "word_entries": word_entries,
-            "gold_chains": gold_chains,
-            "candidate_lists": candidate_lists,
-            "gold_indices": gold_indices,
-            "candidate_displays": candidate_displays,
-            "combos": combos,
+    @staticmethod
+    def _overall_test_token_metrics(word_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        statuses = [result["status"] for result in word_results]
+        correct_flags = [
+            result["status"] in ("single", "ambiguous") and result["pred_idx"] == result["gold_idx"]
+            for result in word_results
+        ]
+        total = len(word_results)
+        correct = sum(correct_flags)
+        ambiguous_total = statuses.count("ambiguous")
+        ambiguous_correct = sum(
+            1 for result, ok in zip(word_results, correct_flags)
+            if ok and result["status"] == "ambiguous"
+        )
+        single_total = statuses.count("single")
+        return {
+            "token_acc": correct / total if total else 0.0,
+            "correct": correct,
+            "total": total,
+            "ambiguous_token_acc": ambiguous_correct / ambiguous_total if ambiguous_total else 0.0,
+            "ambiguous_correct": ambiguous_correct,
+            "ambiguous_total": ambiguous_total,
+            "single_token_acc": 1.0 if single_total else 0.0,
+            "single_correct": single_total,
+            "single_total": single_total,
+            "single_ratio": single_total / total if total else 0.0,
+            "root_only_total": sum(1 for result in word_results if result["is_bare"]),
+            "no_candidate": statuses.count("no_candidate"),
+            "unmatched_gold": statuses.count("unmatched"),
+            "scoring_errors": statuses.count("scoring_error"),
         }
+
+    @classmethod
+    def _word_suffix_names(cls, chain: List) -> List[str]:
+        return [name for name in cls._encoded_chain_suffix_names(chain) if name is not None]
+
+    @staticmethod
+    def _gold_rank(scores: List[float], gold_idx: int) -> int:
+        gold_score = scores[gold_idx]
+        higher = [idx for idx, score in enumerate(scores) if idx != gold_idx and score > gold_score]
+        return 1 + len(higher)
+
+    @staticmethod
+    def _scored_ambiguous_words(word_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [result for result in word_results if result["status"] == "ambiguous" and result["scores"]]
+
+    @classmethod
+    def _ambiguous_word_metrics(cls, word_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        scored = cls._scored_ambiguous_words(word_results)
+        suffix_buckets: Dict[str, Dict[str, int]] = {}
+        correct = 0
+        top2 = 0
+        top3 = 0
+        candidate_total = 0
+        margins: List[float] = []
+        for result in scored:
+            gold_idx = result["gold_idx"]
+            pred_idx = result["pred_idx"]
+            scores = result["scores"]
+            rank = cls._gold_rank(scores, gold_idx)
+            if pred_idx == gold_idx:
+                correct += 1
+            if rank <= 2:
+                top2 += 1
+            if rank <= 3:
+                top3 += 1
+            candidate_total += len(scores)
+            best_other = max(score for idx, score in enumerate(scores) if idx != gold_idx)
+            margins.append(scores[gold_idx] - best_other)
+            Trainer.update_suffix_name_buckets(
+                suffix_buckets,
+                cls._word_suffix_names(result["candidates"][gold_idx]),
+                cls._word_suffix_names(result["candidates"][pred_idx]),
+            )
+
+        total = len(scored)
+        matched = sum(bucket["tp"] for bucket in suffix_buckets.values())
+        gold_total = sum(bucket["gold_count"] for bucket in suffix_buckets.values())
+        pred_total = sum(bucket["pred_count"] for bucket in suffix_buckets.values())
+        precision = matched / pred_total if pred_total else 0.0
+        recall = matched / gold_total if gold_total else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0.0 else 0.0
+        return {
+            "words": total,
+            "word_acc": correct / total if total else 0.0,
+            "top2_acc": top2 / total if total else 0.0,
+            "top3_acc": top3 / total if total else 0.0,
+            "suff_precision": precision,
+            "suff_recall": recall,
+            "suff_f1": f1,
+            "margin": sum(margins) / len(margins) if margins else 0.0,
+            "mean_candidates": candidate_total / total if total else 0.0,
+            "suffix_metrics": Trainer._finalize_suffix_metric_buckets(suffix_buckets),
+        }
+
+    @staticmethod
+    def _names_joined(names: Counter) -> str:
+        return ", ".join(sorted(names.elements())) or "(none)"
 
     def _collect_test_detail(
         self,
-        entries: List[Dict],
+        word_results: List[Dict[str, Any]],
         suffix_metrics: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
         worst_suffixes = [
@@ -1024,81 +1143,41 @@ class WorkflowEngine:
             name: [] for name in worst_names
         }
 
-        diagnostic_sets: List[Tuple[List[Any], Dict[str, Any]]] = []
-        skipped = 0
-        for entry in entries:
-            word_entries = entry.get("words", []) if entry.get("type") == "sentence" else [entry]
-            try:
-                result = self._candidate_diagnostics_from_word_entries(word_entries, entry)
-                if result is None:
-                    skipped += 1
-                    continue
-                candidate_set, meta = result
-                if self._candidate_set_fits_model(candidate_set):
-                    diagnostic_sets.append((candidate_set, meta))
-                else:
-                    skipped += 1
-            except Exception:
-                skipped += 1
-
-        batch_size = 64
-        for start in range(0, len(diagnostic_sets), batch_size):
-            batch = diagnostic_sets[start:start + batch_size]
-            flat = [seq for candidate_set, _meta in batch for seq in candidate_set]
-            sizes = [len(candidate_set) for candidate_set, _meta in batch]
-            scores = self.trainer.score_flat_sequences(flat)
-            offset = 0
-            for (candidate_set, meta), size in zip(batch, sizes):
-                group = scores[offset:offset + size]
-                offset += size
-                if not group:
-                    continue
-                best_idx = max(range(len(group)), key=lambda i: group[i])
-                if best_idx == 0:
-                    continue
-
-                pred_combo = meta["combos"][best_idx]
-                gold_indices = meta["gold_indices"]
-                for word_idx, (gold_idx, pred_idx) in enumerate(zip(gold_indices, pred_combo)):
-                    if gold_idx == pred_idx:
-                        continue
-
-                    gold_chain = meta["candidate_lists"][word_idx][gold_idx]
-                    pred_chain = meta["candidate_lists"][word_idx][pred_idx]
-                    gold_names = self._encoded_chain_suffix_names(gold_chain)
-                    pred_names = self._encoded_chain_suffix_names(pred_chain)
-                    max_len = max(len(gold_names), len(pred_names))
-
-                    word_entry = meta["word_entries"][word_idx]
-                    example_base = {
-                        "sentence": meta["entry"].get("original_sentence") or word_entry.get("word", ""),
-                        "word": word_entry.get("word", ""),
-                        "gold": meta["candidate_displays"][word_idx][gold_idx],
-                        "predicted": meta["candidate_displays"][word_idx][pred_idx],
-                        "gold_score": group[0],
-                        "pred_score": group[best_idx],
-                    }
-
-                    for pos in range(max_len):
-                        gold_name = gold_names[pos] if pos < len(gold_names) else None
-                        pred_name = pred_names[pos] if pos < len(pred_names) else None
-                        if gold_name == pred_name:
-                            continue
-
-                        if gold_name in examples_by_suffix and len(examples_by_suffix[gold_name]) < 10:
-                            examples_by_suffix[gold_name].append({
-                                **example_base,
-                                "failure": "missed",
-                                "expected": gold_name,
-                                "got": pred_name or "(none)",
-                            })
-                        if pred_name in examples_by_suffix and len(examples_by_suffix[pred_name]) < 10:
-                            examples_by_suffix[pred_name].append({
-                                **example_base,
-                                "failure": "false_positive",
-                                "expected": gold_name or "(none)",
-                                "got": pred_name,
-                            })
+        scored = self._scored_ambiguous_words(word_results)
+        for result in scored:
+            gold_idx = result["gold_idx"]
+            pred_idx = result["pred_idx"]
+            if pred_idx == gold_idx:
+                continue
+            word = result["word_entry"].get("word", "")
+            gold_counts = Counter(self._word_suffix_names(result["candidates"][gold_idx]))
+            pred_counts = Counter(self._word_suffix_names(result["candidates"][pred_idx]))
+            missed = gold_counts - pred_counts
+            extra = pred_counts - gold_counts
+            example_base = {
+                "sentence": result["entry"].get("original_sentence") or word,
+                "word": word,
+                "gold": nlp.format_detailed_decomp(word, result["decomps"][gold_idx]),
+                "predicted": nlp.format_detailed_decomp(word, result["decomps"][pred_idx]),
+                "gold_score": result["scores"][gold_idx],
+                "pred_score": result["scores"][pred_idx],
+            }
+            for name in missed:
+                if name in examples_by_suffix and len(examples_by_suffix[name]) < 10:
+                    examples_by_suffix[name].append({
+                        **example_base,
+                        "failure": "missed",
+                        "expected": name,
+                        "got": self._names_joined(extra),
+                    })
+            for name in extra:
+                if name in examples_by_suffix and len(examples_by_suffix[name]) < 10:
+                    examples_by_suffix[name].append({
+                        **example_base,
+                        "failure": "false_positive",
+                        "expected": self._names_joined(missed),
+                        "got": name,
+                    })
 
         return {
             "worst_suffixes": [
@@ -1106,154 +1185,8 @@ class WorkflowEngine:
                 for name, metrics in worst_suffixes[:20]
             ],
             "examples": examples_by_suffix,
-            "diagnostic_sequences": len(diagnostic_sets),
-            "diagnostic_skipped": skipped,
-        }
-
-    def _evaluate_overall_test_tokens(self, entries: List[Dict]) -> Dict[str, Any]:
-        total = 0
-        correct = 0
-        ambiguous_total = 0
-        ambiguous_correct = 0
-        single_total = 0
-        single_correct = 0
-        root_only_total = 0
-        no_candidate = 0
-        unmatched_gold = 0
-        scoring_errors = 0
-        scoring_items: List[Tuple[List[Any], Dict[str, Any]]] = []
-
-        for entry in entries:
-            word_entries = entry.get("words", []) if entry.get("type") == "sentence" else [entry]
-            matched_infos: List[Dict[str, Any]] = []
-
-            for word_entry in word_entries:
-                total += 1
-                if not word_entry.get("suffixes", []):
-                    root_only_total += 1
-                    single_total += 1
-                    single_correct += 1
-                    correct += 1
-                    continue
-
-                try:
-                    analysis = nlp.analyze_word(word_entry["word"], include_closed_class=True)
-                except Exception:
-                    analysis = None
-
-                if not analysis or not analysis.get("decomps"):
-                    no_candidate += 1
-                    continue
-
-                matched = nlp.match_decompositions([word_entry], analysis["decomps"])
-                if not matched:
-                    unmatched_gold += 1
-                    single_total += 1
-                    single_correct += 1
-                    correct += 1
-                    continue
-
-                gold_idx = matched[0]
-                if len(analysis["decomps"]) <= 1:
-                    single_total += 1
-                else:
-                    ambiguous_total += 1
-
-                matched_infos.append({
-                    "encoded_chains": analysis["encoded_chains"],
-                    "gold_idx": gold_idx,
-                    "is_ambiguous": len(analysis["decomps"]) > 1,
-                })
-
-            if not any(info["is_ambiguous"] for info in matched_infos):
-                correct += len(matched_infos)
-                single_correct += len(matched_infos)
-                continue
-
-            gold_indices = [info["gold_idx"] for info in matched_infos]
-            gold_chains = [
-                info["encoded_chains"][info["gold_idx"]]
-                for info in matched_infos
-            ]
-            candidate_lists = [info["encoded_chains"] for info in matched_infos]
-            candidate_set = [build_sentence_sequence(gold_chains)]
-            combos = [list(gold_indices)]
-            seen = {tuple(tuple(tok[0] for tok in chain) for chain in gold_chains)}
-            max_candidate_set_size = 1 + max(0, int(config.max_negative_candidates))
-
-            for word_idx, candidates in enumerate(candidate_lists):
-                gold_idx = gold_indices[word_idx]
-                for cand_idx, candidate in enumerate(candidates):
-                    if cand_idx == gold_idx:
-                        continue
-                    neg_chains = list(gold_chains)
-                    neg_chains[word_idx] = candidate
-                    signature = tuple(tuple(tok[0] for tok in chain) for chain in neg_chains)
-                    if signature in seen:
-                        continue
-                    seen.add(signature)
-                    candidate_set.append(build_sentence_sequence(neg_chains))
-                    combo = list(gold_indices)
-                    combo[word_idx] = cand_idx
-                    combos.append(combo)
-                    if len(candidate_set) >= max_candidate_set_size:
-                        break
-                if len(candidate_set) >= max_candidate_set_size:
-                    break
-
-            if len(candidate_set) < 2 or not self._candidate_set_fits_model(candidate_set):
-                scoring_errors += len(matched_infos)
-                continue
-
-            scoring_items.append((candidate_set, {
-                "infos": matched_infos,
-                "gold_indices": gold_indices,
-                "combos": combos,
-            }))
-
-        batch_size = 64
-        for start in range(0, len(scoring_items), batch_size):
-            batch = scoring_items[start:start + batch_size]
-            flat = [seq for candidate_set, _meta in batch for seq in candidate_set]
-            sizes = [len(candidate_set) for candidate_set, _meta in batch]
-            try:
-                scores = self.trainer.score_flat_sequences(flat)
-            except Exception:
-                scoring_errors += sum(len(meta["infos"]) for _candidate_set, meta in batch)
-                continue
-
-            offset = 0
-            for (_candidate_set, meta), size in zip(batch, sizes):
-                group = scores[offset:offset + size]
-                offset += size
-                if not group:
-                    scoring_errors += len(meta["infos"])
-                    continue
-                best_idx = max(range(len(group)), key=lambda i: group[i])
-                pred_combo = meta["combos"][best_idx]
-                for info, gold_idx, pred_idx in zip(meta["infos"], meta["gold_indices"], pred_combo):
-                    if pred_idx == gold_idx:
-                        correct += 1
-                        if info["is_ambiguous"]:
-                            ambiguous_correct += 1
-                        else:
-                            single_correct += 1
-
-        return {
-            "token_acc": correct / total if total else 0.0,
-            "correct": correct,
-            "total": total,
-            "ambiguous_token_acc": ambiguous_correct / ambiguous_total if ambiguous_total else 0.0,
-            "ambiguous_correct": ambiguous_correct,
-            "ambiguous_total": ambiguous_total,
-            "single_token_acc": single_correct / single_total if single_total else 0.0,
-            "single_correct": single_correct,
-            "single_total": single_total,
-            "single_ratio": single_total / total if total else 0.0,
-            "root_only_total": root_only_total,
-            "no_candidate": no_candidate,
-            "unmatched_gold": unmatched_gold,
-            "scoring_errors": scoring_errors,
+            "diagnostic_words": len(scored),
+            "diagnostic_skipped": sum(1 for result in word_results if result["status"] == "scoring_error"),
         }
 
     def test_model(self, detailed: bool = False) -> Dict[str, Any]:
@@ -1266,21 +1199,25 @@ class WorkflowEngine:
                 'skipped': 0,
                 'metrics': None,
                 'overall_metrics': None,
+                'word_metrics': None,
             }
         test_seqs, total_words, skipped = self._entries_to_sequences(entries)
         metrics = self.trainer.validate(test_seqs) if test_seqs else None
+        word_results = self._score_test_words(entries)
+        word_metrics = self._ambiguous_word_metrics(word_results)
         report = {
             'entries': len(entries),
             'sequences': len(test_seqs),
             'words': total_words,
             'skipped': skipped,
             'metrics': metrics,
-            'overall_metrics': self._evaluate_overall_test_tokens(entries),
+            'overall_metrics': self._overall_test_token_metrics(word_results),
+            'word_metrics': word_metrics,
         }
-        if detailed and metrics:
+        if detailed:
             report["detail"] = self._collect_test_detail(
-                entries,
-                metrics.get("suffix_metrics", {}),
+                word_results,
+                word_metrics["suffix_metrics"],
             )
         return report
 
@@ -1292,15 +1229,15 @@ class WorkflowEngine:
         for word in unique_words:
             decomps = self.get_decompositions(word)
             if not decomps: cache[word] = word
-            elif len(decomps) == 1: cache[word] = nlp.format_detailed_decomp(decomps[0])
+            elif len(decomps) == 1: cache[word] = nlp.format_detailed_decomp(word, decomps[0])
             else:
-                encoded_chains = [nlp.encode_suffix_chain(chain, root_pos) for _, root_pos, chain, _ in decomps]
+                encoded_chains = [nlp.encode_suffix_chain(chain, root, root_pos) for root, root_pos, chain, _ in decomps]
                 best_idx = 0
                 if self.training_count > 0:
                     try: best_idx, _ = self.trainer.predict(encoded_chains)
                     except Exception: best_idx = 0
                 if best_idx >= len(decomps): best_idx = 0
-                cache[word] = nlp.format_detailed_decomp(decomps[best_idx])
+                cache[word] = nlp.format_detailed_decomp(word, decomps[best_idx])
         final_output = [cache.get(word, word) for word in text]
         return self.data_manager.write_decomposed_text('\n'.join(final_output))
 
@@ -1327,7 +1264,7 @@ class WorkflowEngine:
                     decomposed_words = []
                     for w_idx, cand_idx in enumerate(best_combo):
                         decomp = word_data[w_idx]['decomps'][cand_idx]
-                        decomposed_words.append(nlp.format_detailed_decomp(decomp))
+                        decomposed_words.append(nlp.format_detailed_decomp(word_data[w_idx]['word'], decomp))
                     line_output.append(" ".join(decomposed_words) + ".")
                 else: line_output.append(sentence)
             output_lines.append("  ".join(line_output))

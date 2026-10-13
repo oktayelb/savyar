@@ -1,11 +1,9 @@
 """
 Turkish numerals as closed-class words.
 
-Numerals are treated as a closed class for analysis purposes, but their
-tokens carry no learnable signal (they are constant patterns). Downstream
-training/evaluation drops cc_numeral entries; they exist in the decomposer
-only so that suffixes attached to a numeral (e.g. "beş+e") can be validated
-through the normal suffix pipeline.
+Numerals are a closed class but get no lexeme token of their own: their
+tokens would carry no learnable signal (they are constant patterns), so they
+are encoded like any open-class noun root.
 
 The set of numeral *lexemes* is small and fixed (sıfır..dokuz, on..doksan,
 yüz, bin, milyon, milyar, trilyon). Any integer is expanded to a *sequence*
@@ -14,18 +12,14 @@ of these lexemes via `number_to_turkish`.
 
 from typing import List, Dict, Tuple
 
-from util.words.closed_class import ClosedClassWord
+from util.words.words import Word
 
 
-class Numeral(ClosedClassWord):
+class Numeral(Word):
     """A Turkish numeral lexeme (e.g. "bir", "on", "bin", "milyon")."""
 
     def __init__(self, word: str, value: int):
-        # Numerals can accept inflectional suffixes ("beşe", "onuncu", etc.).
-        # The can_take_suffixes flag is consulted by closed-class consumers;
-        # the regular decomposer still needs the root to be in words.txt for
-        # suffix-bearing forms, which is already the case for all numerals below.
-        super().__init__(word, pos="noun", category="numeral", can_take_suffixes=True)
+        super().__init__(word, pos="noun")
         self.value = value
 
 

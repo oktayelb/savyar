@@ -25,6 +25,8 @@ class MLConfig:
     mlm_ensure_one_mask: bool = True
     focal_gamma: float = 0.0
 
+    use_final_punctuation: bool = True
+
 
     max_negative_candidates: int = 5            
     negatives_per_ambiguous_word: float = 2.0   

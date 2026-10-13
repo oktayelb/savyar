@@ -14,16 +14,20 @@ from util.words.closed_class import (
     irregular_stem,
     lexeme_of,
 )
+from ml.config import config
 from ml.ml_ranking_model import (
     SUFFIX_OFFSET,
     GROUP_TO_ID,
     SPECIAL_FEATURE_ID,
     SPECIAL_ROOT_NOUN,
     SPECIAL_ROOT_VERB,
+    FINAL_PUNCTUATION_MARKS,
 )
 
 _APOSTROPHE_RE = re.compile(r"['’‘]")
 _PUNCT_RE = re.compile(r"[^\w\s]|_")
+_FINAL_MARKS_RE = re.compile(r"[.?!…]+$")
+_CLOSING_QUOTES = "\"'«»“”‘’)"
 
 
 def sanitize_word(raw: str) -> str:
@@ -38,6 +42,26 @@ def sanitize_sentence(raw: str) -> List[str]:
     s = _APOSTROPHE_RE.sub("", raw)
     s = _PUNCT_RE.sub(" ", s)
     return tr_lower(s).split()
+
+
+def sentence_final_punctuation(raw: str) -> Optional[str]:
+    match = _FINAL_MARKS_RE.search(raw.rstrip().rstrip(_CLOSING_QUOTES).rstrip())
+    if match is None:
+        return None
+    marks = match.group()
+    if "?" in marks:
+        return "?"
+    if "!" in marks:
+        return "!"
+    if len(marks) > 1 or "…" in marks:
+        return "..."
+    return "."
+
+
+def final_punctuation_token(mark: Optional[str]) -> Optional[int]:
+    if not config.use_final_punctuation or mark not in FINAL_PUNCTUATION_MARKS:
+        return None
+    return SUFFIX_OFFSET + len(sfx.ALL_SUFFIXES) + len(CLOSED_CLASS_LEXEMES) + FINAL_PUNCTUATION_MARKS.index(mark)
 
 
 # --- Module-level ID lookup caches ---

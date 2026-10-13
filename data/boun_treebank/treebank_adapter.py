@@ -66,6 +66,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from data.treebank_adapter_commons import (
     AMBIGUOUS_VNOUN,
+    with_final_punctuation,
     SUFFIX_BY_NAME,
     adapt_normalized_treebank,
     make_layer,
@@ -349,7 +350,10 @@ def corrected_negative_predicate(token):
 
 def parse_boun_conllu(filepath):
     sentences = parse_conllu(filepath, preserve_mwt=True)
-    return [[corrected_negative_predicate(token) for token in sentence] for sentence in sentences]
+    return [
+        with_final_punctuation([corrected_negative_predicate(token) for token in sentence], [t["surface"] for t in sentence])
+        for sentence in sentences
+    ]
 
 
 def merge_mwt_words(sentence_tokens):

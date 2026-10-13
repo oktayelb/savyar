@@ -99,7 +99,8 @@ SPECIAL_ROOT_VERB     = 6
 SUFFIX_OFFSET         = 7
 
 SPECIAL_FEATURE_ID    = 0
-FEATURE_SCHEMA_VERSION = 7
+FEATURE_SCHEMA_VERSION = 8
+FINAL_PUNCTUATION_MARKS = (".", "?", "!", "...")
 
 GROUP_TO_ID = {None: SPECIAL_FEATURE_ID}
 for idx, group in enumerate(SuffixGroup):
@@ -136,9 +137,14 @@ def _chain_tokens(
 
 
 def build_sentence_sequence(
-    word_chains: List[List[EncodedToken]]
+    word_chains: List[List[EncodedToken]],
+    final_token: Optional[int] = None,
 ) -> FlatSequence:
     s, g, p = _chain_tokens(word_chains)
+    if final_token is not None:
+        s.append(final_token)
+        g.append(SPECIAL_FEATURE_ID)
+        p.append(SPECIAL_FEATURE_ID)
     return (
         [SPECIAL_BOS] + s + [SPECIAL_EOS],
         [SPECIAL_FEATURE_ID] + g + [SPECIAL_FEATURE_ID],
@@ -162,7 +168,9 @@ class SentenceDisambiguator(nn.Module):
             super().__init__()
             self.embed_dim = config.embed_dim
             self.pos_embed_dim = int(config.pos_embed_dim)
-            self.vocab_size = SUFFIX_OFFSET + suffix_vocab_size + closed_class_vocab_size
+            self.vocab_size = (
+                SUFFIX_OFFSET + suffix_vocab_size + closed_class_vocab_size + len(FINAL_PUNCTUATION_MARKS)
+            )
             self.max_sequence_length = int(config.max_sequence_length)
 
             self.suffix_embed = nn.Embedding(self.vocab_size, self.embed_dim, padding_idx=SPECIAL_PAD)
@@ -1435,8 +1443,10 @@ class Trainer:
 
         return self.score_flat_sequences(flat_sequences)
 
-    def score_sentence_chains(self, word_chains: List[List[EncodedToken]]) -> float:
-        full_sequence = build_sentence_sequence(word_chains)
+    def score_sentence_chains(
+        self, word_chains: List[List[EncodedToken]], final_token: Optional[int] = None,
+    ) -> float:
+        full_sequence = build_sentence_sequence(word_chains, final_token)
         if not word_chains or len(full_sequence[0]) < 2:
             return 0.0
         return self.score_flat_sequences([full_sequence])[0]

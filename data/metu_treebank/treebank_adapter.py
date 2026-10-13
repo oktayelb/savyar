@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from data.treebank_adapter_commons import (
     AMBIGUOUS_VNOUN,
+    with_final_punctuation,
     SUFFIX_BY_NAME,
     adapt_normalized_treebank,
     make_layer,
@@ -279,7 +280,9 @@ def parse_treebank(filepath):
             line = line.rstrip("\n")
             if not line:
                 if current_tokens:
-                    sentence = merge_deriv_tokens(current_tokens)
+                    sentence = with_final_punctuation(
+                        merge_deriv_tokens(current_tokens), [t["surface"] for t in current_tokens]
+                    )
                     if sentence:
                         sentences.append(sentence)
                     current_tokens = []
@@ -302,7 +305,7 @@ def parse_treebank(filepath):
             current_tokens.append(token)
 
     if current_tokens:
-        sentence = merge_deriv_tokens(current_tokens)
+        sentence = with_final_punctuation(merge_deriv_tokens(current_tokens), [t["surface"] for t in current_tokens])
         if sentence:
             sentences.append(sentence)
 

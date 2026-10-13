@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from data.treebank_adapter_commons import (
     AMBIGUOUS_VNOUN,
+    with_final_punctuation,
     SUFFIX_BY_NAME,
     adapt_normalized_treebank,
     make_layer,
@@ -243,6 +244,7 @@ def parse_analysis(analysis):
 def parse_trmor2018(filepath):
     sentences = []
     current = []
+    surfaces = []
     in_sentence = False
 
     with open(filepath, "r", encoding="utf-8") as f:
@@ -250,10 +252,11 @@ def parse_trmor2018(filepath):
             line = raw.rstrip("\n")
             if line.startswith("<S "):
                 current = []
+                surfaces = []
                 in_sentence = True
                 continue
             if line.startswith("</S>"):
-                sentences.append(current)
+                sentences.append(with_final_punctuation(current, surfaces))
                 current = []
                 in_sentence = False
                 continue
@@ -265,6 +268,7 @@ def parse_trmor2018(filepath):
                 continue
 
             surface = parts[0]
+            surfaces.append(surface)
             analysis = parts[1]
             lemma, layers = parse_analysis(analysis)
             if not layers or layers[0]["upos"] == "Punct":

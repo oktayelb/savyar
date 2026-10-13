@@ -174,7 +174,10 @@ def find_matching_combinations(word_data: List[Dict], target_str: str, trainer) 
     scored_matches.sort(key=lambda x: x['score'], reverse=True)
     return scored_matches, furthest_match_text, furthest_word_idx
 
-def get_top_sentence_predictions(word_data: List[Dict], trainer, top_k: int = 10, beam_width: int = 50) -> List[Dict]:
+def get_top_sentence_predictions(
+    word_data: List[Dict], trainer, top_k: int = 10, beam_width: int = 50, final_punctuation: Optional[str] = None,
+) -> List[Dict]:
+    final_token = nlp.final_punctuation_token(final_punctuation)
     beams = [{'score': 0.0, 'combo_indices': [], 'parts': []}]
     trainer.model.eval()
     with torch.no_grad():
@@ -185,7 +188,7 @@ def get_top_sentence_predictions(word_data: List[Dict], trainer, top_k: int = 10
                     new_indices = beam['combo_indices'] + [d_idx]
                     new_parts = beam['parts'] + [wd['typing_strings'][d_idx]]
                     sentence_chains = [word_data[i]['encoded_chains'][idx] for i, idx in enumerate(new_indices)]
-                    score = trainer.score_sentence_chains(sentence_chains)
+                    score = trainer.score_sentence_chains(sentence_chains, final_token)
                     new_beams.append({'score': score, 'combo_indices': new_indices, 'parts': new_parts, 'text': " ".join(new_parts).strip()})
             new_beams.sort(key=lambda x: x['score'], reverse=True)
             beams = new_beams[:beam_width]
@@ -522,16 +525,19 @@ class WorkflowEngine:
                 if len(selected) >= max_neg: break
         return selected
 
-    def _dynamic_candidate_set_from_word_entries(self, word_entries: List[Dict], rng: random.Random) -> Optional[Tuple[List, int]]:
+    def _dynamic_candidate_set_from_word_entries(
+        self, word_entries: List[Dict], rng: random.Random, final_punctuation: Optional[str] = None,
+    ) -> Optional[Tuple[List, int]]:
         parts = self._candidate_parts_from_word_entries(word_entries)
         if parts is None: return None
         gold_chains, candidate_lists, gold_indices, word_count = parts
-        gold_seq = build_sentence_sequence(gold_chains)
+        final_token = nlp.final_punctuation_token(final_punctuation)
+        gold_seq = build_sentence_sequence(gold_chains, final_token)
         if len(gold_seq[0]) > int(config.max_sequence_length): return None
         negatives = self._single_substitution_negatives(gold_chains, candidate_lists, gold_indices, limit=config.dynamic_negative_pool_size)
         if not negatives: return None
         negative_seqs = [
-            seq for seq in (build_sentence_sequence(neg) for neg in negatives)
+            seq for seq in (build_sentence_sequence(neg, final_token) for neg in negatives)
             if len(seq[0]) <= int(config.max_sequence_length)
         ]
         if not negative_seqs: return None
@@ -542,13 +548,16 @@ class WorkflowEngine:
         if not selected: return None
         return [gold_seq] + selected, word_count
 
-    def _candidate_set_from_word_entries(self, word_entries: List[Dict]) -> Optional[Tuple[List, int]]:
+    def _candidate_set_from_word_entries(
+        self, word_entries: List[Dict], final_punctuation: Optional[str] = None,
+    ) -> Optional[Tuple[List, int]]:
         parts = self._candidate_parts_from_word_entries(word_entries)
         if parts is None: return None
         gold_chains, candidate_lists, gold_indices, word_count = parts
-        gold_seq = build_sentence_sequence(gold_chains)
+        final_token = nlp.final_punctuation_token(final_punctuation)
+        gold_seq = build_sentence_sequence(gold_chains, final_token)
         negatives = self._single_substitution_negatives(gold_chains, candidate_lists, gold_indices)
-        candidate_set = [gold_seq] + [build_sentence_sequence(neg) for neg in negatives]
+        candidate_set = [gold_seq] + [build_sentence_sequence(neg, final_token) for neg in negatives]
         return candidate_set, word_count
 
     def _candidate_set_fits_model(self, candidate_set: List[Any]) -> bool:
@@ -715,7 +724,7 @@ class WorkflowEngine:
             print(f"   {label}: preparing candidate sets for {total_entries} entries...", flush=True)
         for idx, entry in enumerate(entries, start=1):
             try:
-                if entry.get('type') == 'sentence': result = self._candidate_set_from_word_entries(entry.get('words', []))
+                if entry.get('type') == 'sentence': result = self._candidate_set_from_word_entries(entry.get('words', []), entry.get('final_punctuation'))
                 else: result = self._candidate_set_from_word_entries([entry])
                 if result is None:
                     skipped += 1
@@ -753,7 +762,7 @@ class WorkflowEngine:
             print(f"   {label}: preparing candidate sets for {total_entries} entries...", flush=True)
         for idx, entry in enumerate(entries, start=1):
             try:
-                if entry.get('type') == 'sentence': result = self._dynamic_candidate_set_from_word_entries(entry.get('words', []), rng)
+                if entry.get('type') == 'sentence': result = self._dynamic_candidate_set_from_word_entries(entry.get('words', []), rng, entry.get('final_punctuation'))
                 else: result = self._dynamic_candidate_set_from_word_entries([entry], rng)
                 if result is None:
                     skipped += 1
@@ -943,6 +952,7 @@ class WorkflowEngine:
 
         for entry in entries:
             word_entries = entry.get("words", []) if entry.get("type") == "sentence" else [entry]
+            final_token = nlp.final_punctuation_token(entry.get("final_punctuation"))
             sentence_results = []
             context_chains = []
             for word_entry in word_entries:
@@ -997,7 +1007,7 @@ class WorkflowEngine:
                 for candidate in result["candidates"]:
                     chains = list(context_chains)
                     chains[word_idx] = candidate
-                    sequences.append(build_sentence_sequence(chains))
+                    sequences.append(build_sentence_sequence(chains, final_token))
                 if any(len(seq[0]) > max_len for seq in sequences):
                     result["status"] = "scoring_error"
                     continue

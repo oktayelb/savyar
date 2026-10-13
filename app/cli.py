@@ -3,7 +3,7 @@ import os
 from typing import List, Optional, Dict, Any
 
 from app.engine import WorkflowEngine, get_top_sentence_predictions
-from app.nlp_pipeline import sanitize_word, sanitize_sentence
+from app.nlp_pipeline import sanitize_word, sanitize_sentence, sentence_final_punctuation
 
 MAX_MANUAL_SENTENCE_MATCHES = 100
 
@@ -356,7 +356,9 @@ class AppCLI:
         self.show_message(f"Sentence: {raw_sentence}\n")
         self.show_message("Evaluating top predictions (Beam Search)...")
 
-        top_predictions = get_top_sentence_predictions(analyses, self.engine.trainer, top_k=10)
+        top_predictions = get_top_sentence_predictions(
+            analyses, self.engine.trainer, top_k=10, final_punctuation=sentence_final_punctuation(raw_sentence),
+        )
 
         for i, c in enumerate(top_predictions):
             aligned_display = self._format_aligned_sentence(words, c['parts'])

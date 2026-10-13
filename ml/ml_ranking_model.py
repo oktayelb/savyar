@@ -212,6 +212,8 @@ class SentenceDisambiguator(nn.Module):
             )
 
             self._init_weights()
+            if config.sum_token_scores:
+                nn.init.zeros_(self.rank_head[1].weight)
 
     def _init_weights(self):
         for name, p in self.named_parameters():
@@ -263,6 +265,12 @@ class SentenceDisambiguator(nn.Module):
         pad_mask:     Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         x = self._encode(suffix_ids, group_ids, word_pos_ids, pad_mask)
+
+        if config.sum_token_scores:
+            token_scores = self.rank_head(x).squeeze(-1).float()
+            if pad_mask is not None:
+                token_scores = token_scores.masked_fill(pad_mask, 0.0)
+            return token_scores.sum(dim=1)
 
         if pad_mask is None:
             pooled = x.mean(dim=1)

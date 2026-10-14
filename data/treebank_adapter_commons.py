@@ -451,6 +451,45 @@ def reconcile_suffix_names(surface, lemma, names):
     return names
 
 
+POSSESSIVE_3_NAMES = ("possessive_3sg", "possessive_3pl")
+COMPOUND_MARKER_VOWELS = "ıiuü"
+VOWELS = "aeıioöuü"
+PERSON_BEFORE_COPULA = ("conjugation_3pl", "plural_ler")
+
+
+def without_compound_marker(lemma):
+    if lemma[-1:] not in COMPOUND_MARKER_VOWELS:
+        return None
+    if len(lemma) > 2 and lemma[-2] == "s" and lemma[-3] in VOWELS:
+        return lemma[:-2]
+    return lemma[:-1]
+
+
+def respellings(surface, lemma, suffix_names):
+    if any(name in POSSESSIVE_3_NAMES for name in suffix_names):
+        stem = without_compound_marker(lemma)
+        if stem and surface.startswith(stem):
+            yield stem, suffix_names
+    if "passive_il" in suffix_names:
+        after = suffix_names.index("passive_il") + 1
+        yield lemma, suffix_names[:after] + ["passive_il"] + suffix_names[after:]
+    for index in range(len(suffix_names) - 1):
+        if suffix_names[index] in PERSON_BEFORE_COPULA and suffix_names[index + 1] == "nounaorist_dir":
+            swapped = list(suffix_names)
+            swapped[index], swapped[index + 1] = swapped[index + 1], swapped[index]
+            yield lemma, swapped
+
+
+def respell_to_surface(surface, lemma, suffix_names):
+    candidates = list(respellings(surface, lemma, suffix_names))
+    if not candidates or spells_word(surface, lemma, suffix_names):
+        return lemma, suffix_names
+    for candidate_lemma, candidate_names in candidates:
+        if spells_word(surface, candidate_lemma, candidate_names):
+            return candidate_lemma, candidate_names
+    return lemma, suffix_names
+
+
 def build_treebank_forced_entry(surface, lemma, expected_suffix_names, expand_lemma=True):
     surface_lower = tr_lower(surface)
     root = tr_lower(lemma)
@@ -844,6 +883,7 @@ def adapt_normalized_treebank(
                 lemma, expected_suffixes = expand_decomposed_lemma(
                     lemma, expected_suffixes, verb_lemma=is_verb_lemma(word)
                 )
+            lemma, expected_suffixes = respell_to_surface(surface_lower, lemma, expected_suffixes)
             expected_suffixes = reconcile_suffix_names(surface_lower, lemma, expected_suffixes)
             entry = build_treebank_forced_entry(
                 surface_lower, lemma, expected_suffixes, expand_lemma=not keep_lemma_whole

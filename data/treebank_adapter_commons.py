@@ -261,6 +261,19 @@ def is_verb_lemma(word):
     return bool(layers) and layers[0]["upos"] in ("VERB", "Verb")
 
 
+def is_proper_noun(word):
+    layers = word.get("feature_layers") or []
+    return bool(layers) and (layers[0]["upos"] == "PROPN" or "Prop" in layers[0]["features"])
+
+
+def is_name_spelled_as_verb(word, lemma, suffix_names):
+    if not is_proper_noun(word):
+        return False
+    _base, expanded = expand_decomposed_lemma(lemma, suffix_names)
+    lemma_suffixes = expanded[:len(expanded) - len(suffix_names)]
+    return bool(lemma_suffixes) and SUFFIX_BY_NAME[lemma_suffixes[-1]].makes == Type.VERB
+
+
 def bare_root_entry(surface_lower):
     if expand_decomposed_lemma(surface_lower, [])[0] != surface_lower:
         return build_treebank_forced_entry(surface_lower, surface_lower, [])
@@ -438,9 +451,11 @@ def reconcile_suffix_names(surface, lemma, names):
     return names
 
 
-def build_treebank_forced_entry(surface, lemma, expected_suffix_names):
+def build_treebank_forced_entry(surface, lemma, expected_suffix_names, expand_lemma=True):
     surface_lower = tr_lower(surface)
-    root, expected_suffix_names = expand_decomposed_lemma(tr_lower(lemma), expected_suffix_names)
+    root = tr_lower(lemma)
+    if expand_lemma:
+        root, expected_suffix_names = expand_decomposed_lemma(root, expected_suffix_names)
 
     suffixes = []
     current_stem = root
@@ -823,11 +838,16 @@ def adapt_normalized_treebank(
                 word_entries.append(bare_root_entry(surface_lower))
                 continue
 
-            lemma, expected_suffixes = expand_decomposed_lemma(
-                tr_lower(lemma), expected_suffixes, verb_lemma=is_verb_lemma(word)
-            )
+            lemma = tr_lower(lemma)
+            keep_lemma_whole = is_name_spelled_as_verb(word, lemma, expected_suffixes)
+            if not keep_lemma_whole:
+                lemma, expected_suffixes = expand_decomposed_lemma(
+                    lemma, expected_suffixes, verb_lemma=is_verb_lemma(word)
+                )
             expected_suffixes = reconcile_suffix_names(surface_lower, lemma, expected_suffixes)
-            entry = build_treebank_forced_entry(surface_lower, lemma, expected_suffixes)
+            entry = build_treebank_forced_entry(
+                surface_lower, lemma, expected_suffixes, expand_lemma=not keep_lemma_whole
+            )
             word_entries.append(entry)
             matched_words += 1
             sentence_has_any = True

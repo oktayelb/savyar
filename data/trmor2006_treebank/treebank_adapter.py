@@ -39,6 +39,7 @@ from data.trmor2018_treebank.treebank_adapter import (
     features_to_suffix_names,
     lexicalise,
     parse_analysis,
+    split_off_period,
     should_skip_word as should_skip_trmor2018_word,
     trmor_context,
 )
@@ -85,11 +86,15 @@ def parse_trmor2006(filepath):
                 continue
 
             surface = parts[0]
-            surfaces.append(surface)
             analysis = parts[1]
             lemma, layers = parse_analysis(analysis)
             if not layers or layers[0]["upos"] in {"Punct", "Punc"}:
+                surfaces.append(surface)
                 continue
+            surface, period = split_off_period(surface, lemma, layers)
+            surfaces.append(surface)
+            if period:
+                surfaces.append(period)
             lemma, layers = lexicalise(surface, lemma or surface, layers)
 
             current.append(make_word(

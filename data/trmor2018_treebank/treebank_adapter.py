@@ -260,6 +260,18 @@ def lexicalise(surface, lemma, layers):
     return lemma, layers
 
 
+def split_off_period(surface, lemma, layers):
+    word_part = surface.rstrip(".")
+    if word_part == surface or not lemma or lemma.endswith("."):
+        return surface, None
+    if not any(ch.isalpha() for ch in word_part):
+        return surface, None
+    spells_lemma = tr_lower(word_part).startswith(tr_lower(lemma))
+    if not spells_lemma and layers[0]["upos"] != "Verb":
+        return surface, None
+    return word_part, surface[len(word_part):]
+
+
 def parse_trmor2018(filepath):
     sentences = []
     current = []
@@ -287,11 +299,15 @@ def parse_trmor2018(filepath):
                 continue
 
             surface = parts[0]
-            surfaces.append(surface)
             analysis = parts[1]
             lemma, layers = parse_analysis(analysis)
             if not layers or layers[0]["upos"] == "Punct":
+                surfaces.append(surface)
                 continue
+            surface, period = split_off_period(surface, lemma, layers)
+            surfaces.append(surface)
+            if period:
+                surfaces.append(period)
             lemma, layers = lexicalise(surface, lemma or surface, layers)
 
             current.append(make_word(

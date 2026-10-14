@@ -47,6 +47,7 @@ from data.treebank_adapter_commons import (
     resolve_ambiguous_suffix_by_surface,
     resolve_ambiguous_vnoun_suffixes,
 )
+from util.word_methods import tr_lower
 
 
 # =============================================================================
@@ -182,6 +183,10 @@ POSTP_CASE_FEATURES = {
     "PCIns": "confactuous_le",
 }
 
+MAKSIZIN_ENDINGS = ("maksızın", "meksizin")
+NEGATIVE_SUFFIX_NAMES = ("negative_me", "negative_able")
+FIRST_PERSON_FEATURES = ("A1sg", "A1pl")
+
 NECES_SUFFIXES = ["infinitive_me", "compositive_li"]
 ACQUIRE_SUFFIXES = ["applicative_le", "reflexive_in"]
 BECOME_SUFFIXES = ["applicative_le", "reflexive_is"]
@@ -309,6 +314,15 @@ def derivational_suffix_name(feat, stem_upos):
     return N2N_DERIVATIONAL_FEATURES[feat]
 
 
+def is_negative_aorist_first_person(suffix_names, feat):
+    return (
+        feat in FIRST_PERSON_FEATURES
+        and len(suffix_names) >= 2
+        and suffix_names[-1] == "factative_ir"
+        and suffix_names[-2] in NEGATIVE_SUFFIX_NAMES
+    )
+
+
 def features_to_suffix_names(word, unmapped_sink):
     suffix_names = []
     unmapped_on_word = []
@@ -327,6 +341,7 @@ def features_to_suffix_names(word, unmapped_sink):
         is_pronoun = upos == "Pron"
 
         able_seen = False
+        tense_seen = False
         imp_seen = "Imp" in feats
 
         for feat in feats:
@@ -380,12 +395,19 @@ def features_to_suffix_names(word, unmapped_sink):
                     _append_mapped(suffix_names, COPULA_FEATURES[feat])
                 elif is_noun_context and feat in COPULA_FEATURES:
                     _append_mapped(suffix_names, COPULA_FEATURES[feat])
+                elif feat == "Narr" and tense_seen:
+                    suffix_names.append(COPULA_FEATURES["Narr"])
                 else:
                     suffix_names.append(V2N_TENSE_FEATURES[feat])
+                tense_seen = True
                 continue
 
             if feat == "Cop":
                 _append_mapped(suffix_names, COPULA_FEATURES.get(feat))
+                continue
+
+            if feat == "WithoutHavingDoneSo" and tr_lower(word["surface"]).endswith(MAKSIZIN_ENDINGS):
+                suffix_names.append("undoing_meksizin")
                 continue
 
             if feat in V2N_GERUND_FEATURES:
@@ -412,6 +434,8 @@ def features_to_suffix_names(word, unmapped_sink):
                 continue
 
             if feat in CONJUGATION_FEATURES:
+                if is_negative_aorist_first_person(suffix_names, feat):
+                    suffix_names.pop()
                 if not is_pronoun:
                     suffix_names.append(CONJUGATION_FEATURES[feat])
                 continue
@@ -422,6 +446,7 @@ def features_to_suffix_names(word, unmapped_sink):
 
             if feat == "Neces":
                 suffix_names.extend(NECES_SUFFIXES)
+                tense_seen = True
                 continue
 
             if feat == "Cond":
@@ -446,6 +471,7 @@ def features_to_suffix_names(word, unmapped_sink):
 
             if feat == "Prog2":
                 suffix_names.extend(PROG2_SUFFIXES)
+                tense_seen = True
                 continue
 
             if feat == "Since":

@@ -33,6 +33,9 @@ class CompoundVerb(Suffix):
             if narrow_vowel:
                 return [narrow_vowel + "yor"]
 
+        if suffix_obj.suffix == "iyor" and word and word[-1] in ["ı", "i", "u", "ü"]:
+            return ["yor"]
+
         ebase = suffix_obj.suffix[0]
         candidates = []
         # Apply standard harmonies using the parent class's static methods

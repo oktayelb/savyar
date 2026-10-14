@@ -389,6 +389,21 @@ def decompose_with_fallback(word: str) -> List[Tuple]:
     return hypotheses
 
 
+def acronym_pronunciation(acronym: str) -> str:
+    if acronym[-1] in wrd.VOWELS:
+        return acronym
+    return acronym + "e"
+
+
+def decompose_acronym(word: str, acronym: str) -> List[Tuple]:
+    if not acronym or not word.startswith(acronym) or len(word) <= len(acronym):
+        return []
+    spoken = acronym_pronunciation(acronym)
+    analyses: List[Tuple] = []
+    append_analysis(spoken + word[len(acronym):], "noun", spoken, analyses)
+    return unique_analyses([(acronym, pos, chain, final_pos) for _spoken, pos, chain, final_pos in analyses])
+
+
 def append_analysis(word, pos, root, analyses_list, shared_cache: dict = None):
     possible_chains = find_suffix_chain(word, pos, root, shared_cache=shared_cache)
     for chain, final_pos in possible_chains:

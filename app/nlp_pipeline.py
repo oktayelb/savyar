@@ -75,14 +75,24 @@ def final_punctuation_token(mark: Optional[str]) -> Optional[int]:
     return SUFFIX_OFFSET + len(sfx.ALL_SUFFIXES) + len(CLOSED_CLASS_LEXEMES) + FINAL_PUNCTUATION_MARKS.index(mark)
 
 
-def text_before_apostrophe(surface: Optional[str]) -> Optional[str]:
-    """Turkish spelling puts an apostrophe between a name and its inflection: Kadıköy Belediyesi'ne."""
+def raw_text_before_apostrophe(surface: Optional[str]) -> Optional[str]:
     if not surface or not config.use_apostrophe_boundary:
         return None
     match = _APOSTROPHE_RE.search(surface)
     if match is None or match.start() == 0 or match.end() == len(surface):
         return None
-    return tr_lower(surface[:match.start()])
+    return surface[:match.start()]
+
+
+def text_before_apostrophe(surface: Optional[str]) -> Optional[str]:
+    """Turkish spelling puts an apostrophe between a name and its inflection: Kadıköy Belediyesi'ne."""
+    raw = raw_text_before_apostrophe(surface)
+    return tr_lower(raw) if raw else None
+
+
+def is_acronym_before_apostrophe(surface: Optional[str]) -> bool:
+    raw = raw_text_before_apostrophe(surface)
+    return bool(raw) and raw.isupper()
 
 
 def has_boundary_after(prefix: str, decomp: Tuple) -> bool:
@@ -454,7 +464,11 @@ def analyze_word(word: str, surface: Optional[str] = None) -> Dict[str, Any]:
     """Decompose one sanitized word and bundle everything downstream needs."""
     decomps = sfx.decompose_with_fallback(word)
     prefix = text_before_apostrophe(surface)
-    if prefix:
+    acronym_decomps = sfx.decompose_acronym(word, prefix) if is_acronym_before_apostrophe(surface) else []
+    if acronym_decomps:
+        kept = [decomp for decomp in decomps if has_boundary_after(prefix, decomp)]
+        decomps = sfx.unique_analyses(acronym_decomps + kept)
+    elif prefix:
         decomps = decomps_split_at_apostrophe(word, prefix, decomps)
 
     encoded_chains: List[List] = []

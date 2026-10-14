@@ -70,6 +70,8 @@ def is_valid_transition(last_suffix: Suffix, next_suffix: Suffix) -> bool:
         return False
     if next_suffix.name == "reflexive_in" and last_suffix.name in NO_REFLEXIVE_AFTER:
         return False
+    if last_suffix.name == "continuous_iyor" and next_suffix.name == "pastfactative_miş":
+        return True
 
 
     ## main waterfall rule.

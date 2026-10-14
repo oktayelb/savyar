@@ -428,7 +428,7 @@ def features_to_suffix_names(word, unmapped_sink):
                     _append_mapped(suffix_names, COPULA_FEATURES[feat])
                 elif is_noun_context and feat in COPULA_FEATURES:
                     _append_mapped(suffix_names, COPULA_FEATURES[feat])
-                elif feat == "Narr" and tense_seen:
+                elif feat == "Narr" and tense_seen and suffix_names[-1] != "continuous_iyor":
                     suffix_names.append(COPULA_FEATURES["Narr"])
                 else:
                     suffix_names.append(V2N_TENSE_FEATURES[feat])

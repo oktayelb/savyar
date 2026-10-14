@@ -37,6 +37,7 @@ from data.treebank_adapter_commons import adapt_normalized_treebank, make_word, 
 from data.trmor2018_treebank.treebank_adapter import (
     closed_class_category,
     features_to_suffix_names,
+    lexicalise,
     parse_analysis,
     should_skip_word as should_skip_trmor2018_word,
     trmor_context,
@@ -89,6 +90,7 @@ def parse_trmor2006(filepath):
             lemma, layers = parse_analysis(analysis)
             if not layers or layers[0]["upos"] in {"Punct", "Punc"}:
                 continue
+            lemma, layers = lexicalise(surface, lemma or surface, layers)
 
             current.append(make_word(
                 surface,

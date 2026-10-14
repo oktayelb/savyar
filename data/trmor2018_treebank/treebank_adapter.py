@@ -101,7 +101,6 @@ V2N_GERUND_FEATURES = {
     "SinceDoingSo": "since_eli",
     "WithoutHavingDoneSo": ["infinitive_me", "ablative_den"],
     "WithoutBeingAbleToHaveDoneSo": ["negative_able", "infinitive_me", "ablative_den"],
-    "InBetween": "adverbial_ip",
 }
 
 PARTICIPLE_FEATURES = {
@@ -150,7 +149,7 @@ N2N_DERIVATIONAL_FEATURES = {
     "Dim": "diminutive_cik",
     "JustLike": "approximative_si",
     "As": "relative_ce",
-    "AsIf": "adverbial_cesine",
+    "AsIf": "relative_ce",
     "Distrib": "counting_er",
     "Dist": "counting_er",
     "FeelLike": "willing_esi",
@@ -191,7 +190,6 @@ NECES_SUFFIXES = ["infinitive_me", "compositive_li"]
 ACQUIRE_SUFFIXES = ["applicative_le", "reflexive_in"]
 BECOME_SUFFIXES = ["applicative_le", "reflexive_is"]
 PROG2_SUFFIXES = ["infinitive_mek", "locative_de"]
-SINCE_SUFFIXES = ["since_eli", "nounaorist_dir"]
 NOTSTATE_SUFFIXES = ["negative_me", "factative_ir", "suitative_lik"]
 
 UPOS_TO_CC_CATEGORY = {
@@ -246,6 +244,22 @@ def parse_analysis(analysis):
     return lemma, layers
 
 
+def lexicalise(surface, lemma, layers):
+    surface_lower = tr_lower(surface)
+    if len(layers) > 1 and "InBetween" in layers[-1]["features"]:
+        last = layers[-1]
+        return surface_lower, [make_layer(last["upos"], last["xpos"], [], lemma=surface_lower)]
+    for index, layer in enumerate(layers):
+        if index == 0 or "Related" not in layer["features"]:
+            continue
+        adjective = tr_lower(lemma) + "k"
+        if surface_lower.startswith(adjective):
+            features = [feat for feat in layer["features"] if feat != "Related"]
+            adjective_layer = make_layer(layer["upos"], layer["xpos"], features, lemma=adjective)
+            return adjective, [adjective_layer] + layers[index + 1:]
+    return lemma, layers
+
+
 def parse_trmor2018(filepath):
     sentences = []
     current = []
@@ -278,6 +292,7 @@ def parse_trmor2018(filepath):
             lemma, layers = parse_analysis(analysis)
             if not layers or layers[0]["upos"] == "Punct":
                 continue
+            lemma, layers = lexicalise(surface, lemma or surface, layers)
 
             current.append(make_word(
                 surface,
@@ -311,6 +326,8 @@ ORDINAL_ENDINGS = ("ıncı", "inci", "uncu", "üncü", "ncı", "nci", "ncu", "nc
 def derivational_suffix_name(feat, stem_upos):
     if feat == "Agt" and stem_upos == "Verb":
         return "agentive_ici"
+    if feat == "AsIf" and stem_upos == "Verb":
+        return "adverbial_cesine"
     return N2N_DERIVATIONAL_FEATURES[feat]
 
 
@@ -475,7 +492,7 @@ def features_to_suffix_names(word, unmapped_sink):
                 continue
 
             if feat == "Since":
-                suffix_names.extend(SINCE_SUFFIXES)
+                suffix_names.append("since_eli" if stem_upos == "Verb" else "nounaorist_dir")
                 continue
 
             if feat == "NotState":

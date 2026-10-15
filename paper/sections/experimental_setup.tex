@@ -2,7 +2,7 @@
 \label{sec:setup}
 
 \paragraph{Protocol.}
-We adapt all 34,673 TrMor2018 sentences and split them at random into 80\% training, 10\% development and 10\% test, once for each of the seeds 1 to 5, following \citet{akyurek-etal-2019-morphological}. For every split we train a freshly initialised model on the training part for six epochs and keep the epoch with the highest ranking accuracy on the development part. Test sentences are decoded with beam search (\S\ref{sec:decoding}). We report the mean and standard deviation over the five splits. No other treebank is used in these runs.
+We adapt all 34,673 TrMor2018 sentences and split them at random into 80\% training, 10\% development and 10\% test, once for each of the seeds 1 to 5, following \citet{akyurek-etal-2019-morphological}. For every split we train a freshly initialised model on the training part for eight epochs and keep the epoch with the highest accuracy on the ambiguous words of the development part. Each test sentence is processed in one forward pass (\S\ref{sec:ranker}). We report the mean and standard deviation over the five splits. No other treebank is used in these runs.
 
 \paragraph{Scored words.}
 \citet{akyurek-etal-2019-morphological} mask digits and proper-noun tags in their evaluation. We exclude digits, \TBD{unanalysed words: confirm definition} and words whose gold annotation the adapter cannot map, together \TBD{5.2}\% of test words. Punctuation is not scored because the adapter removes it.
@@ -25,9 +25,10 @@ We compare the full system with the following variants:
 \begin{itemize}
 \item \emph{Random choice}: the expected accuracy of picking one candidate per word uniformly at random.
 \item \emph{Single word}: each word is scored on its own, as a one-word sentence, so the ranker has no context.
+\item \emph{No synthetic ambiguity}: the ranker is trained on the real ambiguous words only (\S\ref{sec:training}).
 \item \emph{Root-aware}: open-class roots receive their own tokens instead of \tok{N} and \tok{V}. \TBD{describe vocabulary cut-off and training setup}
-\item \emph{Gold neighbours}: each ambiguous word is scored with all other words fixed to their gold analyses. This uses gold information and serves as an upper bound on what better decoding could achieve.
+\item \emph{Gold neighbours}: each ambiguous word is scored with every other word reduced to its gold analysis. This uses gold information and serves as an upper bound on what knowing the analyses of the neighbours could add.
 \end{itemize}
 
 \paragraph{Implementation.}
-The system is implemented in Python with PyTorch. Each run trains on one NVIDIA GeForce RTX 4050 Laptop GPU with 6\,GB of memory and takes \TBD{train-time} hours; decoding the test part of one split takes \TBD{decode-time} minutes.
+The system is implemented in Python with PyTorch. Each run trains on one NVIDIA GeForce RTX 4050 Laptop GPU with 6\,GB of memory and takes \TBD{train-time} minutes; analysing and disambiguating the test part of one split takes \TBD{decode-time} seconds.

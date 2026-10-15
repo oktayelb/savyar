@@ -3,7 +3,7 @@
 
 \input{figures/pipeline}
 
-\savyar{} has two parts (Figure~\ref{fig:pipeline}). A rule-based analyzer lists the analyses of every word in a sentence. A neural ranker scores sentence candidates built from those analyses, and beam search returns the best one. All knowledge of individual roots sits in the analyzer.
+\savyar{} has two parts (Figure~\ref{fig:pipeline}). A rule-based analyzer lists the analyses of every word in a sentence. A neural ranker reads the analyses of all words of the sentence and chooses one analysis per word. All knowledge of individual roots sits in the analyzer.
 
 \subsection{Analyzer}
 \label{sec:analyzer}
@@ -12,7 +12,7 @@
 The analyzer looks up roots in a lexicon of 22,464 nominal and 1,054 verbal entries taken from \TBD{dictionary source}. A dictionary word that the suffix rules derive from a shorter root by its actual derivation is not an entry: \tr{bulun} `be found' is \tr{bul-un} and \tr{durum} `situation' is \tr{dur-um}. Words that only resemble a derivation remain roots (\tr{dolar} `dollar', \tr{gece} `night'), and so do words formed with a suffix the rules do not model (\tr{satıcı} `seller', \tr{öğretmen} `teacher'). The lexicon was built without consulting any treebank, so test sentences cannot influence which candidates exist.
 
 \paragraph{Suffixes.}
-The analyzer has 98 suffix types. Each records the category it attaches to and the category it produces: 40 map nouns to nouns, 33 verbs to nouns, 17 verbs to verbs and 2 nouns to verbs, while 6 attach to either category. Each suffix generates its surface allomorphs from the stem, following vowel harmony, consonant alternation and buffer consonants.
+The analyzer has 99 suffix types. Each records the category it attaches to and the category it produces: 40 map nouns to nouns, 34 verbs to nouns, 17 verbs to verbs and 2 nouns to verbs, while 6 attach to either category. Each suffix generates its surface allomorphs from the stem, following vowel harmony, consonant alternation and buffer consonants.
 
 \paragraph{Search.}
 Every prefix of a word is tried as a root, both as written and after undoing a stem alternation such as final-consonant voicing (\tr{kitab-ı} from \tr{kitap} `book'). From each root a depth-first search attaches suffixes whose allomorph matches the rest of the word. Suffixes fall into 13 ordered groups, from verb-to-verb derivation through negation, compound verbs, category-changing derivation, converbs, plural, possessive, case, the relative \tr{-ki}, the comitative \tr{-lA}, adverbial suffixes and predicative suffixes to person endings. A suffix may not follow a suffix of a later group. Derivational suffixes may follow each other, and the relative \tr{-ki} restarts the order, which licenses \tr{ev-de-ki-ler-den} house-\gl{loc}-\gl{rel}-\gl{pl}-\gl{abl} `from those in the house'.
@@ -26,7 +26,7 @@ Each analysis is a root, the category of the root (noun or verb), a suffix seque
 \subsection{Root-agnostic encoding}
 \label{sec:encoding}
 
-The ranker sees each candidate word as a short token sequence. The first token stands for the root: \tok{N} for any nominal root and \tok{V} for any verbal root, or a token of its own for one of 102 closed-class lexemes such as \tr{ben} `I', \tr{bu} `this', \tr{ve} `and', \tr{için} `for' and the question particle \tr{mI}. One token per suffix follows, identified by the suffix type. Every token carries its suffix group and its position in the word, and the vocabulary has 207 entries: 98 suffixes, 102 lexemes, the two root tokens and five special symbols. A sentence candidate is the concatenation of its word sequences, separated by a word boundary symbol and enclosed in begin and end symbols.
+The ranker sees each candidate word as a short token sequence. The first token stands for the root: \tok{N} for any nominal root and \tok{V} for any verbal root, or a token of its own for one of 102 closed-class lexemes such as \tr{ben} `I', \tr{bu} `this', \tr{ve} `and', \tr{için} `for' and the question particle \tr{mI}. One token per suffix follows, identified by the suffix type. Every token carries its suffix group and its position in the word. The vocabulary has 212 entries: 99 suffixes, 102 lexemes, the two root tokens, four sentence-final punctuation marks and five special symbols.
 
 Table~\ref{tab:encoding} shows what this representation keeps and what it discards. The three analyses of \tr{masalı} differ in their suffixes and remain distinct. The pronoun reading of \tr{bana} `to me' stays distinct from a reading built on the noun \tr{ban}, because \tr{ben} has a lexeme token. Analyses that differ only in an open-class root of the same category become identical: \tr{yaz-ın} `your summer' and \tr{yazı-n} `your writing' both encode as \tok{N}~\gl{poss.2sg}, and \tr{dol-ar} `it fills' and \tr{dola-r} `it wraps' both encode as \tok{V}~\gl{aor}. Identical encodings receive identical scores. \TBD{state how ties are counted in evaluation and how often they occur on TrMor2018}.
 
@@ -55,33 +55,41 @@ Word & Analysis & Encoding \\
 \subsection{Ranker}
 \label{sec:ranker}
 
-Each position of a sentence candidate is represented by the concatenation of four embeddings: the token (384 dimensions), its suffix group (8), its position inside the word (16) and its absolute position in the sequence (384). A two-layer perceptron with a GELU activation projects the 792-dimensional vector to 384 dimensions. A six-layer Transformer encoder \citep{vaswani-etal-2017-attention} with pre-layer normalisation, eight attention heads, a feed-forward width of 1,536 and dropout 0.3 contextualises the positions. The score of a candidate $y$ is
+The ranker scores every analysis of every word of a sentence in one forward pass. It has three parts.
+
+\paragraph{Analysis encoder.}
+Each token of an analysis is embedded as the sum of a token embedding, an embedding of its suffix group and an embedding of its position in the word, all of 384 dimensions. A two-layer Transformer encoder \citep{vaswani-etal-2017-attention} contextualises the tokens of the analysis. The layer-normalised mean of their final states is the analysis vector $\mathbf{a}_{ij}$ of analysis $j$ of word $i$.
+
+\paragraph{Sentence encoder.}
+A word enters the sentence as the set of its analyses. The mean and the element-wise maximum of its analysis vectors are concatenated, projected to 384 dimensions, and added to an embedding of the word's position in the sentence. One further position after the last word holds the sentence-final punctuation mark, or an end symbol when there is none. A six-layer Transformer encoder turns these word vectors into context vectors $\mathbf{c}_i$. The context of a word is therefore built from all analyses of its neighbours, without committing to any of them.
+
+\paragraph{Scoring.}
+Analysis $j$ of word $i$ receives the score
 \begin{equation}
-s(y) = \mathbf{w}^{\top} \mathrm{LN}\Big(\frac{1}{|y|}\sum_{t=1}^{|y|} \mathbf{h}_t\Big) + b,
+s_{ij} = \mathrm{MLP}\big([\mathbf{c}_i;\, \mathbf{a}_{ij};\, \mathbf{c}_i \odot \mathbf{a}_{ij}]\big),
 \end{equation}
-where $\mathbf{h}_t$ are the final hidden states and LN is layer normalisation. Sequences are limited to 512 tokens. The model has about 11.5 million parameters.
+where MLP is a two-layer perceptron with a GELU activation. A softmax over the analyses of word $i$ gives $p(j \mid i)$, and the prediction for each word is its highest-scoring analysis. No search over sentences is needed.
+
+All Transformer layers use pre-layer normalisation, eight attention heads, a feed-forward width of 1,536, GELU activations and dropout 0.1. The model has 15.2 million parameters, 10.6 million of them in the sentence encoder.
 
 \subsection{Training}
 \label{sec:training}
 
-\paragraph{Candidate sets.}
-A training example is a candidate set: the gold sentence $y^{*}$ and a set of negatives. Each negative copies the gold sentence and replaces the analysis of exactly one ambiguous word with a wrong analysis of the same word. A sentence with $a$ ambiguous words receives
-\begin{equation}
-k = \max\big(5, \min(16, \lceil 2a \rceil)\big)
-\end{equation}
-negatives. The words are visited in turn, starting from an offset derived from a hash of the sentence, and each word's candidates are visited from a hashed offset as well. This spreads the negatives over the sentence and over the wrong readings of each word while keeping preprocessing deterministic. Negatives whose encoding equals the gold encoding are discarded. Sentences without an ambiguous word yield no candidate set. When the analyzer cannot reach the gold analysis of a word, the gold suffix sequence is encoded directly and the analyzer is run again with the annotated root to obtain alternatives.
-
 \paragraph{Objective.}
-Scores within a candidate set $C$ are turned into a distribution with temperature $\tau = 0.1$:
+The loss is the cross-entropy of the gold analysis $g_i$, averaged over the set $A$ of ambiguous words in a batch:
 \begin{equation}
-\mathcal{L}_{\text{rank}} = -\log \frac{\exp(s(y^{*})/\tau)}{\sum_{y \in C} \exp(s(y)/\tau)}.
+\mathcal{L} = -\frac{1}{|A|} \sum_{i \in A} \log p(g_i \mid i).
 \end{equation}
-An auxiliary masked-token objective is computed on the gold sequence. Twenty percent of its root and suffix tokens are selected, at least one per sequence; 80\% of the selected tokens are replaced by a mask symbol, 10\% by a random suffix or lexeme token and 10\% are left unchanged. An output layer tied to the input token embeddings predicts the original tokens. The loss is $\mathcal{L} = \mathcal{L}_{\text{rank}} + 0.2\,\mathcal{L}_{\text{mask}}$.
+Unambiguous words take part in the context of their neighbours but carry no loss of their own. When the analyzer cannot reach the gold analysis of a word, the gold suffix sequence is encoded directly and the analyzer is run again with the annotated root to obtain alternatives.
+
+\paragraph{Synthetic ambiguity.}
+More than half of the training words have a single analysis and so carry no loss. The root abstraction lets them be used. \tr{Kapıyı} `the door (\gl{acc})' has the single analysis \tok{N}~\gl{acc}, while \tr{kitabı} has the analyses \tok{N}~\gl{acc} and \tok{N}~\gl{poss.3sg}. Given the analyses of \tr{kitabı}, \tr{kapıyı} becomes an example that the ranker cannot tell apart from a real occurrence of \tr{kitabı}. Only the context can resolve it, and its label is known because it is the word's own analysis.
+
+We call the set of encodings of a real ambiguous word its class $K$. Let $n(K,e)$ be the number of ambiguous training words of class $K$ whose gold analysis has encoding $e$, $n(e) = \sum_K n(K,e)$, and $u(e)$ the number of unambiguous training words with encoding $e$. Synthetic examples of a class must follow the label distribution of its real examples, so every gold encoding of the class has to supply them in proportion. With a scale $\lambda$, let $\rho(e) = \min\big(1, u(e) / (\lambda\, n(e))\big)$ and let $\rho(K)$ be the minimum of $\rho(e)$ over the encodings $e$ with $n(K,e) > 0$. An unambiguous word with encoding $e$ is given the analyses of class $K$ with probability
+\begin{equation}
+\frac{\lambda\, \rho(K)\, n(K,e)}{u(e)}.
+\end{equation}
+Class $K$ then receives $\lambda\, \rho(K)\, n(K,e)$ synthetic examples labelled $e$ in expectation, the same label distribution as its real examples. A class whose gold encodings never occur as unambiguous words receives none, and classes in which two analyses share an encoding are not used. The draws are repeated for every batch, so each epoch sees different synthetic examples. With $\lambda = 1$, a training split of TrMor2018 gains about 39,000 synthetic examples per epoch in addition to its 139,000 ambiguous words.
 
 \paragraph{Optimisation.}
-We train with AdamW (learning rate $3\times10^{-4}$, weight decay 0.05), 500 warm-up steps followed by cosine decay to 5\% of the peak rate, gradient clipping at norm 1.0 and mixed precision. Batches are formed under limits on padded tokens and attention cells, which are set from the available GPU memory.
-
-\subsection{Decoding}
-\label{sec:decoding}
-
-Decoding proceeds from left to right over the words of a sentence. At word $i$, every partial candidate in the beam is extended with every analysis of word $i$, the extended prefixes are scored with $s$ as if they were complete sentences, and the 50 highest-scoring prefixes are kept. Unambiguous words add a single extension. The output is the highest-scoring complete sentence.
+We train with AdamW (learning rate $3\times10^{-4}$, weight decay 0.01) on batches of 32 sentences, with 500 warm-up steps followed by cosine decay to 5\% of the peak rate, gradient clipping at norm 1.0 and mixed precision.

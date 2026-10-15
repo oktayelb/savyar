@@ -7,20 +7,19 @@
   arr/.style={-{Stealth[length=2mm]}, thick}
 ]
 \node[box] (in) {\tr{Babam}\\ \tr{masalı}\\ \tr{yazdı}\\[3pt] {\scriptsize input sentence}};
-\node[box, right=of in] (an) {Rule-based\\ analyzer\\[3pt] {\scriptsize lexicon,\\ 98 suffix types}};
+\node[box, right=of in] (an) {Rule-based\\ analyzer\\[3pt] {\scriptsize lexicon,\\ 99 suffix types}};
 \node[box, right=of an] (cand) {\tr{masa-lı}\\ \tr{masal-ı}\\ \tr{masal-ı}\\[3pt] {\scriptsize candidates}};
 \node[box, right=of cand] (enc) {\tok{N} \gl{with}\\ \tok{N} \gl{acc}\\ \tok{N} \gl{poss.3sg}\\[3pt] {\scriptsize root-agnostic\\ encoding}};
-\node[box, right=of enc] (tf) {Transformer\\ encoder,\\ mean pooling\\[3pt] {\scriptsize sentence score $s(y)$}};
-\node[box, right=of tf] (beam) {Beam search\\ $b=50$\\[3pt] {\scriptsize over words,\\ left to right}};
-\node[box, right=of beam] (out) {\tr{masal-ı}\\ tale-\gl{acc}\\[3pt] {\scriptsize prediction}};
+\node[box, right=of enc] (tf) {Analysis\\ encoder\\[3pt] {\scriptsize each analysis,\\ pooled per word}};
+\node[box, right=of tf] (sent) {Sentence\\ encoder\\[3pt] {\scriptsize over words,\\ softmax per word}};
+\node[box, right=of sent] (out) {\tr{masal-ı}\\ tale-\gl{acc}\\[3pt] {\scriptsize prediction}};
 \draw[arr] (in) -- (an);
 \draw[arr] (an) -- (cand);
 \draw[arr] (cand) -- (enc);
 \draw[arr] (enc) -- (tf);
-\draw[arr] (tf) -- (beam);
-\draw[arr] (beam) -- (out);
-\draw[arr, dashed] (beam.south) to[bend left=20] node[note, below] {partial sentences} (tf.south);
+\draw[arr] (tf) -- (sent);
+\draw[arr] (sent) -- (out);
 \end{tikzpicture}}
-\caption{The \savyar{} pipeline for the word \tr{masalı} in \tr{Babam masalı yazdı} `My father wrote the tale'. The analyzer proposes three analyses. The ranker sees each as a root token (\tok{N} for any nominal root) followed by suffix tokens, and scores partial and complete sentence candidates during beam search.}
+\caption{The \savyar{} pipeline for the word \tr{masalı} in \tr{Babam masalı yazdı} `My father wrote the tale'. The analyzer proposes three analyses. The ranker sees each as a root token (\tok{N} for any nominal root) followed by suffix tokens. It encodes every analysis, pools the analyses of each word, reads the words of the sentence together and picks the highest-scoring analysis of each word.}
 \label{fig:pipeline}
 \end{figure*}

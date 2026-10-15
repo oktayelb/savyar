@@ -4,7 +4,7 @@
 A \savyar{} analysis records only whether a root is nominal or verbal and has no proper-noun feature. It cannot distinguish a noun from an adjective with the same suffixes, which are frequent error types for systems evaluated on the full tag set \citep{yildiz-etal-2016-morphology,ozer-korkmaz-2022-transmorph}. Our accuracy is measured on this coarser representation and is not a measure of accuracy on lemma and full tags.
 
 \paragraph{Dependence on the analyzer.}
-The ranker cannot output an analysis that the analyzer does not propose. Coverage depends on a lexicon of 22,464 nominal and 1,054 verbal roots and on 98 suffix types. Words outside the lexicon receive hypothesised roots, which may be wrong even when the suffixes are right.
+The ranker cannot output an analysis that the analyzer does not propose. Coverage depends on a lexicon of 22,464 nominal and 1,054 verbal roots and on 99 suffix types. Words outside the lexicon receive hypothesised roots, which may be wrong even when the suffixes are right.
 
 \paragraph{Identical encodings.}
 Analyses that differ only in an open-class root of the same category receive the same score (\S\ref{sec:encoding}). The ranker has no information to choose between them.

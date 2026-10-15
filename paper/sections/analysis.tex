@@ -10,7 +10,8 @@ System & All words & Ambiguous \\
 \midrule
 Random choice (expected) & \TBD{rand-all} & \TBD{rand-amb} \\
 Single word, no context & \TBD{single-all} & \TBD{single-amb} \\
-\savyar{} (beam, $b=50$) & \TBD{acc-all} & \TBD{acc-amb} \\
+\savyar{} & \TBD{acc-all} & \TBD{acc-amb} \\
+No synthetic ambiguity & \TBD{nosynth-all} & \TBD{nosynth-amb} \\
 Root-aware & \TBD{root-all} & \TBD{root-amb} \\
 \midrule
 Gold neighbours (diagnostic) & \TBD{oracle-all} & \TBD{oracle-amb} \\
@@ -21,7 +22,7 @@ Gold neighbours (diagnostic) & \TBD{oracle-all} & \TBD{oracle-amb} \\
 \end{table}
 
 \paragraph{Sentence context.}
-Scoring each word on its own reaches \TBD{single-amb}\% on ambiguous words, against \TBD{acc-amb}\% with beam search over the sentence (Table~\ref{tab:ablation}). \citet{akyurek-etal-2019-morphological} report a similar comparison for Morse, where context raises ambiguous-token accuracy from 94.38\% to 96.21\%, and in the experiments of \citet{shen-etal-2016-role} full-sentence context raises ambiguous-token accuracy on the hand-tagged TrMor2006 test from 88.65\% to 91.03\%. Figure~\ref{fig:by-candidates} shows that the gain from context \TBD{grows/shrinks} with the number of candidates. With gold neighbours, accuracy on ambiguous words rises to \TBD{oracle-amb}\%. The gap of \TBD{oracle-gap} points to beam search is the cost of decoding with predicted rather than gold context.
+Scoring each word on its own reaches \TBD{single-amb}\% on ambiguous words, against \TBD{acc-amb}\% with the whole sentence (Table~\ref{tab:ablation}). \citet{akyurek-etal-2019-morphological} report a similar comparison for Morse, where context raises ambiguous-token accuracy from 94.38\% to 96.21\%, and in the experiments of \citet{shen-etal-2016-role} full-sentence context raises ambiguous-token accuracy on the hand-tagged TrMor2006 test from 88.65\% to 91.03\%. Figure~\ref{fig:by-candidates} shows that the gain from context \TBD{grows/shrinks} with the number of candidates. With gold neighbours, accuracy on ambiguous words rises to \TBD{oracle-amb}\%. The gap of \TBD{oracle-gap} points is what the ranker loses by seeing every analysis of its neighbours instead of the right one.
 
 \input{figures/accuracy_by_candidates}
 

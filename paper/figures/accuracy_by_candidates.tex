@@ -17,7 +17,7 @@
 ]
 \addplot[mark=*, thick, black] table[x=candidates, y=full, col sep=comma] {data/accuracy_by_candidates.csv};
 \addplot[mark=square*, thick, dashed, black!55] table[x=candidates, y=single, col sep=comma] {data/accuracy_by_candidates.csv};
-\legend{Sentence context (beam), Single word}
+\legend{Sentence context, Single word}
 \end{axis}
 \end{tikzpicture}
 \caption{Accuracy on ambiguous TrMor2018 test words by the number of candidate analyses, pooled over the five splits. \TBD{placeholder values: replace data/accuracy\_by\_candidates.csv with the results}}

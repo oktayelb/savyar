@@ -29,6 +29,7 @@ class MLConfig:
     use_apostrophe_boundary: bool = True
     sum_token_scores: bool = True
     resample_negatives: bool = True
+    synthetic_ambiguity_scale: float = 1.0
 
 
     max_negative_candidates: int = 5            

@@ -1,6 +1,7 @@
 import math
 import random
 import time
+from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -161,6 +162,79 @@ class CandidateDisambiguator(nn.Module):
         return scores
 
 
+def chain_signature(chain: List[tuple]) -> tuple:
+    return tuple(tuple(token) for token in chain)
+
+
+class SyntheticAmbiguity:
+    def __init__(self, train_sentences: List[Dict[str, Any]], scale: float):
+        gold_counts_by_class = defaultdict(Counter)
+        unambiguous_counts = Counter()
+        self.real_ambiguous_words = 0
+        for sentence in train_sentences:
+            for candidates, gold in zip(sentence["candidates"], sentence["gold"]):
+                signatures = [chain_signature(chain) for chain in candidates]
+                if len(signatures) == 1:
+                    unambiguous_counts[signatures[0]] += 1
+                    continue
+                self.real_ambiguous_words += 1
+                if len(set(signatures)) == len(signatures):
+                    reading_class = tuple(sorted(signatures))
+                    gold_counts_by_class[reading_class][signatures[gold]] += 1
+
+        real_gold_counts = Counter()
+        for gold_counts in gold_counts_by_class.values():
+            real_gold_counts.update(gold_counts)
+        supply = {}
+        for signature, real_count in real_gold_counts.items():
+            supply[signature] = min(1.0, unambiguous_counts[signature] / (scale * real_count))
+
+        weights_by_chain = defaultdict(dict)
+        for reading_class, gold_counts in gold_counts_by_class.items():
+            class_supply = min(supply[signature] for signature in gold_counts)
+            if class_supply == 0:
+                continue
+            for signature, real_count in gold_counts.items():
+                weights_by_chain[signature][reading_class] = scale * class_supply * real_count
+
+        self.classes = {}
+        self.class_weights = {}
+        self.acceptance = {}
+        for signature, weights in weights_by_chain.items():
+            self.classes[signature] = list(weights.keys())
+            self.class_weights[signature] = list(weights.values())
+            self.acceptance[signature] = sum(weights.values()) / unambiguous_counts[signature]
+
+        self.unambiguous_words = sum(unambiguous_counts.values())
+        self.expected_synthetic_words = sum(
+            self.acceptance[signature] * unambiguous_counts[signature] for signature in self.acceptance
+        )
+
+    def augment(self, sentence: Dict[str, Any]) -> Dict[str, Any]:
+        candidates = list(sentence["candidates"])
+        gold = list(sentence["gold"])
+        for position, word_candidates in enumerate(candidates):
+            if len(word_candidates) != 1:
+                continue
+            signature = chain_signature(word_candidates[0])
+            if signature not in self.acceptance:
+                continue
+            if random.random() >= self.acceptance[signature]:
+                continue
+            reading_class = random.choices(self.classes[signature], weights=self.class_weights[signature])[0]
+            candidates[position] = list(reading_class)
+            gold[position] = reading_class.index(signature)
+        return dict(sentence, candidates=candidates, gold=gold)
+
+    def describe(self) -> Dict[str, Any]:
+        return {
+            "real_ambiguous_words": self.real_ambiguous_words,
+            "unambiguous_words": self.unambiguous_words,
+            "chains_with_a_class": len(self.acceptance),
+            "expected_synthetic_words_per_epoch": round(self.expected_synthetic_words),
+        }
+
+
 class CandidateTrainer:
     def __init__(self, model: CandidateDisambiguator, device: Optional[Any] = None):
         self.device = resolve_torch_device(device)
@@ -208,6 +282,8 @@ class CandidateTrainer:
         scheduler = torch.optim.lr_scheduler.LambdaLR(
             self.optimizer, lambda step: self._learning_rate_factor(step, warmup, total_steps),
         )
+        self.synthetic_ambiguity = SyntheticAmbiguity(train_sentences, config.synthetic_ambiguity_scale)
+        print(f"   Synthetic ambiguity: {self.synthetic_ambiguity.describe()}", flush=True)
         fit_sample = random.sample(train_sentences, min(fit_sample_size, len(train_sentences)))
         order = list(train_sentences)
         history = []
@@ -220,7 +296,8 @@ class CandidateTrainer:
             self.model.train()
             losses = []
             for start in range(0, len(order), batch_size):
-                loss = self._train_step(order[start:start + batch_size])
+                batch = [self.synthetic_ambiguity.augment(sentence) for sentence in order[start:start + batch_size]]
+                loss = self._train_step(batch)
                 scheduler.step()
                 if loss is not None:
                     losses.append(loss)

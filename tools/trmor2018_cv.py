@@ -262,6 +262,8 @@ def train_candidate_split(engine, train_entries, dev_entries, seed, seed_dir):
     best = max(history, key=lambda row: row["dev_ambiguous_accuracy"])
     info = {
         "model": "candidate",
+        "synthetic_ambiguity_scale": config.synthetic_ambiguity_scale,
+        "synthetic_ambiguity": trainer.synthetic_ambiguity.describe(),
         "train_sentences": len(train_sentences),
         "train_skipped": train_skipped,
         "dev_sentences": len(dev_sentences),
@@ -538,12 +540,14 @@ def main():
     parser.add_argument("--fixed-negatives", action="store_true")
     parser.add_argument("--candidate-model", action="store_true")
     parser.add_argument("--epochs", type=int, default=config.bulk_epochs)
+    parser.add_argument("--synthetic-scale", type=float, default=config.synthetic_ambiguity_scale)
     args = parser.parse_args()
     config.use_final_punctuation = not args.no_punctuation
     config.use_apostrophe_boundary = not args.no_apostrophe
     config.sum_token_scores = not args.mean_pooling
     config.resample_negatives = not args.fixed_negatives
     config.bulk_epochs = args.epochs
+    config.synthetic_ambiguity_scale = args.synthetic_scale
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)

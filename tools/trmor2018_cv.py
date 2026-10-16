@@ -337,7 +337,6 @@ def evaluate_split(engine, trainer, test_records, train_surfaces, beam_width, ca
         gold_context_iter = iter(engine._score_test_words(test_entries))
 
     for record in test_records:
-        punct_tokens += record["punct"]
         entry = record["entry"]
         if entry is None:
             continue
@@ -393,6 +392,7 @@ def evaluate_split(engine, trainer, test_records, train_surfaces, beam_width, ca
         if evaluated_in_sentence:
             sentence_total += 1
             sentence_correct += all_correct
+            punct_tokens += record["punct"]
     return word_rows, {
         "sentences": sentence_total,
         "sentences_correct": sentence_correct,

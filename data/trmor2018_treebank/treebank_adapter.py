@@ -202,6 +202,21 @@ UPOS_TO_CC_CATEGORY = {
     "Ques": "particle",
 }
 
+PRONOUN_SUBTYPE_FEATURES = {"Pers", "Demons", "Ques", "Quant"}
+
+LEXICALISED_PRONOUN_LEMMAS = {
+    "biri": "bir",
+    "birbiri": "birbir",
+    "hepsi": "hep",
+    "tümü": "tüm",
+    "hiçbiri": "hiçbir",
+    "çoğu": "çok",
+    "birçoğu": "birçok",
+    "birkaçı": "birkaç",
+}
+
+PLURAL_SURFACE_MARKERS = ("ler", "lar")
+
 SKIP_UPOS = {"?", "Dup"}
 UNANALYSED_LEMMA = "*UNKNOWN*"
 POS_TAGS = {
@@ -244,7 +259,28 @@ def parse_analysis(analysis):
     return lemma, layers
 
 
+def normalise_lexicalised_pronoun(surface, lemma, layers):
+    base = LEXICALISED_PRONOUN_LEMMAS.get(tr_lower(lemma))
+    if base is None or not layers:
+        return lemma, layers
+    surface_is_plural = any(
+        marker in tr_lower(surface) for marker in PLURAL_SURFACE_MARKERS
+    )
+    first = layers[0]
+    features = []
+    for feat in first["features"]:
+        if feat == "A3pl" and not surface_is_plural:
+            continue
+        if feat == "P3pl" and not surface_is_plural:
+            features.append("P3sg")
+            continue
+        features.append(feat)
+    rewritten = make_layer(first["upos"], first["xpos"], features, lemma=base)
+    return base, [rewritten] + layers[1:]
+
+
 def lexicalise(surface, lemma, layers):
+    lemma, layers = normalise_lexicalised_pronoun(surface, lemma, layers)
     surface_lower = tr_lower(surface)
     if len(layers) > 1 and "InBetween" in layers[-1]["features"]:
         last = layers[-1]
@@ -383,6 +419,9 @@ def features_to_suffix_names(word, unmapped_sink):
                 continue
 
             if feat in ZERO_FEATURES:
+                continue
+
+            if feat in PRONOUN_SUBTYPE_FEATURES and is_pronoun:
                 continue
 
             if imp_seen and feat == "A2sg":
@@ -549,10 +588,9 @@ def features_to_suffix_names(word, unmapped_sink):
 def should_skip_word(word):
     if word["lemma"] == UNANALYSED_LEMMA:
         return True
-    upos = word["feature_layers"][0]["upos"]
-    if upos == "Num":
-        return any(ch.isdigit() for ch in word["surface"])
-    return upos in SKIP_UPOS
+    if any(ch.isdigit() for ch in word["surface"]):
+        return True
+    return word["feature_layers"][0]["upos"] in SKIP_UPOS
 
 
 def closed_class_category(word):

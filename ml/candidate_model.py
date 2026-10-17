@@ -185,17 +185,17 @@ class SyntheticAmbiguity:
         real_gold_counts = Counter()
         for gold_counts in gold_counts_by_class.values():
             real_gold_counts.update(gold_counts)
-        supply = {}
-        for signature, real_count in real_gold_counts.items():
-            supply[signature] = min(1.0, unambiguous_counts[signature] / (scale * real_count))
-
         weights_by_chain = defaultdict(dict)
-        for reading_class, gold_counts in gold_counts_by_class.items():
-            class_supply = min(supply[signature] for signature in gold_counts)
-            if class_supply == 0:
-                continue
-            for signature, real_count in gold_counts.items():
-                weights_by_chain[signature][reading_class] = scale * class_supply * real_count
+        if scale > 0:
+            supply = {}
+            for signature, real_count in real_gold_counts.items():
+                supply[signature] = min(1.0, unambiguous_counts[signature] / (scale * real_count))
+            for reading_class, gold_counts in gold_counts_by_class.items():
+                class_supply = min(supply[signature] for signature in gold_counts)
+                if class_supply == 0:
+                    continue
+                for signature, real_count in gold_counts.items():
+                    weights_by_chain[signature][reading_class] = scale * class_supply * real_count
 
         self.classes = {}
         self.class_weights = {}

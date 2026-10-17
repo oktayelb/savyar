@@ -57,4 +57,11 @@ Transmorph \citep{ozer-korkmaz-2022-transmorph} & TrMor2018 & 10-fold cross-vali
 \label{tab:comparison}
 \end{table*}
 
+\subsection{Ranking the annotators' own candidates}
+\label{sec:own-candidates}
+
+TrMor2018 supplies, for every token, the analyses its annotators chose between: 2.02 per word, with 37.9\% of words carrying more than one. Rescoring that list, rather than an analyzer's output, is the setting of MorseDisamb. Mapped to our representation the list shrinks to 1.61 analyses per word, because 19.0\% of the words whose list holds several analyses have only one representation once the root is hidden; those words are correct whatever the ranker does.
+
+On this list our ranker reaches 93.16 $\pm$ 0.14\% on all words and 81.94 $\pm$ 0.35\% on ambiguous words, against 96.16\% and 92.05\% on the candidates of our own analyzer. Two causes we do not separate contribute to the gap. The annotators' list contains distractors our analyzer never generates, so the ranker scores candidates drawn from a distribution it was not trained on; and the ambiguous words of that list are harder, fewer in number but ten points lower in accuracy. MorseDisamb reports 98.59\% in this setting. We give the comparison because it is the only one on identical candidate sets, and because it shows that part of our accuracy on our own candidates belongs to the candidate sets and not to the ranking.
+
 Table~\ref{tab:comparison} places these numbers next to published results. The closest comparison is Morse, evaluated under the same protocol: \savyar{} is 1.51 points below Morse on all words and 4.38 points below on ambiguous words. Because \savyar{} predicts a coarser analysis and does not score punctuation (\S\ref{sec:setup}), the difference bounds neither system's accuracy on the other's task.

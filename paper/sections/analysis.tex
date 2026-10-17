@@ -40,16 +40,19 @@ Figure~\ref{fig:candidates} shows how many analyses the analyzer proposes per wo
 \toprule
 Error type & Example & Share (\%) \\
 \midrule
+Accusative vs.\ possessive & \tr{kitab-ı} & 32.8 \\
+Other suffix confusion & \tr{fok-ları} & 26.8 \\
+Bare root vs.\ suffixed & \tr{ağ-a}, \tr{ağa} & 14.4 \\
 Gold not proposed & & 12.4 \\
-Accusative vs.\ possessive & \tr{masal-ı} & \TBD{err-acc-poss} \\
-Nominal vs.\ verbal root & \tr{dolar}, \tr{dol-ar} & \TBD{err-n-v} \\
+Nominal vs.\ verbal root & \tr{dolar}, \tr{dol-ar} & 9.3 \\
 Identical encoding & \tr{yaz-ın}, \tr{yazı-n} & 4.3 \\
-Other suffix confusion & & \TBD{err-other} \\
 \bottomrule
 \end{tabular}
-\caption{Errors of \savyar{} on TrMor2018, pooled over the five test splits. \TBD{error categories to be revised after inspecting the errors}}
+\caption{Errors of \savyar{} on TrMor2018, pooled over the five test splits (7,280 errors on 189,797 scored words). A word is counted once, under the first category that applies.}
 \label{tab:errors}
 \end{table}
 
 \paragraph{Errors.}
-Table~\ref{tab:errors} groups the errors. 12.4\% of errors are words whose gold analysis the analyzer does not propose; these can only be fixed in the analyzer or the lexicon. The most frequent confusion within the candidate set is \TBD{top-confusion}. \TBD{two or three sentences on characteristic errors, with glossed examples}.
+Table~\ref{tab:errors} groups the 7,280 errors. 12.4\% are words whose gold analysis the analyzer does not propose; these can be fixed only in the analyzer or the lexicon. The remainder are choices within the candidate set, and they are concentrated: a third of all errors confuse the accusative with a possessive. The single most frequent confusion reads an accusative as a third-person singular possessive (11.4\% of errors, \tr{görev-i} `the duty (\gl{acc})' against \tr{görev-i} `his or her duty'), and the reverse direction accounts for a further 5.0\%; with a plural stem the same pair adds 4.4\% (\tr{model-ler-i}).
+
+Two other patterns follow from the encoding. Where the suffix is also the end of a possible root, the ranker must choose between a suffixed and a bare reading without seeing which root is at stake: \tr{ağ-a} net-\gl{dat} `to the net' against the title \tr{ağa}, or \tr{yaz-ın} summer-\gl{poss.2sg} against \tr{yazın} `in summer'. And because the plural and the third-person plural possessive are spelled alike after a stem, \tr{fok-ları} is read as \tok{N}~\gl{pl}~\gl{poss.3sg} where the annotation has \gl{poss.3pl} (3.3\% of errors), a distinction that context frequently does not settle. Both groups are cases where a finer root category, rather than more context, is what the ranker lacks.

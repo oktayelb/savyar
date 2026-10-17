@@ -1,30 +1,10 @@
 \section{Data}
 \label{sec:data}
 
-\begin{table*}[t]
-\centering
-\small
-\begin{tabular}{@{}llrrrr@{}}
-\toprule
-Treebank & Annotation & Sentences & Words & Suffixed words & Adapted sentences \\
-\midrule
-BOUN \citep{turk-etal-2022-resources} & Universal Dependencies & 9,761 & 100,916 & 66,698 & 9,687 \\
-TWT \citep{kayadelen-etal-2020-gold} & \citet{ozturel-etal-2019-syntactically} features & 4,851 & 57,415 & 40,005 & 4,849 \\
-METU-Sabancı \citep{oflazer-etal-2003-building} & inflectional groups & 5,620 & 45,999 & 35,052 & 5,563 \\
-TrMor2006 \citep{yuret-ture-2006-learning} & inflectional groups & 50,674 & 729,960 & 497,364 & 47,285 \\
-TrMor2018 \citep{akyurek-etal-2019-morphological} & inflectional groups & 34,673 & 388,754 & 280,384 & 33,912 \\
-\midrule
-Total & & 105,579 & 1,323,044 & 919,503 & 101,296 \\
-\bottomrule
-\end{tabular}
-\caption{Treebanks and the output of the adapters. Words exclude punctuation. Suffixed words have at least one suffix in their gold analysis. Adapted sentences are those that remain after adaptation and after removing sentences that occur in more than one treebank. The METU-Sabancı count includes the 1,000 sentences we hold out as a test set (\S\ref{sec:metu}). The TrMor2018 experiments use all 34,673 TrMor2018 sentences without cross-treebank deduplication.}
-\label{tab:corpora}
-\end{table*}
+We work with TrMor2018 \citep{akyurek-etal-2019-morphological}, the corpus on which the most recent work on Turkish morphological disambiguation is evaluated. It holds 34,673 sentences and 460,669 tokens: 71,915 punctuation marks and 388,754 words, 280,296 of which carry at least one suffix. Its annotation follows the inflectional-group format of \citet{oflazer-1994-two}. It was disambiguated semi-automatically in several passes and disagrees with a hand-tagged subset of 26,819 words in 4.4\% of cases \citep{akyurek-etal-2019-morphological}, which bounds the accuracy any system can demonstrate on it.
 
-We use five Turkish treebanks with three annotation schemes (Table~\ref{tab:corpora}). BOUN \citep{turk-etal-2022-resources} follows Universal Dependencies. The Turkish Web Treebank (TWT; \citealp{kayadelen-etal-2020-gold}) uses the features of the analyzer of \citet{ozturel-etal-2019-syntactically}. METU-Sabancı \citep{oflazer-etal-2003-building}, TrMor2006 \citep{yuret-ture-2006-learning} and TrMor2018 \citep{akyurek-etal-2019-morphological} use the inflectional-group format of \citet{oflazer-1994-two}. TrMor2006 was disambiguated semi-automatically. TrMor2018 was annotated semi-automatically in several passes and disagrees with a hand-tagged subset of 26,819 words in 4.4\% of cases \citep{akyurek-etal-2019-morphological}.
-
-\paragraph{Adapters.}
-None of these schemes matches the suffix inventory of \savyar{}, so each treebank has an adapter that maps a gold annotation to a root and a sequence of \savyar{} suffixes. The adapter translates each feature or inflectional group into suffix names, resolves cases where one feature corresponds to several suffix types by comparing with the analyses that the analyzer produces for the word, and drops punctuation. Treebank lemmas that the lexicon treats as derived are expanded through a table of 28,480 dictionary decompositions, so that gold \tr{kullan-ıyor} `uses' becomes \tr{kul-la-n-ıyor}. This table rewrites gold labels only and never adds a candidate. A word whose annotation cannot be mapped marks its sentence as partially trainable; Table~\ref{tab:corpora} reports the sentences that survive.
+\paragraph{Adapter.}
+The inflectional-group format does not match the suffix inventory of \savyar{}, so an adapter maps every gold annotation to a root and a sequence of \savyar{} suffix names. It translates the features of each inflectional group into suffix names and resolves the cases in which one feature corresponds to several suffix types by comparing with the analyses that the analyzer produces for the word. Treebank lemmas that the lexicon treats as derived are expanded through a table of 28,480 dictionary decompositions, so that gold \tr{kullan-ıyor} `uses' becomes \tr{kul-la-n-ıyor}; the table rewrites gold labels only and never adds a candidate. Adaptation keeps 34,658 of the 34,673 sentences and leaves no gold annotation unmappable.
 
 \paragraph{Splits.}
-For the main experiment we follow \citet{akyurek-etal-2019-morphological}, who give TrMor2018 no fixed split and average over five random 80/10/10 splits of its sentences (\S\ref{sec:setup}). The other four treebanks are used only for the secondary evaluation on held-out METU-Sabancı sentences (\S\ref{sec:metu}).
+\citet{akyurek-etal-2019-morphological} give TrMor2018 no fixed split and average over five random 80/10/10 splits of its sentences. We follow them (\S\ref{sec:setup}). Each split trains on about 27,700 sentences and scores about 37,700 words. No other corpus is used, for training or for evaluation.

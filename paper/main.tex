@@ -2,10 +2,24 @@
 
 \usepackage[preprint]{acl}
 
-\usepackage{times}
 \usepackage{latexsym}
-\usepackage[T1]{fontenc}
-\usepackage[utf8]{inputenc}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{times}
+\else
+  \usepackage{fontspec}
+  \setmainfont{texgyretermes}[
+    Extension=.otf, UprightFont=*-regular, BoldFont=*-bold,
+    ItalicFont=*-italic, BoldItalicFont=*-bolditalic]
+  \setsansfont{texgyreheros}[
+    Extension=.otf, UprightFont=*-regular, BoldFont=*-bold,
+    ItalicFont=*-italic, BoldItalicFont=*-bolditalic]
+  \setmonofont{texgyrecursor}[
+    Extension=.otf, UprightFont=*-regular, BoldFont=*-bold,
+    ItalicFont=*-italic, BoldItalicFont=*-bolditalic]
+\fi
 \usepackage{microtype}
 \usepackage{graphicx}
 \usepackage{booktabs}

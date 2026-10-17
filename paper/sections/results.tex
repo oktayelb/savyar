@@ -8,29 +8,30 @@
 \toprule
 Metric & TrMor2018 (\%) \\
 \midrule
-All words (uninfused) & \TBD{acc-all} $\pm$ \TBD{sd} \\
-Gold-reachable words (infused) & \TBD{acc-infused} $\pm$ \TBD{sd} \\
-Ambiguous words & \TBD{acc-amb} $\pm$ \TBD{sd} \\
-Unambiguous words & \TBD{acc-unamb} $\pm$ \TBD{sd} \\
-Sentences & \TBD{acc-sent} $\pm$ \TBD{sd} \\
+All words (uninfused) & 96.16 $\pm$ 0.11 \\
+Gold-reachable words (infused) & 96.62 $\pm$ 0.09 \\
+Ambiguous words & 92.05 $\pm$ 0.19 \\
+Unambiguous words & 99.62 $\pm$ 0.05 \\
+Sentences & 68.14 $\pm$ 0.32 \\
 \midrule
-Gold among candidates & \TBD{coverage} \\
-Ambiguous words (share) & \TBD{amb-share} \\
-Candidates per word & \TBD{cand-per-word} \\
-Scored words per test split & \TBD{n-words} \\
+Gold among candidates & 99.53 \\
+Accuracy with punctuation counted & 96.77 $\pm$ 0.09 \\
+Ambiguous words (share) & 45.7 \\
+Candidates per word & 1.92 \\
+Scored words per test split & 37,959 \\
 \bottomrule
 \end{tabular}
 \caption{\savyar{} on TrMor2018: mean and standard deviation over five random 80/10/10 splits. Candidates per word is an average, not a percentage.}
 \label{tab:main}
 \end{table}
 
-Table~\ref{tab:main} gives the results on TrMor2018. Over all scored words, \savyar{} is correct on \TBD{acc-all}\% of words. On words whose gold analysis the analyzer proposes, accuracy is \TBD{acc-infused}\%, so analyzer coverage accounts for \TBD{coverage-gap} points of the remaining error. On ambiguous words accuracy is \TBD{acc-amb}\%. Unambiguous words are correct exactly when the analyzer's single candidate is the gold one, so their accuracy, \TBD{acc-unamb}\%, measures coverage on this subset. The standard deviation across splits is at most \TBD{max-sd} points (Figure~\ref{fig:splits}).
+Table~\ref{tab:main} gives the results on TrMor2018. Over all scored words, \savyar{} is correct on 96.16\% of words. On words whose gold analysis the analyzer proposes, accuracy is 96.62\%, so analyzer coverage accounts for 0.46 points of the remaining error. On ambiguous words accuracy is 92.05\%. Unambiguous words are correct exactly when the analyzer's single candidate is the gold one, so their accuracy, 99.62\%, measures coverage on this subset. The standard deviation across splits is at most 0.32 points (Figure~\ref{fig:splits}).
 
 \input{figures/split_accuracy}
 
 \begin{table*}[t]
 \centering
-\small
+\footnotesize
 \begin{tabular}{@{}lllllr@{}}
 \toprule
 System & Data & Evaluation & Units & Words scored & Acc. (\%) \\
@@ -48,17 +49,12 @@ System & Data & Evaluation & Units & Words scored & Acc. (\%) \\
 MorseDisamb \citep{akyurek-etal-2019-morphological} & TrMor2018 & 5 random splits & lemma + tags & all & 98.59 \\
 Transmorph \citep{ozer-korkmaz-2022-transmorph} & TrMor2018 & 10-fold cross-validation & lemma + tags & all & 96.19 \\
 \midrule
-\multirow{2}{*}{\savyar{}} & \multirow{2}{*}{TrMor2018} & \multirow{2}{*}{5 random splits} & \multirow{2}{*}{root + suffixes} & all & \TBD{acc-all} \\
- & & & & ambiguous & \TBD{acc-amb} \\
+\multirow{2}{*}{\savyar{}} & \multirow{2}{*}{TrMor2018} & \multirow{2}{*}{5 random splits} & \multirow{2}{*}{root + suffixes} & all & 96.16 \\
+ & & & & ambiguous & 92.05 \\
 \bottomrule
 \end{tabular}
 \caption{Published Turkish results and \savyar{}. Rows differ in data, test set, unit of analysis and the tokens that are scored, so only rows on the same data and evaluation are directly comparable. Earlier systems score punctuation tokens; \savyar{} does not. The Morse ambiguous-word figure is from the ablation of \citet{akyurek-etal-2019-morphological}. With proper-noun tags and digits masked, Transmorph reaches about 97\% \citep{ozer-korkmaz-2022-transmorph}.}
 \label{tab:comparison}
 \end{table*}
 
-Table~\ref{tab:comparison} places these numbers next to published results. The closest comparison is Morse, evaluated under the same protocol: \savyar{} is \TBD{delta-morse-all} points \TBD{above/below} Morse on all words and \TBD{delta-morse-amb} points \TBD{above/below} on ambiguous words. Because \savyar{} predicts a coarser analysis and does not score punctuation (\S\ref{sec:setup}), the difference bounds neither system's accuracy on the other's task.
-
-\subsection{Held-out METU-Sabancı sentences}
-\label{sec:metu}
-
-As a second evaluation, we train one model on all five treebanks and test it on 1,000 METU-Sabancı sentences (9,177 words) that are withheld from every treebank. On these words the analyzer returns 1.97 analyses per word on average, with a maximum of 27; 46.9\% of the words have more than one analysis, and the gold analysis is among the candidates for 98.2\% of them. \savyar{} reaches \TBD{metu-acc-all}\% on all words and \TBD{metu-acc-amb}\% on ambiguous words.
+Table~\ref{tab:comparison} places these numbers next to published results. The closest comparison is Morse, evaluated under the same protocol: \savyar{} is 1.51 points below Morse on all words and 4.38 points below on ambiguous words. Because \savyar{} predicts a coarser analysis and does not score punctuation (\S\ref{sec:setup}), the difference bounds neither system's accuracy on the other's task.

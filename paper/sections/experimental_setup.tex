@@ -30,9 +30,8 @@ We compare the full system with the following variants:
 \item \emph{Random choice}: the expected accuracy of picking one candidate per word uniformly at random.
 \item \emph{Single word}: each word is scored on its own, as a one-word sentence, so the ranker has no context.
 \item \emph{No synthetic ambiguity}: the ranker is trained on the real ambiguous words only (\S\ref{sec:training}).
-\item \emph{Root-aware}: open-class roots receive their own tokens instead of \tok{N} and \tok{V}. \TBD{describe vocabulary cut-off and training setup}
 \item \emph{Gold neighbours}: each ambiguous word is scored with every other word reduced to its gold analysis. This uses gold information and serves as an upper bound on what knowing the analyses of the neighbours could add.
 \end{itemize}
 
 \paragraph{Implementation.}
-The system is implemented in Python with PyTorch. Each run trains on one NVIDIA GeForce RTX 4050 Laptop GPU with 6\,GB of memory and takes \TBD{train-time} minutes; analysing and disambiguating the test part of one split takes \TBD{decode-time} seconds.
+The system is implemented in Python with PyTorch. Each run trains on one NVIDIA GeForce RTX 4050 Laptop GPU with 6\,GB of memory and takes 6 minutes; analysing and disambiguating the test part of one split takes 29 seconds.
